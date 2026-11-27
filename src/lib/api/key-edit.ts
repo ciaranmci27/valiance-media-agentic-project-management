@@ -10,17 +10,18 @@ import {
 import { NEVER_AGENT_SCOPES } from '@/lib/agents-ui';
 import { apiKeyState } from '@/lib/api-key-state';
 import { scopeLock, type GrantLimits, type ScopeLockKind } from '@/lib/permission-grid';
-import { updateApiKeySchema } from '@/lib/schemas/api-keys';
+import { updateApiKeyOverApiSchema, updateApiKeySchema } from '@/lib/schemas/api-keys';
 import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
 import type { ApiKey } from '@/lib/types';
 import { resolveMemberAccess } from './access';
 import {
-  addAgentScopeGrants, agentScopesBeyondRole, assertMayGiveAgentScopes, mayGiveAgentScopes, removeAgentScopeGrants, removeUncarriedAgentScopeGrants,
+  addAgentScopeGrants, agentScopesBeyondRole, apiScopesBeyondRole, assertMayGiveAgentScopes, mayGiveAgentScopes, removeAgentScopeGrants, removeUncarriedAgentScopeGrants,
   uncarriedAgentScopeGrants,
 } from './agent-scope-grants';
 import { checkKeyGrant, loadSetupTarget, type Granter } from './agent-setup';
 import { insertAuditRows } from './audit';
-import { ApiError, notFound } from './errors';
+import { ApiError, forbidden, notFound } from './errors';
+import { currentAiSetup } from './request-context';
 import { KEY_PAUSE_COLUMNS, assertNotOwnerProtected, missingPauseColumns, setupKeyFixed, withKeyState } from './key-manage';
 
 /**
@@ -335,8 +336,8 @@ export interface ApiKeyEditCaller {
  * Renames a key and/or replaces its scopes over the API (api_keys.manage_all,
  * checked by withApi). Throws the ApiErrors every v1 route answers with.
  */
-export async function editApiKeyOverApi(service: SupabaseClient, caller: ApiKeyEditCaller, id: string, input: unknown): Promise<ApiKey> {
-  const parsed = updateApiKeySchema.safeParse(input);
+export async function editApiKeyOverApi(service: SupabaseClient, caller: ApiKeyEditCaller, id: string, input: unknown): Promise<ApiKey & { scopes_given?: string[] }> {
+  const parsed = updateApiKeyOverApiSchema.safeParse(input);
   if (!parsed.success) {
     throw new ApiError(422, 'VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Invalid API key', { reason: 'invalid_body' });
   }
@@ -361,6 +362,7 @@ export async function editApiKeyOverApi(service: SupabaseClient, caller: ApiKeyE
   const changes: { name?: string; scopes?: string[] } = {};
   let added: string[] = [];
   let removed: string[] = [];
+  let beyondRole: string[] = [];
   if (parsed.data.name !== undefined) changes.name = parsed.data.name;
   if (parsed.data.scopes !== undefined) {
     ({ added, removed } = scopeChange(key, parsed.data.scopes));
@@ -371,18 +373,38 @@ export async function editApiKeyOverApi(service: SupabaseClient, caller: ApiKeyE
           throw new ApiError(422, 'VALIDATION_ERROR', `An agent key never carries: ${never.join(', ')}`, { reason: 'scope_never_for_agents', not_held: never });
         }
       }
-      // Minting's rules for what it adds: the member holds it, the calling key
-      // carries it, an Owner's key for anyone else's key (agents only).
-      await checkKeyGrant(service, granter, { memberId: key.team_member_id, scopes: added });
+      // give_beyond_role: what the company agent lacks is given to it first, as its Access tab does (an Owner's key only).
+      if (parsed.data.give_beyond_role) {
+        if (currentAiSetup()) {
+          throw forbidden("An AI setup session never gives an agent a power beyond its role: the Owner gives it on the agent's Access tab", { reason: 'ai_setup_beyond_role' });
+        }
+        beyondRole = await apiScopesBeyondRole(service, granter, target, added);
+      }
     }
     changes.scopes = [...new Set(parsed.data.scopes)];
   }
   const revoking = await uncarriedAgentScopeGrants(service, key.team_member_id, key.id, removed);
 
-  const after = await writeEdit(service, key, changes, {
-    memberId: caller.memberId, apiKeyId: caller.apiKeyId, endpoint: `/api/v1/api-keys/${id}`, via: caller.via, added, removed, scopesRevoked: revoking,
-  });
-  if (!after) throw new ApiError(409, 'CONFLICT', 'This key is revoked: make a new one instead', { reason: 'key_revoked' });
+  let given: { added: string[]; wasDenied: string[] } = { added: [], wasDenied: [] };
+  const undoGrants = () => removeAgentScopeGrants(service, key.team_member_id!, given)
+    .catch((error) => console.error('[API] key edit scope grants not undone', error));
+  let after: ApiKey | null;
+  try {
+    given = await addAgentScopeGrants(service, key.team_member_id, beyondRole, caller.memberId);
+    // Minting's rules for what it adds: the member holds it, the calling key
+    // carries it, an Owner's key for anyone else's key (agents only).
+    if (added.length > 0) await checkKeyGrant(service, granter, { memberId: key.team_member_id, scopes: added });
+    after = await writeEdit(service, key, changes, {
+      memberId: caller.memberId, apiKeyId: caller.apiKeyId, endpoint: `/api/v1/api-keys/${id}`, via: caller.via, added, removed, scopesGiven: beyondRole, scopesRevoked: revoking,
+    });
+  } catch (failure) {
+    await undoGrants();
+    throw failure;
+  }
+  if (!after) {
+    await undoGrants();
+    throw new ApiError(409, 'CONFLICT', 'This key is revoked: make a new one instead', { reason: 'key_revoked' });
+  }
   await removeUncarriedAgentScopeGrants(service, key.team_member_id, revoking);
-  return after;
+  return beyondRole.length ? { ...after, scopes_given: beyondRole } : after;
 }

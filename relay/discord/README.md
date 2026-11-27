@@ -61,6 +61,7 @@ The app refuses a request without it, with a wrong one, or more than five minute
 | Body | When |
 |---|---|
 | `{ "v": 1, "t": "RELAY_READY", "d": { "bot_id", "guilds" } }` | It connected or resumed. Marks the connection heard. |
+| `{ "v": 1, "t": "RELAY_HEARTBEAT", "d": { "interval_seconds": 300 } }` | Every 5 minutes while it is connected. Once a relay has sent one, the app shows "Not receiving" when it hears nothing from it for 15 minutes, so a relay that stopped is noticed. A relay older than 1.1.0 sends none and is never flagged this way. |
 | `{ "v": 1, "t": "MESSAGE_CREATE", "d": <Discord's message>, "channel": { "id", "type", "parent_id" } }` | A person wrote in a DM, a channel or a thread the bot can see. `channel` tells a thread (types 10 to 12, with its parent) from a channel or a DM (type 1). |
 
 Bots and webhooks, including the agents' own replies, are never forwarded. A delivery the app asks to retry (429 or 5xx) is retried with backoff, signed afresh each time. Discord.js reconnects and resumes the Gateway by itself; a token Discord refuses, or Message Content turned off, stops the relay with a plain reason.
@@ -69,6 +70,7 @@ Bots and webhooks, including the agents' own replies, are never forwarded. A del
 
 | You see | Do |
 |---|---|
+| "Not receiving" with "The relay stopped checking in" | The relay stopped or lost Discord. Start it again and check its log. It reads "Connected" again at its first heartbeat or message. |
 | "Waiting for relay" stays in the app | Check the relay is running and printed "connected". Check `PM_INBOUND_URL` is this connection's address. |
 | `the app refused the signature` | `PM_RELAY_SECRET` is not this connection's current secret. Make a new one in the app and restart the relay with it. |
 | `Turn on Message Content Intent` | Turn it on (step 2) and restart the relay. |

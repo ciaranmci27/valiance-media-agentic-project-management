@@ -358,7 +358,8 @@ interface AppContextType {
   deleteCriterion: (taskId: string, criterionId: string) => void;
 
   // Comments
-  addComment: (taskId: string, text: string, userId: string) => void;
+  /** Adds a comment at once (optimistic); answers whether the server kept it. */
+  addComment: (taskId: string, text: string, userId: string) => Promise<boolean>;
   updateComment: (taskId: string, commentId: string, text: string) => void;
   deleteComment: (taskId: string, commentId: string) => Promise<boolean>;
 
@@ -2007,7 +2008,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // Comments
-  const addComment = async (taskId: string, text: string, userId: string) => {
+  const addComment = async (taskId: string, text: string, userId: string): Promise<boolean> => {
     const optimisticId = crypto.randomUUID();
     const optimistic: Comment = { id: optimisticId, task_id: taskId, user_id: userId, text, created_at: new Date().toISOString() };
 
@@ -2016,7 +2017,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? { ...t, comments: [...t.comments, optimistic], updated_at: new Date().toISOString() }
         : t
     ));
-    if (skipSupabase) return;
+    if (skipSupabase) return true;
 
     try {
       const newComment = await insertComment(supabase, taskId, userId, text);
@@ -2029,6 +2030,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // The team hears of it (dedup key = parent task); the server writes the notice.
       announce('task_comment', newComment.id);
+      return true;
     } catch (err) {
       setTasks(prev => prev.map(t =>
         t.id === taskId
@@ -2036,6 +2038,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : t
       ));
       toast('error', 'Failed to add comment');
+      return false;
     }
   };
 

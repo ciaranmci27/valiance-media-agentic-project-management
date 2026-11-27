@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { computeNeedsYou } from '@/lib/autonomy';
 import { buildAgentNeedsYou } from '@/lib/agents-tab';
 import {
-  AI_SECTION_HREFS, agentPageHref, aiHomeAccess, aiTabFrom, assistantTabLabel, blockedComments, companyHubItems, companyViewFrom, hubCount,
+  AI_SECTION_HREFS, agentPageHref, aiHomeAccess, aiTabFrom, assistantTabLabel, blockedCommentSignals, companyHubItems, companyViewFrom, hubCount,
   hubOrder, legacyAgentProfileRedirect, legacyAgentsRedirect, legacyAssistantRedirect, legacyAssistantSettingsRedirect, legacyHireRedirect,
   myHubItems, orgChartRows, orgChartSplit, orgPresence, type AiHomeViewer, type HubItem,
 } from '@/lib/ai-home';
@@ -137,8 +137,19 @@ function question(id: string, fields: Partial<QuestionView> = {}): QuestionView 
     task('comment-blocked', { assignee_ids: [ORCH, ME], comments: [
       comment('c1', ORCH, 'Started on it.', '2026-11-22T08:00:00Z'),
       comment('c2', ORCH, '[BLOCKED] Need the staging password\nDetails: the vault entry is empty.', '2026-11-22T09:00:00Z'),
-      comment('c3', ME, 'Looking', '2026-11-22T10:00:00Z'),
+      comment('c3', ME, 'Looking', '2026-11-22T07:00:00Z'),
+      // Another agent writing after it does not answer it.
+      comment('c3b', DEV, 'I can take the copy meanwhile.', '2026-11-22T09:30:00Z'),
     ] }),
+    // A person replied after the block: answered, it leaves.
+    task('comment-answered', { comments: [
+      comment('c10', DEV, '[BLOCKED] Which font?', '2026-11-22T09:00:00Z'),
+      comment('c11', ME, 'Inter, as on the site.', '2026-11-22T09:20:00Z'),
+    ] }),
+    // The structured flag, no prefix.
+    task('flag-blocked', { comments: [{ ...comment('c12', DEV, 'Need the DNS login for the client domain', '2026-11-22T12:00:00Z'), blocked: true }] }),
+    // Blocked while in progress; the task has moved to review since.
+    task('moved-on', { status: 'in_review', comments: [{ ...comment('c13', DEV, '[BLOCKED] waiting on QA', '2026-11-22T12:00:00Z'), blocked: true, blocked_task_status: 'in_progress' } as Comment] }),
     // An agent comment after the block clears it.
     task('comment-cleared', { comments: [
       comment('c4', DEV, '[BLOCKED] waiting on copy', '2026-11-22T09:00:00Z'),
@@ -165,32 +176,33 @@ function question(id: string, fields: Partial<QuestionView> = {}): QuestionView 
     // Asked to someone else: not mine to answer.
     question('q-other', { asked_to: MATE, asked_to_name: 'Aleisha Mate' }),
   ];
-  const needsYou = computeNeedsYou({ tasks, suggestions: [], projects, teamMemberId: ME, includeSuggestions: false, oversight: true, agentActivity, questions });
+  const signals = blockedCommentSignals(tasks, team);
+  check('comment sources: agents\' blocked comments (flag or [BLOCKED]) on open tasks that did not move, not answered by a person or the agent since',
+    [...new Set(signals.map((c) => c.task_id))].sort().join() === 'assistant-blocked,both-blocked,comment-blocked,flag-blocked',
+    signals.map((c) => c.task_id));
+  const needsYou = computeNeedsYou({ tasks, suggestions: [], projects, teamMemberId: ME, includeSuggestions: false, oversight: true, agentActivity, questions, blockedComments: signals });
   const agents = buildAgentNeedsYou({ needsYou, tasks, team, suggestions: [], projects });
-  const comments = blockedComments(tasks, team);
+  const fromComment = agents.blocked.find((b) => b.task.id === 'comment-blocked');
+  check('the comment reads without its prefix, keeping its details for More', fromComment?.question === 'Need the staging password\nDetails: the vault entry is empty.', fromComment?.question);
+  check('the comment names the agent that wrote it, and when it started waiting', fromComment?.agentId === ORCH && fromComment?.commentId === 'c2' && fromComment?.since === '2026-11-22T09:00:00Z', fromComment);
+  check('one Needs you: a blocked comment is a blocked item, never a second kind', needsYou.filter((i) => i.kind === 'blocked' && i.commentId).length === 3, needsYou.map((i) => `${i.kind}:${i.task?.id}`));
 
-  check('comment sources: only agents\' latest [BLOCKED] on open tasks', comments.map((c) => c.task.id).sort().join() === 'assistant-blocked,both-blocked,comment-blocked',
-    comments.map((c) => c.task.id));
-  check('the comment reads without its prefix, first line only', comments.find((c) => c.task.id === 'comment-blocked')?.text === 'Need the staging password');
-  check('the comment names the agent that wrote it', comments.find((c) => c.task.id === 'comment-blocked')?.agentId === ORCH);
-
-  const company = companyHubItems(agents, comments);
+  const company = companyHubItems(agents);
   const kinds = (items: HubItem[]) => items.map((i) => `${i.kind}:${i.key}`);
   check('company: questions and approvals are listed', company.some((i) => i.key === 'q:q-plain' && i.kind === 'question') && company.some((i) => i.key === 'q:q-approval' && i.kind === 'approval'), kinds(company));
   check('company: a question for someone else is not', !company.some((i) => i.key === 'q:q-other'));
   check('company: stuck work from the event is listed', company.some((i) => i.key === 'b:event-blocked' && i.kind === 'blocked'));
-  check('company: stuck work from a comment is listed', company.some((i) => i.key === 'b:comment-blocked' && i.kind === 'blocked_comment'));
+  check('company: stuck work from a comment is listed, waiting since the comment', company.some((i) => i.key === 'b:comment-blocked' && i.kind === 'blocked' && i.at === '2026-11-22T09:00:00Z'));
   check('company: one stuck task with both signals is one row', company.filter((i) => i.key === 'b:both-blocked').length === 1);
   check('company: agent work in review is listed', company.some((i) => i.key === 'r:review' && i.kind === 'review'));
-  // The count agrees with the Agents Needs you count, plus the comment-only rows it could not see.
-  const commentOnly = company.filter((i) => i.kind === 'blocked_comment').length;
-  check('company count = the existing Needs you count + comment-only stuck work', company.length === agents.total + commentOnly, { company: company.length, total: agents.total, commentOnly });
-  check('stuck work leads, then decisions, longest waiting first', company[0].kind.startsWith('blocked') && hubOrder(company).map((i) => i.key).join() === company.map((i) => i.key).join());
+  // The count is the Agents Needs you count: comments are part of it now.
+  check('company count = the Agents Needs you count', company.length === agents.total, { company: company.length, total: agents.total });
+  check('stuck work leads, then decisions, longest waiting first', company[0].kind === 'blocked' && hubOrder(company).map((i) => i.key).join() === company.map((i) => i.key).join());
   const decisions = company.filter((i) => i.kind === 'question' || i.kind === 'approval');
   check('decisions: the one waiting longest comes first', decisions[0].key === 'q:q-approval', kinds(decisions));
 
   const drafts = [{ id: 'd1', thread_id: 'th1', subject: 'Re: invoice', completed_at: '2026-11-23T10:00:00Z' }];
-  const mine = myHubItems({ needs: agents, comments, drafts, me: ME, myAssistantId: MINE });
+  const mine = myHubItems({ needs: agents, drafts, me: ME, myAssistantId: MINE });
   check('mine: questions asked to me', mine.some((i) => i.key === 'q:q-plain') && mine.some((i) => i.key === 'q:q-approval'));
   check('mine: stuck work on my task', mine.some((i) => i.key === 'b:comment-blocked'));
   check('mine: my assistant stuck anywhere', mine.some((i) => i.key === 'b:assistant-blocked'));
@@ -200,7 +212,7 @@ function question(id: string, fields: Partial<QuestionView> = {}): QuestionView 
   check('the sidebar count counts each thing once', hubCount(company, mine) === new Set([...company, ...mine].map((i) => i.key)).size && hubCount(company, mine) === company.length + 1,
     { count: hubCount(company, mine), company: company.length });
   check('a member\'s count is their own list', hubCount([], mine) === mine.length);
-  check('no one signed in, nothing waits', myHubItems({ needs: agents, comments, drafts, me: null, myAssistantId: null }).length === 0);
+  check('no one signed in, nothing waits', myHubItems({ needs: agents, drafts, me: null, myAssistantId: null }).length === 0);
 }
 
 // ── The org chart ───────────────────────────────────────────────────────

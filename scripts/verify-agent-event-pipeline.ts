@@ -531,7 +531,7 @@ async function startProxy(): Promise<{ url: string; close: () => Promise<void> }
 
 async function main() {
   const proxy = await startProxy();
-  Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: proxy.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'fake-anon-key' });
+  Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: proxy.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key', APP_ENCRYPTION_KEY: 'e'.repeat(64), NEXT_PUBLIC_SUPABASE_ANON_KEY: 'fake-anon-key' });
   await migrationChecks();
 
   const db = await createFullSchemaDatabase();

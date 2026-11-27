@@ -466,9 +466,12 @@ export function webhookSaveError(error: unknown, editing: boolean): string {
   if (/assistant\.message goes only/.test(text)) return 'Chat for an assistant (old name) needs one person\'s own assistant under Member.';
   if (/chat\.message goes only/.test(text)) return 'Chat needs one agent under Member: chat is private, so it only goes to the agent it is for.';
   if (/one_scope|one member or scoped to one assistant setup/.test(text)) return 'This endpoint sends for every assistant from a setup, so it cannot also be limited to one member. Set Member to Everyone.';
-  if (/Only an Owner scopes an endpoint/.test(text)) return 'Only an Owner can send events for a whole assistant setup.';
-  if (code === '42501') return 'You no longer have permission to manage webhooks. Ask an Owner.';
+  if (code === 'encryption_key_missing') return 'Add the encryption key first (Settings > Workspace > Encryption): webhook signing secrets are only stored encrypted.';
+  if (/Only an Owner(, or a key with assistants\.provision,)? scopes an endpoint/.test(text)) return 'Only an Owner can send events for a whole assistant setup.';
+  if (code === '42501' || code === 'missing_permission') return 'You no longer have permission to manage webhooks. Ask an Owner.';
   if (code === '23514' && text) return `The endpoint was refused: ${text}`;
+  // The server's own check of a field (an address that is not HTTPS or not public, an unknown event): its words.
+  if ((code === 'invalid_body' || code === 'VALIDATION_ERROR') && text) return `The endpoint was refused: ${text}`;
   return fallback;
 }
 

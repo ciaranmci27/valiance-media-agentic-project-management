@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServerClient } from '@supabase/ssr';
 import { Client } from 'pg';
+import { fetchWhileCompiling } from './retry';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- answers are read field by field
 export type Json = any;
@@ -105,14 +106,15 @@ export async function http(baseUrl: string, path: string, init: { method?: strin
     headers['content-type'] = headers['content-type'] ?? 'application/json';
     body = JSON.stringify(init.body);
   }
-  const response = await fetch(url, {
-    method: init.method ?? (body ? 'POST' : 'GET'),
+  const method = init.method ?? (body ? 'POST' : 'GET');
+  // A route compiling (a dropped connection, an HTML 5xx) is retried for up to a minute; the app's own answers never are (retry.ts).
+  const { response, text } = await fetchWhileCompiling(() => fetch(url, {
+    method,
     headers,
     body,
     redirect: init.redirect ?? 'manual',
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  const text = await response.text();
+  }), { method, onRetry: (why, attempt) => console.log(`    ..  retry ${attempt} of ${method} ${path}: ${why}`) });
   let parsed: Json = text;
   try {
     parsed = text ? JSON.parse(text) : null;

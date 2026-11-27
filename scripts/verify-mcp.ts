@@ -116,6 +116,8 @@ async function main() {
   const server = await startFakePostgrest(db);
   process.env.NEXT_PUBLIC_SUPABASE_URL = server.url;
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'fake-service-key';
+  // New webhook signing secrets are only stored encrypted (lib/webhooks/secret.ts).
+  process.env.APP_ENCRYPTION_KEY = 'e'.repeat(64);
 
   try {
     const { ROUTE_MODULES, routeHandler } = await import('../src/lib/mcp/handlers');

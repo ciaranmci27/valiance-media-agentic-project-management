@@ -138,7 +138,7 @@ export const PM_SETUP_GUIDE = `Set up an agent from a chat
 - An agent's owners are the people responsible for it; its questions go to them when it names nobody. update_agent changes its name, role label, rules and owners, its limits (an Owner only) and whether it is paused; a role label is for people and changes nothing it may do. list_agents filters by role, owner (me), template and project.
 - Company agents form a chart: set_agent_access gives an agent an orchestrator (another company agent, at most 4 levels, no loops), says who can use it (everyone, roles, groups or people, with exceptions), whether people reach it directly or only through its orchestrator, and whether it asks its managers first. A person can use an agent only if they are in its audience and every orchestrator's above it. get_agent_tree and get_agent_access read it back. How to shape the team (docs/agents/structure-your-team.md): one personal assistant per person, one company orchestrator hired first (template orchestrator), specialists under it, people only for real decisions. Each agent's powers and key scopes are one list: get_agent_powers, set_agent_powers.
 - To set up a new project from a chat, gather the project, its members, brief (overview, rules, decisions, links, glossary, history), goals and agents, read the plan back to the person, then setup_project once: everything is checked before anything is written.
-- Keys can expire (an Owner sets how long new agent keys last). Before one does, rotate_api_key: the new secret shows once and the old key keeps working for overlap_hours, so the host can switch without a gap.
+- Keys can expire (an Owner sets how long new agent keys last). Before one does, rotate_api_key: the new secret shows once and the old key keeps working for overlap_hours (your own key: 1 hour at most), so the host can switch without a gap.
 - To stop a key for a while without losing it, pause_api_key; resume_api_key brings back the same secret. update_api_key renames a key or changes its scopes in place.
 - Personal agents (one per person, bound to them: never more than they can see, paused when they are suspended): create_assistant_setup gives a role or a group one each, provision_assistants with dry_run true shows who gets one, then without dry_run makes them (again until remaining is 0). New people with the role get theirs when they join. Their harness collects each key once with its own assistants.provision key (list_assistants with needs_key true shows which), so no person handles those keys.
 - A personal agent also answers its person in chat (Slack, Telegram DMs) when the workspace connected the personal bot: the app sends chat.message (ids only; assistant.message is its older name) to its webhook filtered to the agent, or lists it with list_chat_messages; read it with get_chat_message, answer with reply_in_chat, or mark_chat_handled. It needs no X-Act-For. Its person's settings (tone, what it may do) are in works_for in its context.
@@ -160,6 +160,10 @@ export const INBOX_TOOLS: readonly string[] = [
   'undo_agent_work', 'restore_agent_work', 'add_all_meeting_suggestions', 'mark_meeting_nothing_to_do', 'undo_meeting_nothing_to_do',
   'accept_plan_item', 'dismiss_plan_item', 'undo_plan_item', 'restore_plan_item', 'undo_triage_plan', 'resolve_reply_owed',
   'add_inbox_thread_project', 'remove_inbox_thread_project', 'link_inbox_thread_task', 'unlink_inbox_thread_task',
+  // Email setup (Settings > Email): for whoever manages inboxes, usually an Owner's own MCP client.
+  'list_email_inboxes', 'create_email_inbox', 'update_email_inbox', 'set_personal_inbox_on', 'check_email_mx', 'set_email_relay_domain',
+  'list_email_addresses', 'add_email_address', 'update_email_address', 'remove_email_address', 'ignore_email_address',
+  'add_email_domain', 'remove_email_domain',
 ];
 
 export const PM_INBOX_GUIDE = `Inbox triage

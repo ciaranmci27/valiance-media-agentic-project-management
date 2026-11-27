@@ -145,8 +145,20 @@ export async function withActors(db: SupabaseClient, items: NotificationView[]):
 export async function notificationPage(db: SupabaseClient, memberId: string, options: FeedOptions = {}): Promise<NotificationPage> {
   const view = options.view ?? 'updates';
   const limit = Math.min(100, Math.max(1, options.limit ?? FEED_PAGE_SIZE));
-  const [items, unread] = await Promise.all([notificationFeed(db, memberId, { ...options, view, limit }), notificationUnreadCount(db, memberId)]);
-  return { items: await withActors(db, items), unread, next_cursor: cursorOf(items, view, limit) };
+  const [items, unread, total] = await Promise.all([
+    notificationFeed(db, memberId, { ...options, view, limit }),
+    notificationUnreadCount(db, memberId),
+    notificationViewCount(db, memberId, view),
+  ]);
+  return { items: await withActors(db, items), unread, total, next_cursor: cursorOf(items, view, limit) };
+}
+
+/** How many Updates a view holds in all; null before 20261127002700. */
+export async function notificationViewCount(db: SupabaseClient, memberId: string, view: NotificationFeedView): Promise<number | null> {
+  const { data, error } = await db.rpc('notification_view_count', { p_member_id: memberId, p_view: view });
+  if (!error) return Number(data ?? 0);
+  if (missingFoundation(error)) return null;
+  throw error;
 }
 
 type GroupRow = Omit<Notification, 'user_id'> & { group_key: string; group_count: number; unread_count: number };

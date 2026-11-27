@@ -65,6 +65,8 @@ const MEMBER_FUNCTIONS = [
   'agent_run_has_open_question',
   // Needs you (20261127002000): the runs marked blocked that wait on the caller.
   'my_blocked_runs',
+  // Needs you (20261127002700): agents' blocked comments that wait on the caller.
+  'my_blocked_comments',
   // Read-only, scoped to the caller, kept for installs' own code.
   'is_admin', 'get_team_directory', 'get_my_access_context',
   'get_accessible_time_entries', 'get_accessible_credential_metadata', 'invoice_hours_draft',

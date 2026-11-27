@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import './globals.css';
 // The install's own theme, after core's so it wins (src/custom/theme.css).
 import '../custom/theme.css';
@@ -8,6 +9,8 @@ import { BrandProvider } from '@/lib/brand/context';
 import { getBrand } from '@/lib/brand/server';
 import { RegionProvider } from '@/lib/region/context';
 import { getRegion } from '@/lib/region/server';
+import { NONCE_HEADER } from '@/lib/security/frame-headers';
+import { ScriptNonceProvider } from '@/lib/security/script-nonce';
 
 // Self-hosted via next/font and consumed by --font-sans / --font-mono in
 // globals.css. Do not load fonts with a Google Fonts @import url() there:
@@ -52,7 +55,8 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [brand, region] = await Promise.all([getBrand(), getRegion()]);
+  // The page's script nonce (src/proxy.ts): the theme script below needs it to run.
+  const [brand, region, nonce] = await Promise.all([getBrand(), getRegion(), headers().then((h) => h.get(NONCE_HEADER) ?? undefined)]);
   return (
     <html
       lang="en"
@@ -60,12 +64,15 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        {/* Browsers hide a nonce from the DOM after load (nonce=""), so React would see a mismatch. */}
+        <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="antialiased bg-surface font-sans">
         <BrandProvider brand={brand}>
           <RegionProvider region={region}>
-            <ThemeProvider brand={brand}>{children}</ThemeProvider>
+            <ScriptNonceProvider nonce={nonce}>
+              <ThemeProvider brand={brand}>{children}</ThemeProvider>
+            </ScriptNonceProvider>
           </RegionProvider>
         </BrandProvider>
       </body>

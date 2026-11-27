@@ -16,7 +16,7 @@ import { useDemo } from '@/lib/demo-context';
 import { invalidateTables, useRead } from '@/lib/query-cache';
 import { chatConnectionsReadFor } from '@/lib/reads';
 import {
-  CHAT_APPS, CHAT_CONNECTED_DAYS, CHAT_PROVIDERS, chatAppConnectable, chatConnectionHealth, freeChatKinds, type ChatConnectionHealth, type ChatConnectionView, type ChatProvider,
+  CHAT_APPS, CHAT_CONNECTED_DAYS, CHAT_PROVIDERS, chatAppConnectable, chatConnectionHealth, freeChatKinds, relaySilent, type ChatConnectionHealth, type ChatConnectionView, type ChatProvider,
 } from '@/lib/chat/types';
 import { AddChatConnectionDialog, SLACK_EVENTS } from './AddChatConnectionDialog';
 import { CompanyChatPanel } from './CompanyChatPanel';
@@ -63,6 +63,11 @@ function statusLine(connection: ChatConnectionView, health: ChatConnectionHealth
   const heard = connection.last_inbound_at ? formatAgo(connection.last_inbound_at, { midSentence: true }) : null;
   if (health === 'not_receiving') {
     if (connection.provider === 'slack') return "Slack's requests fail the signing check: the signing secret is wrong. Replace it from the row menu.";
+    // Refused after the last good request: the secret is the problem. Otherwise a relay that went quiet stopped.
+    const refusedLast = !!connection.last_refused_at && (!connection.last_inbound_at || connection.last_refused_at > connection.last_inbound_at);
+    if (connection.provider === 'discord' && !refusedLast && relaySilent(connection)) {
+      return `The relay stopped checking in${heard ? `: last heard ${heard}` : ''}. Start it again on its host, or check its log.`;
+    }
     if (connection.provider === 'discord') return "The relay's requests fail the check: give it the current relay secret (PM_RELAY_SECRET), or make a new one from the row menu.";
     return "Telegram's requests fail the check. Replace the token from the row menu to set its webhook again.";
   }

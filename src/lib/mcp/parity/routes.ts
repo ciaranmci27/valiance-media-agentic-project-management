@@ -10,6 +10,8 @@ import { INBOX_ROUTE_MODULES } from './inbox.routes';
 import { CRM_ROUTE_MODULES } from './crm.routes';
 import { MONEY_ROUTE_MODULES } from './money.routes';
 import { WORK_ROUTE_MODULES } from './work.routes';
+import { EMAIL_ROUTE_MODULES } from './email.routes';
+import { SETTINGS_ROUTE_MODULES } from './settings.routes';
 import * as agentPowers from '@/app/api/v1/agents/[id]/powers/route';
 import * as revokeUnused from '@/app/api/v1/api-keys/revoke-unused/route';
 import * as personalForPerson from '@/app/api/v1/assistants/for-person/route';
@@ -31,6 +33,8 @@ export const PARITY_ROUTE_MODULES: Record<string, RouteModule> = {
   ...CRM_ROUTE_MODULES,
   ...MONEY_ROUTE_MODULES,
   ...WORK_ROUTE_MODULES,
+  ...EMAIL_ROUTE_MODULES,
+  ...SETTINGS_ROUTE_MODULES,
   // An agent's Access tab and Hire > Personal assistant
   '/api/v1/agents/{id}/powers': agentPowers,
   '/api/v1/api-keys/revoke-unused': revokeUnused,

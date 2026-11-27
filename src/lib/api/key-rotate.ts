@@ -17,8 +17,9 @@ import { setupKeyFixed } from './key-manage';
  *   and its secret is in that answer only. It keeps the old key's place in
  *   the lineage (created_by_key_id), so revoking the key that made the old
  *   one still revokes it, and records rotated_from.
- * - The old key keeps working for the overlap (default 24 hours, 0 to 168),
- *   then ends: refused as expired at once, revoked by
+ * - The old key keeps working for the overlap (default 24 hours, 0 to 168;
+ *   an agent replacing its own key: default 1 hour, at most 1, so a leaked
+ *   key the agent swaps out stops soon), then ends: refused as expired at once, revoked by
  *   pm.revoke_rotated_api_keys (hourly, and on every rotation). A key is
  *   replaced once; rotate the successor next time.
  * - The rules are minting's (checkKeyGrant): an Owner's key or session for
@@ -34,6 +35,8 @@ import { setupKeyFixed } from './key-manage';
 
 export const ROTATION_OVERLAP_DEFAULT_HOURS = 24;
 export const ROTATION_OVERLAP_MAX_HOURS = 168;
+/** An agent replacing its own key: the old one works this long at most (and by default). */
+export const SELF_ROTATION_OVERLAP_MAX_HOURS = 1;
 
 export interface RotateActor {
   caller: AgentCaller;
@@ -73,7 +76,6 @@ export async function rotateApiKey(
   input: { overlap_hours?: number },
 ): Promise<RotatedKey> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(keyId)) throw notFound('API key');
-  const overlapHours = input.overlap_hours ?? ROTATION_OVERLAP_DEFAULT_HOURS;
   const { data, error } = await service.from('api_keys').select('id, key_prefix, team_member_id, scopes, revoked_at, expires_at, permissions, created_at').eq('id', keyId).maybeSingle();
   if (error) throw error;
   const old = data as { id: string; key_prefix: string; team_member_id: string | null; scopes: string[] | null; revoked_at: string | null; expires_at: string | null; permissions: string; created_at: string } | null;
@@ -82,6 +84,12 @@ export async function rotateApiKey(
 
   const { caller } = actor;
   const own = old.team_member_id === caller.memberId;
+  // An agent swapping its own key (often because it may have leaked) keeps
+  // the old one an hour at most; a longer ask is held to that, never refused.
+  const selfAgent = own && caller.access.role === 'agent';
+  const overlapHours = selfAgent
+    ? Math.min(input.overlap_hours ?? SELF_ROTATION_OVERLAP_MAX_HOURS, SELF_ROTATION_OVERLAP_MAX_HOURS)
+    : input.overlap_hours ?? ROTATION_OVERLAP_DEFAULT_HOURS;
   const { data: target } = await service.from('team_members').select('delegate_of').eq('id', old.team_member_id).maybeSingle();
   const delegate = (target as { delegate_of?: string | null } | null)?.delegate_of ?? null;
   // A harness key for personal agents rotates theirs (checkKeyGrant lets nobody else but the person).

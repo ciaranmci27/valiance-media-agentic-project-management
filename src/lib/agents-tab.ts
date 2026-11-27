@@ -51,6 +51,10 @@ export interface AgentBlockedItem {
   agentId: string | null;
   /** The open question the block raised, when it names one. */
   questionId?: string;
+  /** The agent's blocked comment, when that is how it said so: answered by replying on the task. */
+  commentId?: string;
+  /** When it started waiting on a person, when known. */
+  since?: string;
 }
 
 export interface AgentReviewItem {
@@ -113,7 +117,15 @@ export function buildAgentNeedsYou(input: {
 
   const blocked = input.needsYou
     .flatMap((item): AgentBlockedItem[] => (item.kind === 'blocked' && item.task
-      ? [{ task: item.task, question: item.question ?? '', agentId: agentOfTask(item.task, agentIds), ...(item.questionId ? { questionId: item.questionId } : {}) }]
+      ? [{
+        task: item.task,
+        question: item.question ?? '',
+        // The agent that said it (a blocked run or comment names it), else the task's agent.
+        agentId: item.agentId && agentIds.has(item.agentId) ? item.agentId : agentOfTask(item.task, agentIds),
+        ...(item.questionId ? { questionId: item.questionId } : {}),
+        ...(item.commentId ? { commentId: item.commentId } : {}),
+        ...(item.since ? { since: item.since } : {}),
+      }]
       : []))
     .sort((a, b) => newestFirst(a.task.updated_at, b.task.updated_at));
 

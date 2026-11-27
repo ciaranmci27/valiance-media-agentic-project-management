@@ -194,6 +194,21 @@ export function approvalDetailRows(
   return { rows, hidden, truncated };
 }
 
+/**
+ * Whether a person may approve yet: every detail row of what they approve
+ * must have been on their screen. A short list shows whole, so it is ready
+ * at once; a list cut to fit (rows left out, or rows shortened) waits until
+ * Show all opened it. Never "N more not shown" under a live Approve.
+ */
+export function approvalReady(action: Pick<ApprovalAction, 'details'> | null | undefined, shownAll: boolean): boolean {
+  return shownAll || !approvalDetailRows(action).truncated;
+}
+
+/** How many detail rows an approval carries in all (for "Show all 24"). */
+export function approvalDetailCount(action: Pick<ApprovalAction, 'details'> | null | undefined): number {
+  return Object.keys(action?.details ?? {}).length;
+}
+
 /** The decision an approval's answer carries: approved, rejected, or none yet. */
 export function approvalDecision(answerChoice: string | null | undefined): ApprovalDecision | null {
   if (answerChoice === 'approve') return 'approved';

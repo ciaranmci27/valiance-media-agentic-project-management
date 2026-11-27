@@ -4,6 +4,7 @@ import type { Presence } from '@/lib/agents-ui';
 import type { PillTone } from '@/components/ui/Pill';
 import { formatElapsed } from '@/lib/time-format';
 import type { Comment, Task, TeamMember } from '@/lib/types';
+import { BLOCKED_COMMENT_PREFIX, type BlockedCommentSignal } from '@/lib/autonomy';
 
 /**
  * The AI home (/ai): one place for everything AI, in three parts.
@@ -184,41 +185,39 @@ export const AI_SECTION_HREFS: Readonly<Record<string, string>> = {
 
 // ── Needs you: what agents are waiting on a person for ──────────────────
 
-/** An agent comment that says it is stuck, until agents report a blocked state of their own. */
-export const BLOCKED_COMMENT = /^\s*\[blocked\]\s*:?\s*/i;
-
-export interface BlockedCommentItem {
-  task: Task;
-  comment: Comment;
-  agentId: string;
-  /** The comment without its [BLOCKED] prefix, first line only. */
-  text: string;
-}
-
 /**
- * Tasks whose agent is stuck, as its own comment says: the latest comment an
- * agent left on a task that is not done starts with "[BLOCKED]". A later
- * comment from an agent (it moved on) clears it; a person's reply does not
- * (only the agent knows it is unstuck). Read-only: the row opens the task.
+ * Agents' blocked comments that wait on a person, worked out from the tasks
+ * a browser holds: the mirror of pm.my_blocked_comments for the demo and the
+ * tests (the app reads the database's answer). A comment is blocked when an
+ * agent wrote it with blocked: true or starting "[BLOCKED]"; it waits until a
+ * person comments after it or the agent writes again, and only while the
+ * task is open and still in the status it had then. Who it waits on (the
+ * agent's managers, the task's people) is the database's to say; this lists
+ * every one in reach.
  */
-export function blockedComments(tasks: Task[], team: Pick<TeamMember, 'id' | 'role'>[]): BlockedCommentItem[] {
-  const agentIds = new Set(team.filter((m) => m.role === 'agent').map((m) => m.id));
-  const out: BlockedCommentItem[] = [];
+export function blockedCommentSignals(tasks: Task[], team: Pick<TeamMember, 'id' | 'role' | 'name'>[]): BlockedCommentSignal[] {
+  const agents = new Map(team.filter((m) => m.role === 'agent').map((m) => [m.id, m.name]));
+  const out: BlockedCommentSignal[] = [];
   for (const task of tasks) {
     if (task.status === 'done') continue;
-    let latest: Comment | null = null;
-    for (const comment of task.comments ?? []) {
-      if (!agentIds.has(comment.user_id)) continue;
-      if (!latest || comment.created_at > latest.created_at) latest = comment;
-    }
-    if (!latest || !BLOCKED_COMMENT.test(latest.text)) continue;
-    const text = latest.text.replace(BLOCKED_COMMENT, '').split('\n').map((line) => line.trim()).find(Boolean) ?? '';
-    out.push({ task, comment: latest, agentId: latest.user_id, text });
+    const comments = [...(task.comments ?? [])].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : 1));
+    comments.forEach((comment, index) => {
+      if (!agents.has(comment.user_id)) return;
+      if (!(comment.blocked || BLOCKED_COMMENT_PREFIX.test(comment.text))) return;
+      const status = (comment as Comment & { blocked_task_status?: string | null }).blocked_task_status;
+      if (status && status !== task.status) return;
+      const over = comments.slice(index + 1).some((later) => !agents.has(later.user_id) || later.user_id === comment.user_id);
+      if (over) return;
+      out.push({
+        comment_id: comment.id, task_id: task.id, task_title: task.title, project_id: task.project_id,
+        agent_id: comment.user_id, agent_name: agents.get(comment.user_id) ?? null, text: comment.text, created_at: comment.created_at,
+      });
+    });
   }
-  return out.sort((a, b) => (a.comment.created_at < b.comment.created_at ? -1 : 1));
+  return out.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 }
 
-export type HubKind = 'question' | 'approval' | 'blocked' | 'blocked_comment' | 'merge' | 'review' | 'suggestion' | 'draft';
+export type HubKind = 'question' | 'approval' | 'blocked' | 'merge' | 'review' | 'suggestion' | 'draft';
 
 /** One thing waiting on the person, keyed so the same thing is counted once wherever it shows. */
 export interface HubItem {
@@ -232,29 +231,22 @@ export interface HubItem {
 
 /** Stuck work first (it holds everything behind it), then decisions, then work to check, then ideas; longest waiting first in each. */
 const KIND_RANK: Record<HubKind, number> = {
-  blocked: 0, blocked_comment: 0, approval: 1, question: 1, merge: 2, review: 2, draft: 2, suggestion: 3,
+  blocked: 0, approval: 1, question: 1, merge: 2, review: 2, draft: 2, suggestion: 3,
 };
 
 export function hubOrder<T extends HubItem>(items: T[]): T[] {
   return [...items].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || (a.at < b.at ? -1 : a.at > b.at ? 1 : 0) || (a.key < b.key ? -1 : 1));
 }
 
-/** Comments on a task the activity signal already lists add nothing: one stuck task, one row. */
-function newComments(needs: AgentNeedsYou, comments: BlockedCommentItem[]): BlockedCommentItem[] {
-  const blockedTasks = new Set(needs.blocked.map((item) => item.task.id));
-  return comments.filter((item) => !blockedTasks.has(item.task.id));
-}
-
 /**
  * Company AI's Needs you: everything agents wait on people for that this
- * manager sees (the Agents page's Needs you, same count), plus stuck work
- * only a comment reports.
+ * manager sees (the Agents page's Needs you, same count): stuck work
+ * however the agent said so (an event, a blocked run, a blocked comment).
  */
-export function companyHubItems(needs: AgentNeedsYou, comments: BlockedCommentItem[]): HubItem[] {
+export function companyHubItems(needs: AgentNeedsYou): HubItem[] {
   return hubOrder([
     ...needs.questions.map((q): HubItem => ({ key: `q:${q.id}`, kind: q.kind === 'approval' ? 'approval' : 'question', at: q.created_at, agentId: q.asked_by, taskId: q.task_id })),
-    ...needs.blocked.map((b): HubItem => ({ key: `b:${b.task.id}`, kind: 'blocked', at: b.task.updated_at, agentId: b.agentId, taskId: b.task.id })),
-    ...newComments(needs, comments).map((c): HubItem => ({ key: `b:${c.task.id}`, kind: 'blocked_comment', at: c.comment.created_at, agentId: c.agentId, taskId: c.task.id })),
+    ...needs.blocked.map((b): HubItem => ({ key: `b:${b.task.id}`, kind: 'blocked', at: b.since ?? b.task.updated_at, agentId: b.agentId, taskId: b.task.id })),
     ...needs.inReview.map((r): HubItem => ({ key: `r:${r.task.id}`, kind: r.reviewerVerdict !== undefined ? 'merge' : 'review', at: r.task.updated_at, agentId: r.agentId || null, taskId: r.task.id })),
     ...needs.pendingSuggestions.map((s): HubItem => ({ key: `s:${s.id}`, kind: 'suggestion', at: s.created_at, agentId: s.proposed_by, taskId: null })),
   ]);
@@ -276,14 +268,8 @@ export function myNeeds(needs: AgentNeedsYou, me: string | null, myAssistantId: 
   return { questions, blocked, inReview: [], suggestions: 0, pendingSuggestions: [], total: questions.length + blocked.length };
 }
 
-export function myBlockedComments(comments: BlockedCommentItem[], me: string | null, myAssistantId: string | null): BlockedCommentItem[] {
-  if (!me) return [];
-  return comments.filter((c) => isTheirs(c.task, me) || (myAssistantId !== null && c.agentId === myAssistantId));
-}
-
 export function myHubItems(input: {
   needs: AgentNeedsYou;
-  comments: BlockedCommentItem[];
   drafts: AssistantDraft[];
   me: string | null;
   myAssistantId: string | null;
@@ -291,16 +277,17 @@ export function myHubItems(input: {
   if (!input.me) return [];
   const mine = myNeeds(input.needs, input.me, input.myAssistantId);
   return hubOrder([
-    ...companyHubItems(mine, myBlockedComments(input.comments, input.me, input.myAssistantId)),
+    ...companyHubItems(mine),
     ...input.drafts.map((d): HubItem => ({ key: `d:${d.id}`, kind: 'draft', at: d.completed_at ?? '', agentId: input.myAssistantId, taskId: null })),
   ]);
 }
 
-/** How long something has waited on a person, in words: "Waiting 3 h", "Waiting 16 min". */
+/** How long something has waited on a person, in words: "Waiting on you 3 h", "Waiting on you 16 min". */
 export function waitedWords(since: string, now: number = Date.now()): string {
   const at = Date.parse(since);
-  if (!Number.isFinite(at)) return 'Waiting';
-  return `Waiting ${formatElapsed(Math.max(0, now - at))}`;
+  if (!Number.isFinite(at)) return 'Waiting on you';
+  const waited = Math.max(0, now - at);
+  return waited < 60_000 ? 'Waiting on you now' : `Waiting on you ${formatElapsed(waited)}`;
 }
 
 /** The sidebar's AI count: everything in either list, each thing once. */

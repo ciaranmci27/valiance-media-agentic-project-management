@@ -72,7 +72,7 @@ Discord needs one extra piece: a small relay you run on any server you control (
 1. At discord.com/developers/applications, create an application. On its Bot page, turn on **Message Content Intent**, press **Reset Token** and copy the token.
 2. In the app, choose Discord, paste the token and press **Connect**.
 3. Copy the relay secret (shown once) and the relay address, and invite the bot with the link the app shows. It needs no permissions in the server: people message it directly, and only need to share a server with it.
-4. Run the relay. The row reads **Waiting for relay** until it says hello. A new relay secret resets it to Waiting for relay until the relay says hello with the new one.
+4. Run the relay. The row reads **Waiting for relay** until it says hello. A new relay secret resets it to Waiting for relay until the relay says hello with the new one. The relay checks in every 5 minutes; if it then goes quiet for 15 minutes, the row reads **Not receiving** ("The relay stopped checking in") until it is back.
 
 Replies come from the bot with the assistant's name in bold on the first line (Discord bots cannot change their name per message, and DMs have no webhooks).
 

@@ -759,12 +759,14 @@ async function main() {
       return !!last && verifySignatureHeader(secret, last.signature, last.body);
     };
     const hookBody = { name: 'Harness', url: 'https://hooks.example.test/h', events: ['task.created'] };
-    // Without APP_ENCRYPTION_KEY: exactly as before.
-    const plain = await v1(v1Webhooks.POST, 'POST', '/api/v1/webhook-endpoints', {}, s.keys.owner.secret, hookBody);
-    const plainId = plain.body?.data?.endpoint?.id as string;
-    const plainSecret = plain.body?.data?.secret as string;
+    // Without APP_ENCRYPTION_KEY a new endpoint is refused: nothing new is stored in plain text.
+    const refusedHook = await v1(v1Webhooks.POST, 'POST', '/api/v1/webhook-endpoints', {}, s.keys.owner.secret, hookBody);
+    check('webhooks: without the key a new endpoint is refused (409 encryption_key_missing)', refusedHook.status === 409 && refusedHook.body?.error?.details?.reason === 'encryption_key_missing', refusedHook.body);
+    // One an older release stored in plain text keeps working.
+    const plainSecret = `whsec_${'a1'.repeat(32)}`;
+    const plainId = (await s.q<Loose>("INSERT INTO pm.webhook_endpoints (name, url, secret, events, created_by) VALUES ('Harness', 'https://hooks.example.test/h', $1, '{task.created}', $2) RETURNING id", [plainSecret, s.owner]))[0].id as string;
     const plainStored = (await s.q<Loose>('SELECT secret FROM pm.webhook_endpoints WHERE id = $1', [plainId]))[0]?.secret;
-    check('webhooks: without the key the secret is stored as before', plain.status === 201 && plainStored === plainSecret, plain.body);
+    check('webhooks: a secret stored in plain text before is kept as it is', plainStored === plainSecret);
     await runDispatch(5, storeFor(plainId, plainStored));
     check('webhooks: and signs as before', await signedWith(plainSecret) && deliveries[deliveries.length - 1]?.error === null, deliveries);
     const status = await encryptionStatus(service);

@@ -124,11 +124,12 @@ A run can be `waiting`: neither running nor finished. Use it when the next step 
 
 ### When you are blocked
 
-Anything that stops you needs a person, never a task comment. A comment is the record only: nobody scans comments for blockers.
+Anything that stops you needs a person in Needs you, where they answer in one tap. A plain comment is the record only: nobody scans comments for blockers.
 
 1. **A decision or an answer:** `ask_human` or `request_approval` with your `run_id`. This is the main path. It lands on the person's Needs you with one-tap choices, and your run waits until it is answered.
 2. **Anything else that stops you** (a missing key, an outage, access you do not have): `update_run` with `blocked: true` (or `status: "blocked"`) and `blocked_reason`, one line a person reads. The run waits, its managers are told, and it shows on Needs you for its managers and the people on its task until it moves.
 3. **It clears when the run moves:** any update from you without `status: "waiting"` (back to running), a finish, or `blocked: false`. Saving `resume_notes` alone keeps it blocked.
+4. **No run to mark?** `add_task_comment` with `blocked: true` (or a comment starting `[BLOCKED]`, the older way) shows on Needs you for the task's assignees and creator and your managers, who answer with a reply on the task. It leaves when a person comments after it, you comment again, or the task's status changes. Prefer 1 and 2: they carry choices, wait your run and come back to you as an answer.
 
 `run.updated` carries `blocked`, so a host sees it too.
 
@@ -315,6 +316,7 @@ A new company agent (hired, or added with create_agent) starts with safe default
 | `409 CONFLICT` | `limit_concurrent_runs` | Too many runs going at once. | Finish one first. |
 | `409 CONFLICT` | `limit_concurrent_claims` | Too many claimed tasks at once (same number as runs). | Finish or release one. |
 | `429 RATE_LIMIT_EXCEEDED` | | Over the requests-per-minute limit (120 per key unless the agent has its own, shared across its keys). | Back off. `Retry-After` says how many seconds (MCP: `retry_after_seconds`). |
+| `429 RATE_LIMIT_EXCEEDED` | `too_many_bad_keys` | Your address sent 300 keys that matched no live key within 5 minutes, so every key from it is refused until the window ends, before it is looked up. | Fix the key (use it exactly as it was shown), then wait `Retry-After` seconds. |
 | `423 AGENTS_PAUSED` | `agents_paused` | An Owner paused every agent. | Stop starting work. Check again later. |
 | `423 AGENT_PAUSED` | `agent_paused` | This agent is paused. | Same. |
 | `423 ASSISTANTS_OFF` | `assistants_off` | A personal assistant, while an Owner has assistants switched off. | Same. |

@@ -36,14 +36,12 @@ import { webhookRetriesRead } from '@/components/settings/secrets-data';
 import { useRead } from '@/lib/query-cache';
 import { assistantSetupsRead } from '@/lib/reads';
 import type { AssistantSetupView } from '@/lib/assistant';
-import { generateWebhookSecret } from '@/lib/webhooks/sign';
 import {
   deliveryDetailLine, endpointHealth, eventSummary, hasInvoiceEvents, webhookFields, webhookSaveError, CHAT_WEBHOOK_EVENTS, ENDPOINT_HEALTH_DELIVERIES,
   type EndpointHealth,
 } from '@/lib/developers-settings';
 import {
   fetchWebhookEndpoints,
-  insertWebhookEndpoint,
   updateWebhookEndpoint,
   deleteWebhookEndpoint,
   fetchWebhookDeliveries,
@@ -117,7 +115,7 @@ function deleteMessage(endpoint: WebhookEndpoint): string {
  * one dialog to add or edit one, and the recent deliveries with resend,
  * filtered to one endpoint from its row.
  */
-export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null }) {
+export function WebhooksPanel() {
   const supabase = createClient();
   const { projects, team } = useApp();
   const { access } = useAuth();
@@ -224,10 +222,15 @@ export function WebhooksPanel({ teamMemberId }: { teamMemberId: string | null })
         toast('success', 'Webhook endpoint saved');
         return null;
       }
-      const secret = generateWebhookSecret();
-      const created = await insertWebhookEndpoint(supabase, { ...fields, secret, created_by: teamMemberId });
+      // Made on the server, so the signing secret is stored encrypted.
+      const res = await fetch('/api/workspace/webhook-endpoints', {
+        method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify(fields),
+      });
+      const answer = await res.json().catch(() => null);
+      if (!res.ok) throw Object.assign(new Error(answer?.error?.message ?? ''), { code: answer?.error?.details?.reason ?? answer?.error?.code });
+      const created = answer.data.endpoint as WebhookEndpoint;
       setEndpoints((prev) => [created, ...prev]);
-      return secret;
+      return answer.data.secret as string;
     } catch (e) {
       console.error('Failed to save webhook', e);
       // The database's own rules (chat, setup scope, permission) say what to change; anything else asks to try again.

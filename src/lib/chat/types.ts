@@ -162,11 +162,30 @@ export const SLACK_SIGNING_SECRET_SHAPE = { pattern: /^[A-Za-z0-9]{16,128}$/, me
 /** A connection with no message in this many days reads Quiet instead of Connected. */
 export const CHAT_CONNECTED_DAYS = 14;
 
+/** How often a Discord relay checks in (relay/discord/relay.mjs sends RELAY_HEARTBEAT). */
+export const RELAY_HEARTBEAT_SECONDS = 300;
+/** A relay that has checked in before and then says nothing for this long has stopped: three heartbeats missed. */
+export const RELAY_SILENT_MINUTES = 15;
+
+/**
+ * A relay that checks in (relay_seen_at set) but has said nothing, heartbeat
+ * or message, for longer than RELAY_SILENT_MINUTES: it has stopped. A relay
+ * that never sent a heartbeat (older than this release) is never silent.
+ */
+export function relaySilent(connection: Pick<ChatConnectionView, 'last_inbound_at' | 'relay_seen_at'>, now = Date.now()): boolean {
+  const seen = connection.relay_seen_at ? Date.parse(connection.relay_seen_at) : NaN;
+  if (!Number.isFinite(seen)) return false;
+  const heard = connection.last_inbound_at ? Date.parse(connection.last_inbound_at) : NaN;
+  const last = Number.isFinite(heard) ? Math.max(seen, heard) : seen;
+  return now - last > RELAY_SILENT_MINUTES * 60_000;
+}
+
 /**
  * A connection's status, honestly, for the Owner's list:
  * - off: switched off.
  * - not_receiving: the provider's last request failed the check (a wrong
- *   signing secret, an old relay secret), and nothing verified came after it.
+ *   signing secret, an old relay secret), and nothing verified came after
+ *   it; or a Discord relay that checks in went silent (relaySilent).
  * - waiting: nothing verified heard yet (Discord: the relay's hello).
  * - needs_agents: a company connection with no agents chosen.
  * - connected: a verified request within CHAT_CONNECTED_DAYS.
@@ -174,11 +193,12 @@ export const CHAT_CONNECTED_DAYS = 14;
  */
 export type ChatConnectionHealth = 'off' | 'not_receiving' | 'waiting' | 'needs_agents' | 'connected' | 'quiet';
 
-export function chatConnectionHealth(connection: Pick<ChatConnectionView, 'enabled' | 'kind' | 'agents' | 'last_inbound_at' | 'last_refused_at'>, now = Date.now()): ChatConnectionHealth {
+export function chatConnectionHealth(connection: Pick<ChatConnectionView, 'enabled' | 'kind' | 'agents' | 'last_inbound_at' | 'last_refused_at' | 'relay_seen_at'>, now = Date.now()): ChatConnectionHealth {
   if (!connection.enabled) return 'off';
   const heard = connection.last_inbound_at ? new Date(connection.last_inbound_at).getTime() : null;
   const refused = connection.last_refused_at ? new Date(connection.last_refused_at).getTime() : null;
   if (refused !== null && (heard === null || refused > heard)) return 'not_receiving';
+  if (relaySilent(connection, now)) return 'not_receiving';
   if (heard === null) return 'waiting';
   if (connection.kind === 'company' && connection.agents.length === 0) return 'needs_agents';
   return now - heard <= CHAT_CONNECTED_DAYS * 86_400_000 ? 'connected' : 'quiet';
@@ -240,6 +260,12 @@ export interface ChatConnectionView {
   last_inbound_at: string | null;
   /** The last request that failed the provider's check (a wrong signing secret, an old relay secret), or null. */
   last_refused_at: string | null;
+  /**
+   * Discord: the relay's last heartbeat (every RELAY_HEARTBEAT_SECONDS), or
+   * null while its relay sends none (an older relay). Once set, silence past
+   * RELAY_SILENT_MINUTES reads not_receiving.
+   */
+  relay_seen_at?: string | null;
   /**
    * Discord only, and only in the answer that made it (connecting, or
    * new_relay_secret): the secret the relay signs with (PM_RELAY_SECRET).

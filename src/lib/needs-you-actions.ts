@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { createClient } from '@/lib/supabase/client';
 import { invalidateTables, peekRead, setReadData } from '@/lib/query-cache';
-import { decidedQuestionsRead, mySnoozesRead, openQuestionsRead } from '@/lib/reads';
+import { blockedCommentsRead, decidedQuestionsRead, mySnoozesRead, openQuestionsRead } from '@/lib/reads';
 import { demoDecidedQuestions } from '@/lib/demo-agents-home';
 import { demoMarkDone, demoMarkRead, demoSnooze, demoUnsnooze } from '@/lib/demo-notifications';
 import type { QuestionView } from '@/lib/questions';
@@ -16,7 +16,7 @@ import type { AiReadiness } from '@/lib/types';
 /**
  * The one action layer for what waits on a person: answer a question,
  * approve or reject an approval, withdraw one, accept or decline a
- * suggestion, snooze anything, and mark notifications read or done. Every
+ * suggestion, reply to an agent stuck on a task, snooze anything, and mark notifications read or done. Every
  * surface (a question card, Needs you rows, My Tasks, the notifications
  * page, later the bell's popover) acts through these, so each action has
  * one behaviour everywhere. Headless: no markup, no toasts.
@@ -120,6 +120,8 @@ export interface NeedsYouActions {
   acceptSuggestion: (id: string, overrides?: SuggestionOverrides) => Promise<ActionResult<true>>;
   /** Declines a suggestion: quietly, or with a reason the agent learns from. */
   declineSuggestion: (id: string, reason?: string) => Promise<ActionResult<true>>;
+  /** Replies to an agent's blocked comment on its task: the reply answers it, so it leaves Needs you. */
+  replyToBlocked: (block: { taskId: string; commentId: string }, text: string) => Promise<ActionResult<true>>;
   /** Hides an item until a time. */
   snooze: (kind: SnoozeKind, id: string, until: Date) => Promise<ActionResult<Snooze>>;
   /** Brings a snoozed item back now. */
@@ -139,22 +141,24 @@ export interface ActionDeps {
   approveSuggestion: (id: string, overrides: SuggestionOverrides, reviewedBy: string) => Promise<boolean>;
   declineSuggestion: (id: string, reviewedBy: string) => Promise<boolean>;
   rejectSuggestion: (id: string, reason: string | undefined, reviewedBy: string) => Promise<boolean>;
+  /** The store's comment write (optimistic on the task; answers whether the server kept it). */
+  addComment: (taskId: string, text: string, userId: string) => Promise<boolean>;
 }
 
 /** The action layer for the signed-in person. */
 export function useNeedsYouActions(): NeedsYouActions {
-  const { approveSuggestion, declineSuggestion, rejectSuggestion } = useApp();
+  const { approveSuggestion, declineSuggestion, rejectSuggestion, addComment } = useApp();
   const { teamMemberId } = useAuth();
   const { isDemoMode } = useDemo();
   return useMemo(
-    () => createNeedsYouActions({ isDemoMode, teamMemberId: teamMemberId ?? null, approveSuggestion, declineSuggestion, rejectSuggestion }),
-    [approveSuggestion, declineSuggestion, rejectSuggestion, teamMemberId, isDemoMode],
+    () => createNeedsYouActions({ isDemoMode, teamMemberId: teamMemberId ?? null, approveSuggestion, declineSuggestion, rejectSuggestion, addComment }),
+    [approveSuggestion, declineSuggestion, rejectSuggestion, addComment, teamMemberId, isDemoMode],
   );
 }
 
 /** The actions, outside React (the hook memoizes them; tests call this directly). */
 export function createNeedsYouActions(deps: ActionDeps): NeedsYouActions {
-  const { isDemoMode, teamMemberId, approveSuggestion, declineSuggestion, rejectSuggestion } = deps;
+  const { isDemoMode, teamMemberId, approveSuggestion, declineSuggestion, rejectSuggestion, addComment } = deps;
   const decideQuestion = async (question: QuestionView, body: { choice?: string; text?: string }, options: ActionOptions = {}): Promise<ActionResult<QuestionView>> => {
     if (isDemoMode) return { status: 'done', data: demoDecide(question, teamMemberId ?? null, body) };
     const restore = options.optimistic === false ? null : removeOpenQuestion(false, question.id);
@@ -203,6 +207,22 @@ export function createNeedsYouActions(deps: ActionDeps): NeedsYouActions {
         ? await rejectSuggestion(id, reason.trim(), teamMemberId || '')
         : await declineSuggestion(id, teamMemberId || '');
       return ok ? { status: 'done', data: true } : { status: 'failed', message: 'Could not decline the suggestion' };
+    },
+    replyToBlocked: async ({ taskId, commentId }, text) => {
+      const words = text.trim();
+      if (!words) return { status: 'failed', message: 'Write a reply first' };
+      if (!teamMemberId) return { status: 'failed', message: 'Sign in to reply' };
+      // The demo works its blocks out from its tasks, so the reply itself clears it there.
+      const read = isDemoMode ? null : blockedCommentsRead();
+      const before = read ? peekRead(read) : undefined;
+      if (read) setReadData(read, (list) => (list ?? []).filter((b) => b.comment_id !== commentId));
+      const ok = await addComment(taskId, words, teamMemberId);
+      if (!ok) {
+        if (read) setReadData(read, () => before ?? []);
+        return { status: 'failed', message: 'Could not send the reply' };
+      }
+      if (read) invalidateTables(['task_comments']);
+      return { status: 'done', data: true };
     },
     snooze: async (kind, id, until) => {
       const snooze: Snooze = { item_kind: kind, item_id: id, until: until.toISOString() };

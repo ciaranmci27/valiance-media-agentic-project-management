@@ -9,6 +9,41 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.53 (2026-11-27)
+
+### Added
+- **Notifications center.** Notifications has Needs you, Updates and Done. Every question, approval, stuck agent, review and suggestion waiting on you is answered in place, saying how long it has waited ("Waiting on you 6 h"). Updates open in place and can be marked done, with Undo.
+- **The bell.** Notifications in the sidebar opens the top of Needs you with its buttons and the latest Updates (a sheet on phones), with See all. Its badge is one number: what needs you plus unread Updates.
+- **Blocked comments.** An agent's comment with `blocked: true` (REST `POST /api/v1/tasks/:id/comments`, MCP `add_task_comment`), or starting "[BLOCKED]", waits in Needs you for the task's assignees and creator and the agent's managers. Reply answers it in place. It leaves when a person replies, the agent comments again, or the task moves.
+- `GET /api/v1/notifications` takes `view=unread` and keyset paging (`before` = `meta.next_cursor`); MCP `list_notifications` takes the same.
+- **Email setup over the API and MCP:** shared inboxes, your addresses and domains, the relay domain, the MX check, your own inbox (`/api/v1/me/inboxes`), and a project's own addresses, sender domains and sender addresses, with the app's permissions.
+- Your notification choices over the API and MCP (`/api/v1/me/notification-preferences`).
+- Uploads over the API: the brand's logos, an agent's picture, a person's picture and a contact's photo; `remove_brand_logo` over MCP.
+- Over the API and MCP: what revoking a key takes with it, what a group controls, a member's profile, AI provider plans, and the IPs left out of portal analytics.
+- Resend invite over the API and MCP (the link only goes to the person's inbox). An Owner changes someone's sign-in email; you change your own over REST with your current password.
+- `give_beyond_role` on making and editing an agent's key: an Owner gives a company agent a power its role lacks, as its Access tab does, logged.
+- **Guessing API keys is limited per address.** After 300 different keys that match nothing within 5 minutes from one address, its requests get `429 too_many_bad_keys` until the window ends (`Retry-After` says how long). The same wrong key sent again counts once, so an agent retrying a revoked key never locks out other agents on its server. On Vercel the address is Vercel's own; elsewhere it is `x-real-ip` from your proxy.
+- **The Discord relay (1.1.0) checks in every 5 minutes.** A relay quiet for 15 minutes reads Not receiving. Chat connections answer `relay_seen_at`.
+
+### Changed
+- An approval with a long list of details shows every row before Approve works. A second tap on Approve or a choice never decides twice.
+- Needs you counts blocked comments as stuck work everywhere (AI home, bell, page, My Tasks), from the database rather than the tasks the browser holds.
+- Pages send a Content-Security-Policy with a per-request script nonce and `'strict-dynamic'`. The client portal is unchanged.
+- Settings > Developers creates webhook endpoints on the server, so their secret is stored encrypted.
+- `npm run test:e2e` retries a request while the local dev server is still compiling.
+
+### Database
+- `20261127002600_chat_relay_heartbeat.sql`: when a Discord relay last checked in (`chat_connections.relay_seen_at`).
+- `20261127002700_notifications_center.sql`: blocked comments with the task status they were raised at, who they wait on, and the count of each Updates view.
+
+### Breaking
+- **An agent replacing its own key keeps the old key 1 hour at most** (default 1 hour, was 24; longer asks are cut to 1). Switch to the new key within the hour. Owners rotating an agent's key keep their choice.
+- **Without `APP_ENCRYPTION_KEY`, new webhook endpoints and new signing secrets are refused** (`409 encryption_key_missing`). Add the key to make or rotate webhooks; existing ones keep working.
+- A key that is not an agent's sending `blocked: true` on a comment gets `422 blocked_agents_only`. Agents see no other change: "[BLOCKED]" keeps working.
+- An uploaded HTML file previewed in the app runs its `<script>` tags but not inline event handlers (`onclick=`).
+- **Custom scripts need the page's nonce.** An install's own inline or third-party `<script>` (in `src/custom` or `next.config`) that carries no nonce no longer runs. Load scripts with `next/script` (Next adds the nonce) or read it from the `x-nonce` request header.
+- Relay operators: update the Discord relay to 1.1.0 to get stop detection. Older relays are not flagged.
+
 ## 2.0.52 (2026-11-27)
 
 ### Changed

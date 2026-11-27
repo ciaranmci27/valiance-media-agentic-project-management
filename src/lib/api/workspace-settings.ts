@@ -98,7 +98,7 @@ export function auditSettingsForKey(
  * Expires a cached read (brand, region). Outside a Next.js request, such as a
  * script or test calling a handler directly, there is no cache to expire.
  */
-function expireCache(expire: () => void): void {
+export function expireCache(expire: () => void): void {
   try {
     expire();
   } catch (error) {

@@ -175,7 +175,7 @@ export const ASSISTANTS_TOOLS: PmTool[] = [
   routeTool({
     name: 'list_chat_connections',
     lead: 'List chat app connections and their health.',
-    detail: "An Owner's key with team.manage, as Settings > Assistants > Chat apps. Each: id, provider, kind (personal or company), display_name, bot_handle, enabled, health (off, not_receiving, waiting, needs_agents, connected, quiet), inbound_url, last_inbound_at, last_refused_at; a company one also agents (the default first), channels (mapped, with listen), candidates (company agents and whether they may act for people) and recent_channels (heard, not mapped yet). Never a token or secret. Connecting an app or replacing its token is done in the app only.",
+    detail: "An Owner's key with team.manage, as Settings > Assistants > Chat apps. Each: id, provider, kind (personal or company), display_name, bot_handle, enabled, health (off, not_receiving, waiting, needs_agents, connected, quiet), inbound_url, last_inbound_at, last_refused_at, Discord relay_seen_at (its last heartbeat); a company one also agents (the default first), channels (mapped, with listen), candidates (company agents and whether they may act for people) and recent_channels (heard, not mapped yet). Never a token or secret. Connecting an app or replacing its token is done in the app only.",
     input: z.object({}).strict(),
     permission: 'team.manage',
     module: 'agents',

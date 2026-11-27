@@ -1,12 +1,29 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { notFound } from '@/lib/api/errors';
-import { revokeKeyTree } from '@/lib/api/key-revoke';
+import { previewKeyTree, revokeKeyTree } from '@/lib/api/key-revoke';
 import { assertNotOwnerProtected } from '@/lib/api/key-manage';
 import { currentApiVia } from '@/lib/api/request-context';
 import { API_KEY_COLUMNS } from '@/lib/supabase/queries';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * What revoking this key would also take down, without revoking (Settings >
+ * Developers names them before the Revoke confirm): every live key it made
+ * over the API and, through rotation, the keys it replaced. Answers
+ * { also: [{ id, name, member_name }] }; empty when it took nothing with it.
+ *
+ * Permission: api_keys.manage_all.
+ */
+export const GET = withApi<unknown, { id: string }>(async ({ supabase, params }) => {
+  if (!UUID.test(params.id)) throw notFound('API key');
+  const { data: found, error } = await supabase.from('api_keys').select('id, permissions').eq('id', params.id).maybeSingle();
+  if (error) throw error;
+  // A connected app's key is not a key here (Settings > Account disconnects it).
+  if (!found || found.permissions === 'connection') throw notFound('API key');
+  return success({ also: await previewKeyTree(supabase, params.id) });
+}, { permission: 'api_keys.manage_all' });
 
 /**
  * Revokes a key, as Settings > Developers does for a holder of

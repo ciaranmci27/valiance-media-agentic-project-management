@@ -87,6 +87,7 @@ export function presentConnection(row: Row, appUrl: string, extras: {
     inbound_url: chatInboundUrl(appUrl, row.id),
     last_inbound_at: row.last_inbound_at ?? null,
     last_refused_at: row.last_refused_at ?? null,
+    ...(row.provider === 'discord' ? { relay_seen_at: row.relay_seen_at ?? null } : {}),
     created_at: row.created_at,
     agents: extras.agents ?? [],
     channels: extras.channels ?? [],
@@ -105,6 +106,16 @@ export function apiConnectionView(view: ChatConnectionView): Omit<ChatConnection
   const { relay_secret: _secret, ...rest } = view;
   void _secret;
   return { ...rest, health: chatConnectionHealth(rest) };
+}
+
+/** Each Discord connection's last relay heartbeat (20261127002600); none on a database before it. */
+async function relaySeenOf(service: SupabaseClient, ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (ids.length === 0) return out;
+  const { data, error } = await service.from('chat_connections').select('id, relay_seen_at').in('id', ids).not('relay_seen_at', 'is', null);
+  if (error) return out;
+  for (const row of (data ?? []) as Row[]) out.set(row.id as string, row.relay_seen_at as string);
+  return out;
 }
 
 /** Each connection's last refused request (20261127000100); none on a database before it. */
@@ -222,12 +233,13 @@ export async function listChatConnections(service: SupabaseClient, access: Acces
   if (error) fail(error);
   const rows = (data ?? []) as Row[];
   const company = rows.filter((row) => connectionKind(row) === 'company').map((row) => row.id as string);
-  const [agents, channels, refusals, candidates] = await Promise.all([
-    agentsOf(service, company), routesOf(service, company), refusalsOf(service, rows.map((row) => row.id as string)),
+  const discord = rows.filter((row) => row.provider === 'discord').map((row) => row.id as string);
+  const [agents, channels, refusals, relaySeen, candidates] = await Promise.all([
+    agentsOf(service, company), routesOf(service, company), refusalsOf(service, rows.map((row) => row.id as string)), relaySeenOf(service, discord),
     company.length ? companyCandidates(service) : Promise.resolve([]),
   ]);
   const recent = await recentChannelsOf(service, company, channels);
-  return rows.map((row) => presentConnection({ ...row, last_refused_at: refusals.get(row.id) ?? null }, appUrl, connectionKind(row) === 'company'
+  return rows.map((row) => presentConnection({ ...row, last_refused_at: refusals.get(row.id) ?? null, relay_seen_at: relaySeen.get(row.id) ?? null }, appUrl, connectionKind(row) === 'company'
     ? { agents: agents.get(row.id), channels: channels.get(row.id), candidates, recentChannels: recent.get(row.id) ?? [] }
     : {}));
 }
@@ -382,6 +394,8 @@ export async function updateChatConnection(
     if (error) fail(error);
     // Whatever was refused before belongs to the old secret.
     if (rotate || replacing) await service.from('chat_connections').update({ last_refused_at: null }).eq('id', id).then(() => undefined, () => undefined);
+    // A new relay secret: the old relay's heartbeats are over too, so it reads Waiting for relay, not silent.
+    if (rotate) await service.from('chat_connections').update({ relay_seen_at: null }).eq('id', id).then(() => undefined, () => undefined);
   }
   await audit(service, memberId, 'PATCH', id, {
     ...fields, ...(rotate ? { new_relay_secret: true } : {}), ...(botToken !== undefined ? { bot_token: 'replaced' } : {}), ...(signingSecret !== undefined ? { signing_secret: 'replaced' } : {}),

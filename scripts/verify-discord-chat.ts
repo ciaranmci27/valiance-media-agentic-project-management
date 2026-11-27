@@ -33,7 +33,7 @@ import { chatHttp, ChatProviderError, type ParsedInbound } from '../src/lib/chat
 import { discordAdapter, discordTiming, relaySignatureHeader, RELAY_SIGNATURE_HEADER } from '../src/lib/chat/providers/discord';
 import { routeCompany, type CompanyAgent } from '../src/lib/chat/inbound';
 import { webhookTransport } from '../src/lib/webhooks/target';
-import { CHAT_APPS, chatAppConnectable, createChatConnectionSchema, discordInviteUrl } from '../src/lib/chat/types';
+import { CHAT_APPS, chatAppConnectable, chatConnectionHealth, createChatConnectionSchema, discordInviteUrl } from '../src/lib/chat/types';
 import { signatureHeader as relaySigner, SIGNATURE_HEADER as RELAY_HEADER } from '../relay/discord/sign.mjs';
 
 const APP_KEY = 'e'.repeat(64);
@@ -348,6 +348,21 @@ async function main() {
       && (await connRow(personalId)).last_inbound_at === null, [unsigned, wrong, stale].map((a) => a.status));
     const heard = await post(personalId, hello, relay(personalSecret));
     check('door: the relay\'s hello is heard, so the row reads Connected', heard.status === 200 && heard.body?.status === 'ok' && (await connRow(personalId)).last_inbound_at !== null, heard.body);
+    check('heartbeat: a hello alone leaves relay_seen_at empty (an older relay is judged as before)', (await connRow(personalId)).relay_seen_at === null);
+    const beat = await post(personalId, { v: 1, t: 'RELAY_HEARTBEAT', d: { interval_seconds: 300 } }, relay(personalSecret));
+    const beaten = await connRow(personalId);
+    check('heartbeat: a signed heartbeat stamps relay_seen_at and last heard, records nothing', beat.status === 200 && beat.body?.status === 'ok' && beaten.relay_seen_at !== null
+      && beaten.last_inbound_at !== null && (await s.q('SELECT 1 FROM pm.chat_messages WHERE connection_id = $1', [personalId])).length === 0, { body: beat.body, beaten });
+    const forged = await post(personalId, { v: 1, t: 'RELAY_HEARTBEAT', d: {} }, relay(companySecret));
+    check('heartbeat: an unsigned or wrongly signed heartbeat is 401', forged.status === 401);
+    const listedNow = (await session(connectionsRoute.GET, 'GET', '/api/workspace/chat-connections')).body?.data?.connections.find((c: Loose) => c.id === personalId);
+    check('heartbeat: the list carries relay_seen_at and reads connected', !!listedNow?.relay_seen_at && chatConnectionHealth(listedNow) === 'connected', listedNow);
+    await s.q("UPDATE pm.chat_connections SET relay_seen_at = now() - interval '20 minutes', last_inbound_at = now() - interval '20 minutes' WHERE id = $1", [personalId]);
+    const silent = (await session(connectionsRoute.GET, 'GET', '/api/workspace/chat-connections')).body?.data?.connections.find((c: Loose) => c.id === personalId);
+    check('heartbeat: a relay quiet for 20 minutes after its heartbeats reads not_receiving', chatConnectionHealth(silent) === 'not_receiving', silent);
+    await post(personalId, { v: 1, t: 'RELAY_HEARTBEAT', d: { interval_seconds: 300 } }, relay(personalSecret));
+    const back = (await session(connectionsRoute.GET, 'GET', '/api/workspace/chat-connections')).body?.data?.connections.find((c: Loose) => c.id === personalId);
+    check('heartbeat: its next heartbeat reads connected again', chatConnectionHealth(back) === 'connected', back);
 
     // ── The personal bot ───────────────────────────────────────────────
     const dm = message({ guild_id: undefined, channel_id: '400000000000000001', content: 'Move my 3pm to Friday' });
@@ -438,8 +453,10 @@ async function main() {
       && !calls.some((call) => call.path.startsWith('/webhooks/') || call.path === `/channels/${FIN}/messages`), { dmReply: dmReply.body, calls });
 
     // ── A new relay secret ─────────────────────────────────────────────
+    await s.q('UPDATE pm.chat_connections SET relay_seen_at = now() WHERE id = $1', [companyId]);
     const renewed = await session(connectionRoute.PATCH, 'PATCH', `/api/workspace/chat-connections/${companyId}`, { id: companyId }, { new_relay_secret: true });
     const fresh = renewed.body?.data?.relay_secret as string;
+    check('relay secret: a new one clears the old relay\'s heartbeats, so it reads Waiting for relay, not silent', (await connRow(companyId)).relay_seen_at === null);
     const oldNow = await post(companyId, hello, relay(companySecret));
     const newNow = await post(companyId, hello, relay(fresh));
     check('relay secret: a new one is answered once; the old one stops working, the webhooks stay', renewed.status === 200 && /^rsec_/.test(fresh ?? '') && fresh !== companySecret

@@ -36,7 +36,7 @@ Discord needs one extra piece the others don't. A Discord bot hears ordinary mes
 3. In the app, choose Discord, paste the token and press **Connect**.
 4. Copy the **relay secret** (shown once) and the **relay address**. Lost the secret? **New relay secret** on the row makes another; the old one stops working.
 5. Invite the bot with **Invite the bot to your server**. It asks for View Channels, Send Messages, Read Message History, Send Messages in Threads and Manage Webhooks.
-6. Run the relay with `DISCORD_BOT_TOKEN`, `PM_INBOUND_URL` and `PM_RELAY_SECRET` (one Docker or Node command). The row reads **Waiting for relay** until the relay says hello, then **Connected**.
+6. Run the relay with `DISCORD_BOT_TOKEN`, `PM_INBOUND_URL` and `PM_RELAY_SECRET` (one Docker or Node command). The row reads **Waiting for relay** until the relay says hello, then **Connected**. It checks in every 5 minutes; a relay that goes quiet for 15 minutes reads **Not receiving** until it is back.
 
 Manage Webhooks lets each reply carry the agent's own name and avatar: the app makes one webhook per channel the first time an agent answers there and keeps it, encrypted, with the bot token. Without it, replies come from the bot with the agent's name in bold on the first line. A thread's messages count as its parent channel's, so a mapped channel's threads route the same way.
 

@@ -7,7 +7,8 @@ import { rotateApiKeySchema, type RotateApiKey } from '@/lib/schemas/api-keys';
 /**
  * Replaces a key with overlap: the successor (same member, scopes,
  * permissions and name; its secret in this answer only) and the old key,
- * which keeps working for overlap_hours (default 24, 0 to 168) and then
+ * which keeps working for overlap_hours (default 24, 0 to 168; an agent's
+ * own key 1 hour at most) and then
  * ends: refused as expired at once, then revoked. A key is replaced once.
  * Minting's rules apply (an Owner's key for an agent's key, scopes the
  * calling key carries); a harness key with assistants.provision rotates

@@ -8,12 +8,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { PGlite } from '@electric-sql/pglite';
 import { NextRequest } from 'next/server';
-import { startFakePostgrest } from '../fake-postgrest';
+import { startFakePostgrest, type ExtraHandler } from '../fake-postgrest';
+import { FakeStorage } from '../inbound-email-fixtures';
 import { createFullSchemaDatabase } from '../full-schema-db';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- response bodies are read loosely in checks
 export type Json = { success?: boolean; data?: any; meta?: any; error?: { code: string; message: string; details?: any } };
-export type Handler = (request: NextRequest, context: { params: Promise<Record<string, string>> }) => Promise<Response>;
+// Params typed never, so a route with typed params ({ id }) is a Handler too; call() hands them in as given.
+export type Handler = (request: NextRequest, context: { params: Promise<never> }) => Promise<Response>;
 
 export interface Members {
   owner: string;
@@ -40,6 +42,10 @@ export interface Harness {
   /** Tool names a key sees in tools/list. */
   toolNames: (key: string) => Promise<string[]>;
   check: (label: string, ok: boolean, detail?: unknown) => void;
+  /** Supabase Storage behind the same server (uploads land in storage.objects). */
+  storage: FakeStorage;
+  /** An area's stand-in for Supabase Auth (/auth/v1/...), or null for none. */
+  setAuth: (handler: ExtraHandler | null) => void;
 }
 
 const hash = (key: string) => createHash('sha256').update(key).digest('hex');
@@ -68,8 +74,14 @@ export async function createHarness(check: Harness['check']): Promise<Harness & 
   const agent = (await db.query<{ id: string }>("INSERT INTO pm.team_members (name, email, role) VALUES ('Alexa', 'alexa@agents.invalid', 'agent') RETURNING id")).rows[0].id;
   const personal = (await db.query<{ id: string }>("INSERT INTO pm.team_members (name, email, role, delegate_of, assistant_template) VALUES ('Max''s Assistant', 'max-assistant@agents.invalid', 'agent', $1, 'personal-assistant') RETURNING id", [member])).rows[0].id;
 
-  const server = await startFakePostgrest(db);
+  const storage = new FakeStorage();
+  let auth: ExtraHandler | null = null;
+  const server = await startFakePostgrest(db, {
+    handle: async (request, response, url) => (auth && url.pathname.startsWith('/auth/v1/') ? auth(request, response, url) : storage.handler(request, response, url)),
+  });
   Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key' });
+  // New webhook signing secrets are only stored encrypted (lib/webhooks/secret.ts).
+  process.env.APP_ENCRYPTION_KEY = 'e'.repeat(64);
 
   const q = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) => {
     await db.exec('RESET ROLE');
@@ -86,7 +98,7 @@ export async function createHarness(check: Harness['check']): Promise<Harness & 
       method,
       headers: { 'x-api-key': secret, 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
-    }), { params: Promise.resolve(params) });
+    }), { params: Promise.resolve(params) as Promise<never> });
     const text = await response.text();
     return { status: response.status, json: (text ? JSON.parse(text) : {}) as Json };
   };
@@ -111,7 +123,7 @@ export async function createHarness(check: Harness['check']): Promise<Harness & 
 
   return {
     db, members: { owner, admin, member, agent, personal }, ownerUser: OWNER_USER, memberUser: MEMBER_USER,
-    q, key, call, tool, toolNames, check,
+    q, key, call, tool, toolNames, check, storage, setAuth: (handler) => { auth = handler; },
     close: async () => { await server.close?.(); await db.close(); },
   };
 }

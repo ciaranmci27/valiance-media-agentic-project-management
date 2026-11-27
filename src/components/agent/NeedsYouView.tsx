@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
-import { Check, CheckCircle2, Eye, GitMerge, Lightbulb, Mail, MessageSquareWarning, X, Zap } from 'lucide-react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { Check, CheckCircle2, Eye, GitMerge, Lightbulb, Mail, MessageSquareWarning, Send, X, Zap } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -14,7 +14,8 @@ import { answerLine, decisionLine } from '@/lib/questions';
 import { getReviewProfile } from '@/lib/autonomy';
 import type { AgentNeedsYou } from '@/lib/agents-tab';
 import { windowOf, showMoreLabel } from '@/lib/agents-ui';
-import { companyHubItems, waitedWords, type BlockedCommentItem, type HubItem } from '@/lib/ai-home';
+import { companyHubItems, waitedWords, type HubItem } from '@/lib/ai-home';
+import { Textarea } from '@/components/ui/inputs/Textarea';
 import type { AssistantDraft } from '@/lib/assistant';
 import { timeAgo } from '@/lib/task-times';
 import { formatFull } from '@/lib/time-format';
@@ -39,13 +40,15 @@ import { AgentAvatar } from '@/components/agent/AgentAvatar';
  * approvals answer in one tap (a choice, Approve, Reject; the rest behind
  * More), stuck work opens its task, finished work opens its review, a
  * suggestion is Approve or Decline, a reply draft opens in the Inbox. Each
- * row names the agent, how long it has waited and what it unblocks. Stuck
- * work an agent only reported as a "[BLOCKED]" comment lands here too until
- * agents report blocks themselves.
+ * row names the agent, how long it has waited on you and what it unblocks.
+ * An agent that said it is stuck in a blocked comment is answered with
+ * Reply, in place: the reply goes on the task and the row leaves.
  *
  * The rows are exactly the items the AI home counts (companyHubItems or
  * myHubItems in lib/ai-home), so the list, its badge and the sidebar agree.
- * `compact` is one agent's slice on its page: no card, no Decided.
+ * `compact` is one agent's slice on its page: no card, no Decided. `bare` is
+ * the Notifications page's list: rows in a glass card, no header. `limit`
+ * with `dense` is the bell's: the first few rows, tighter, nothing around them.
  */
 export function useAgentNeedsYou(): AgentNeedsYou {
   return useNeedsYou().agents;
@@ -54,14 +57,13 @@ export function useAgentNeedsYou(): AgentNeedsYou {
 type Row = HubItem & (
   | { kind: 'approval' | 'question'; payload: { question: AgentNeedsYou['questions'][number] } }
   | { kind: 'blocked'; payload: { blocked: AgentNeedsYou['blocked'][number] } }
-  | { kind: 'blocked_comment'; payload: { comment: BlockedCommentItem } }
   | { kind: 'merge' | 'review'; payload: { review: AgentNeedsYou['inReview'][number] } }
   | { kind: 'suggestion'; payload: { suggestion: AgentNeedsYou['pendingSuggestions'][number] } }
   | { kind: 'draft'; payload: { draft: AssistantDraft } }
 );
 
 /** The rows behind the items, in the items' order; an item whose source is gone is left out. */
-function rowsOf(items: HubItem[], needs: AgentNeedsYou, comments: BlockedCommentItem[], drafts: AssistantDraft[]): Row[] {
+function rowsOf(items: HubItem[], needs: AgentNeedsYou, drafts: AssistantDraft[]): Row[] {
   const rest = (key: string) => key.slice(2);
   return items.flatMap((item): Row[] => {
     const id = rest(item.key);
@@ -74,10 +76,6 @@ function rowsOf(items: HubItem[], needs: AgentNeedsYou, comments: BlockedComment
       case 'blocked': {
         const blocked = needs.blocked.find((b) => b.task.id === id);
         return blocked ? [{ ...item, kind: 'blocked', payload: { blocked } }] : [];
-      }
-      case 'blocked_comment': {
-        const comment = comments.find((c) => c.task.id === id);
-        return comment ? [{ ...item, kind: 'blocked_comment', payload: { comment } }] : [];
       }
       case 'merge':
       case 'review': {
@@ -100,15 +98,19 @@ function rowsOf(items: HubItem[], needs: AgentNeedsYou, comments: BlockedComment
 const FIRST = 5;
 const STEP = 10;
 
-export function NeedsYouView({ needs, onOpenTask, compact = false, items: givenItems, comments = [], drafts = [], scope = 'company', onSeeAgents }: {
+export function NeedsYouView({ needs, onOpenTask, compact = false, bare = false, dense = false, limit, items: givenItems, drafts = [], scope = 'company', onSeeAgents }: {
   needs: AgentNeedsYou;
   onOpenTask: (taskId: string) => void;
   /** One agent's slice on its page: rows only, a short empty line. */
   compact?: boolean;
+  /** The Notifications page: rows in a glass card with Show more, no header, no Decided. */
+  bare?: boolean;
+  /** Tighter rows (the bell). */
+  dense?: boolean;
+  /** Show only the first this many rows, nothing else around them (the bell). */
+  limit?: number;
   /** The items to show (lib/ai-home); left out, everything in `needs`. */
   items?: HubItem[];
-  /** Stuck work agents reported only as a "[BLOCKED]" comment. */
-  comments?: BlockedCommentItem[];
   /** Reply drafts the person's assistant wrote. */
   drafts?: AssistantDraft[];
   /** company: a manager's view of every agent (with Decided and the full suggestion queue); mine: one person's own asks. */
@@ -137,8 +139,37 @@ export function NeedsYouView({ needs, onOpenTask, compact = false, items: givenI
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const memberById = useMemo(() => new Map(team.map((m) => [m.id, m])), [team]);
-  const items = useMemo(() => givenItems ?? companyHubItems(needs, comments), [givenItems, needs, comments]);
-  const rows = useMemo(() => rowsOf(items, needs, comments, drafts), [items, needs, comments, drafts]);
+  const items = useMemo(() => givenItems ?? companyHubItems(needs), [givenItems, needs]);
+  const rows = useMemo(() => rowsOf(items, needs, drafts), [items, needs, drafts]);
+  /** Rows whose Reply box is open (an agent's blocked comment), and what is typed in each. */
+  const [replying, setReplying] = useState<ReadonlySet<string>>(() => new Set());
+  const [replies, setReplies] = useState<Record<string, string>>({});
+  const [sending, setSending] = useState<string | null>(null);
+  const [replyError, setReplyError] = useState<Record<string, string>>({});
+  const sendingRef = useRef(false);
+  const toggleReplying = (key: string) => setReplying((now) => {
+    const next = new Set(now);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  });
+  const sendReply = async (key: string, block: { taskId: string; commentId: string }) => {
+    // One send per tap, however fast the second one comes.
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    setSending(key);
+    setReplyError((now) => ({ ...now, [key]: '' }));
+    const outcome = await actions.replyToBlocked(block, replies[key] ?? '');
+    sendingRef.current = false;
+    setSending(null);
+    if (outcome.status === 'done') {
+      setReplies((now) => ({ ...now, [key]: '' }));
+      toast('success', 'Reply sent');
+    } else {
+      setReplyError((now) => ({ ...now, [key]: outcome.message }));
+    }
+  };
+  const pad = dense ? 'px-3 py-2.5' : 'px-4 py-3 lg:px-5';
 
   const approveTarget = approveModalId ? taskSuggestions.find((s) => s.id === approveModalId) : undefined;
   const editTarget = editModalId ? taskSuggestions.find((s) => s.id === editModalId) : undefined;
@@ -166,7 +197,7 @@ export function NeedsYouView({ needs, onOpenTask, compact = false, items: givenI
    */
   const decisionRow = (row: Row, opts: {
     icon: ReactNode; title: string; context: string; taskId?: string | null; taskTitle?: string | null; unblocks?: boolean;
-    projectId?: string | null; action: ReactNode; details?: string | null;
+    projectId?: string | null; action: ReactNode; details?: string | null; below?: ReactNode;
   }) => {
     const agent = row.agentId ? memberById.get(row.agentId) : undefined;
     const project = opts.projectId ? projectById.get(opts.projectId) : undefined;
@@ -181,7 +212,7 @@ export function NeedsYouView({ needs, onOpenTask, compact = false, items: givenI
       </>
     );
     return (
-      <div className="flex items-start gap-3 px-4 py-3 lg:px-5">
+      <div className={`flex items-start gap-3 ${pad}`}>
         {avatarOf(row.agentId, opts.icon)}
         <div className="min-w-0 flex-1">
           <p className={`break-words text-sm font-medium text-white ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`} title={open ? undefined : opts.title}>{opts.title}</p>
@@ -204,6 +235,7 @@ export function NeedsYouView({ needs, onOpenTask, compact = false, items: givenI
           </p>
           {opts.details && open && <p id={detailsId} className="mt-1 whitespace-pre-wrap break-words text-sm text-zinc-300">{opts.details}</p>}
           <div className="mt-2 flex flex-wrap items-center gap-2">{actions}</div>
+          {opts.below}
         </div>
       </div>
     );
@@ -216,37 +248,53 @@ export function NeedsYouView({ needs, onOpenTask, compact = false, items: givenI
         const question = row.payload.question;
         const agent = memberById.get(question.asked_by);
         return (
-          <QuestionCard question={question} variant="hub" place onOpenTask={onOpenTask}
+          <QuestionCard question={question} variant="hub" dense={dense} place onOpenTask={onOpenTask}
             lead={agent ? <AgentAvatar id={agent.id} name={agent.name} src={agent.avatar || null} size="sm" /> : undefined} />
         );
       }
       case 'blocked': {
-        // The task panel shows the open question it raised (to answer there); an older block has none, so it just opens the task.
-        const { task, question, questionId } = row.payload.blocked;
+        // A block that raised a question opens the task to answer it there; a
+        // blocked comment is answered with Reply, in place; an older block
+        // just opens the task.
+        const { task, question, questionId, commentId } = row.payload.blocked;
         const [first, ...more] = (question || 'Waiting on a person').split('\n');
+        const replyOpen = !!commentId && replying.has(row.key);
+        const replyId = `needs-you-reply-${row.key}`;
+        const agentName = row.agentId ? memberById.get(row.agentId)?.name ?? 'the agent' : 'the agent';
         return decisionRow(row, {
           icon: <MessageSquareWarning size={16} className="text-red-300" aria-hidden="true" />,
-          title: first,
+          title: first.trim() || 'Stuck, waiting on a person',
           details: more.join('\n').trim() || null,
-          context: 'Stuck',
+          context: commentId ? 'Stuck, said on the task' : 'Stuck',
           taskId: task.id, taskTitle: task.title, unblocks: true,
           projectId: task.project_id,
-          // Answer is the one primary step; Open task is the same quiet button as on a comment row.
-          action: <Button size="sm" variant={questionId ? 'primary' : 'secondary'} onClick={() => onOpenTask(task.id)} {...warmTask(task.id)}>{questionId ? 'Answer' : 'Open task'}</Button>,
-        });
-      }
-      case 'blocked_comment': {
-        // Read-only until agents send a blocked state: the task holds the conversation.
-        const { task, comment, text } = row.payload.comment;
-        const rest = comment.text.split('\n').slice(1).join('\n').trim();
-        return decisionRow(row, {
-          icon: <MessageSquareWarning size={16} className="text-red-300" aria-hidden="true" />,
-          title: text || 'Stuck, said in a comment',
-          details: rest || null,
-          context: 'Stuck, said in a comment',
-          taskId: task.id, taskTitle: task.title, unblocks: true,
-          projectId: task.project_id,
-          action: <Button size="sm" variant="secondary" onClick={() => onOpenTask(task.id)} {...warmTask(task.id)}>Open task</Button>,
+          action: commentId ? (
+            <>
+              <Button size="sm" variant={replyOpen ? 'secondary' : 'primary'} aria-expanded={replyOpen} aria-controls={replyId} onClick={() => toggleReplying(row.key)}>{replyOpen ? 'Close reply' : 'Reply'}</Button>
+              <Button size="sm" variant="ghost" onClick={() => onOpenTask(task.id)} {...warmTask(task.id)}>Open task</Button>
+            </>
+          ) : (
+            // Answer is the one primary step; Open task is the same quiet button as on a comment row.
+            <Button size="sm" variant={questionId ? 'primary' : 'secondary'} onClick={() => onOpenTask(task.id)} {...warmTask(task.id)}>{questionId ? 'Answer' : 'Open task'}</Button>
+          ),
+          below: replyOpen && commentId ? (
+            <form id={replyId} className="mt-2 space-y-2" onSubmit={(e) => { e.preventDefault(); void sendReply(row.key, { taskId: task.id, commentId }); }}>
+              <Textarea
+                value={replies[row.key] ?? ''}
+                onChange={(value) => setReplies((now) => ({ ...now, [row.key]: value }))}
+                label={`Reply to ${agentName}`}
+                placeholder="Your answer goes on the task"
+                size="sm"
+                rows={2}
+                autoResize
+                autoFocus
+              />
+              {replyError[row.key] && <p className="text-xs text-red-300" role="alert">{replyError[row.key]}</p>}
+              <Button size="sm" type="submit" disabled={sending === row.key || !(replies[row.key] ?? '').trim()}>
+                <Send size={14} aria-hidden="true" />{sending === row.key ? 'Sending' : 'Send reply'}
+              </Button>
+            </form>
+          ) : undefined,
         });
       }
       case 'merge': {
@@ -303,7 +351,7 @@ export function NeedsYouView({ needs, onOpenTask, compact = false, items: givenI
 
   const list = (
     <ul className="divide-y divide-white/[0.06]">
-      {rows.slice(0, compact ? rows.length : shown).map((row) => <li key={row.key}>{renderRow(row)}</li>)}
+      {rows.slice(0, limit ?? (compact ? rows.length : shown)).map((row) => <li key={row.key}>{renderRow(row)}</li>)}
     </ul>
   );
 
@@ -344,6 +392,32 @@ export function NeedsYouView({ needs, onOpenTask, compact = false, items: givenI
       />
     </>
   );
+
+  if (limit !== undefined) {
+    // The bell: the rows alone; its own header, empty line and See all sit around them.
+    return <>{list}{modals}</>;
+  }
+
+  if (bare) {
+    return (
+      <>
+        {rows.length === 0 ? (
+          <EmptyState
+            framed
+            icon={<CheckCircle2 />}
+            title="Nothing needs you"
+            description="When an agent asks you something, wants an approval or gets stuck on your work, it lands here, answered in one tap."
+          />
+        ) : (
+          <div className="glass-card overflow-hidden rounded-xl">
+            {list}
+            <ShowMore shown={Math.min(shown, rows.length)} total={rows.length} step={STEP} onMore={() => setShown(shown + STEP)} noun="things waiting" className="border-t border-white/[0.06]" />
+          </div>
+        )}
+        {modals}
+      </>
+    );
+  }
 
   if (compact) {
     return (

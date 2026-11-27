@@ -36,6 +36,8 @@ import { inboxArea } from './parity/inbox';
 import { crmArea } from './parity/crm';
 import { moneyArea } from './parity/money';
 import { workArea } from './parity/work';
+import { emailArea } from './parity/email';
+import { settingsArea } from './parity/settings';
 
 const APP = join(__dirname, '..');
 
@@ -125,7 +127,7 @@ async function main() {
   try {
     // --area=<name> runs one area's behaviour checks (the static ones always run).
     const only = process.argv.find((arg) => arg.startsWith('--area='))?.slice(7);
-    const areas: Array<[string, (h: Harness) => Promise<void>]> = [['trash', trashArea], ['projects', projectsArea], ['workspace', workspaceArea], ['assistants', assistantsArea], ['notifications', notificationsArea], ['inbox', inboxArea], ['crm', crmArea], ['money', moneyArea], ['work', workArea]];
+    const areas: Array<[string, (h: Harness) => Promise<void>]> = [['trash', trashArea], ['projects', projectsArea], ['workspace', workspaceArea], ['assistants', assistantsArea], ['notifications', notificationsArea], ['inbox', inboxArea], ['crm', crmArea], ['money', moneyArea], ['work', workArea], ['email', emailArea], ['settings', settingsArea]];
     for (const [name, area] of areas.filter(([n]) => !only || n === only)) {
       const before = failures.length;
       try {

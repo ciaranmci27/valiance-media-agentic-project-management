@@ -126,6 +126,10 @@ export interface NeedsYouItem {
   /** blocked only: the run the agent marked blocked (structured, not read from comments), and its agent. */
   runId?: string;
   agentId?: string;
+  /** blocked only: the agent's blocked comment on the task, when that is how it said so. */
+  commentId?: string;
+  /** When it started waiting on a person, when known (the block, the comment). */
+  since?: string;
 }
 
 /**
@@ -133,6 +137,32 @@ export interface NeedsYouItem {
  * blocked and blocked_reason), as pm.my_blocked_runs answers it for the
  * signed-in person: only runs of agents they manage or on tasks they are on.
  */
+/**
+ * An agent's comment saying it is stuck on a task (blocked: true, or a
+ * "[BLOCKED]" start), as pm.my_blocked_comments answers it for the
+ * signed-in person: agents they manage, tasks they are assigned to or made.
+ * Only one not answered yet (no later comment from a person or the agent)
+ * on a task that has not moved since.
+ */
+export interface BlockedCommentSignal {
+  comment_id: string;
+  task_id: string;
+  task_title: string | null;
+  project_id: string | null;
+  agent_id: string;
+  agent_name: string | null;
+  text: string;
+  created_at: string;
+}
+
+/** The "[BLOCKED]" start an agent's comment may carry instead of the blocked flag. */
+export const BLOCKED_COMMENT_PREFIX = /^\s*\[blocked\]\s*:?\s*/i;
+
+/** A blocked comment's ask: without its prefix, first line only. */
+export function blockedCommentAsk(text: string): string {
+  return text.replace(BLOCKED_COMMENT_PREFIX, '').split('\n').map((line) => line.trim()).find(Boolean) ?? '';
+}
+
 export interface BlockedRunSignal {
   run_id: string;
   agent_id: string;
@@ -205,6 +235,8 @@ export function computeNeedsYou(input: {
   questions?: QuestionView[];
   /** Runs marked blocked that wait on the viewer (they manage the agent, or are on its task). */
   blockedRuns?: BlockedRunSignal[];
+  /** Agents' blocked comments that wait on the viewer (pm.my_blocked_comments). */
+  blockedComments?: BlockedCommentSignal[];
   /**
    * tasks and projects are the whole live workspace the viewer reads (loaded,
    * Trash left out), so a question naming a place they can open that is not
@@ -213,7 +245,7 @@ export function computeNeedsYou(input: {
    */
   placesLoaded?: boolean;
 }): NeedsYouItem[] {
-  const { tasks, suggestions, projects, teamMemberId, includeSuggestions, oversight, agentActivity = [], blockedRuns = [], placesLoaded = false } = input;
+  const { tasks, suggestions, projects, teamMemberId, includeSuggestions, oversight, agentActivity = [], blockedRuns = [], blockedComments = [], placesLoaded = false } = input;
   const questions = placesLoaded
     ? questionsOnLivePlaces(input.questions ?? [], tasks, projects)
     : input.questions ?? [];
@@ -260,6 +292,7 @@ export function computeNeedsYou(input: {
       kind: 'blocked',
       task,
       question: blockedReason(latest),
+      since: latest.created_at,
       ...(questionId ? { questionId } : {}),
     });
   }
@@ -273,7 +306,20 @@ export function computeNeedsYou(input: {
     const task = run.task_id ? tasksById.get(run.task_id) : undefined;
     if (!teamMemberId || !task || task.status === 'done' || blockedTasks.has(task.id)) continue;
     blockedTasks.add(task.id);
-    items.push({ kind: 'blocked', task, question: run.blocked_reason ?? '', runId: run.run_id, agentId: run.agent_id });
+    items.push({ kind: 'blocked', task, question: run.blocked_reason ?? '', runId: run.run_id, agentId: run.agent_id, since: run.blocked_at });
+  }
+
+  // An agent's comment saying it is stuck, until a person answers or the
+  // task moves (the older way to say it, and the one agents without runs
+  // have). Still one row per task: a block already listed is the same one.
+  for (const signal of [...blockedComments].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))) {
+    const task = tasksById.get(signal.task_id);
+    if (!teamMemberId || !task || task.status === 'done' || blockedTasks.has(task.id)) continue;
+    blockedTasks.add(task.id);
+    items.push({
+      kind: 'blocked', task, question: signal.text.replace(BLOCKED_COMMENT_PREFIX, ''),
+      agentId: signal.agent_id, commentId: signal.comment_id, since: signal.created_at,
+    });
   }
 
   // Agent PRs sitting in review: the build is done and the only remaining

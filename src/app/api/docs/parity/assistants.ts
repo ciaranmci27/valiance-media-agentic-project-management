@@ -72,7 +72,7 @@ export const ASSISTANTS_ENDPOINTS: EndpointDoc[] = [
   // Chat connections (Owner; connecting and secrets stay in the app)
   {
     method: 'GET', path: '/api/v1/chat/connections', group: 'Chat', scopes: OWNER,
-    description: "The workspace's chat connections, as Settings > Assistants > Chat apps lists them: id, provider, provider_label, kind (personal or company), display_name, external_workspace_id, bot_handle, enabled, health (off, not_receiving, waiting, needs_agents, connected, quiet), inbound_url, last_inbound_at, last_refused_at, created_at; a company one also agents (the default first), channels, candidates and recent_channels. Never a token or secret. Answers { connections }. Connecting an app or replacing its bot token, signing secret or relay secret is done in the app only. An Owner's key only (403 owner_only). MCP: list_chat_connections.",
+    description: "The workspace's chat connections, as Settings > Assistants > Chat apps lists them: id, provider, provider_label, kind (personal or company), display_name, external_workspace_id, bot_handle, enabled, health (off, not_receiving, waiting, needs_agents, connected, quiet), inbound_url, last_inbound_at, last_refused_at, created_at, and for Discord relay_seen_at (the relay's last heartbeat, null for a relay that sends none; a relay quiet for 15 minutes after one reads not_receiving); a company one also agents (the default first), channels, candidates and recent_channels. Never a token or secret. Answers { connections }. Connecting an app or replacing its bot token, signing secret or relay secret is done in the app only. An Owner's key only (403 owner_only). MCP: list_chat_connections.",
   },
   {
     method: 'PATCH', path: '/api/v1/chat/connections/:id', group: 'Chat', scopes: OWNER,

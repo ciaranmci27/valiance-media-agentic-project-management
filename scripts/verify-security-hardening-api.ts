@@ -217,7 +217,7 @@ async function main() {
   const s = await seed(db);
   const server = await startFakePostgrest(db, { handle: authStandIn() });
   Object.assign(process.env, {
-    NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'fake-anon-key',
+    NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key', APP_ENCRYPTION_KEY: 'e'.repeat(64), NEXT_PUBLIC_SUPABASE_ANON_KEY: 'fake-anon-key',
     NEXT_PUBLIC_APP_URL: 'https://pm.example.com',
   });
   installSession(server.url);

@@ -1,244 +1,155 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Bell, CheckSquare, FolderKanban, Target, MessageSquare, Users, Loader2, CheckCheck, Webhook, Repeat } from 'lucide-react';
-import { useDemo } from '@/lib/demo-context';
+import { useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Bell, CheckCheck, CheckCircle2 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
-import { Avatar } from '@/components/ui/Avatar';
-import type { NotificationEntityType } from '@/lib/types';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ShowMore } from '@/components/ui/ShowMore';
+import { SubNav } from '@/components/ui/Tabs';
+import { toast } from '@/components/ui/Toast';
+import { Skeleton } from '@/components/projects/TabLayout';
+import { NeedsYouView } from '@/components/agent/NeedsYouView';
+import { TaskDetailPanel } from '@/components/tasks/TaskDetailPanel';
+import { UpdateRow } from '@/components/notifications/UpdateRow';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
-import { formatAgo, formatFull } from '@/lib/time-format';
-import { peekRead, setReadData, useRead } from '@/lib/query-cache';
-import { fetchNotificationPage, notificationsRead, unreadNotificationsRead } from '@/lib/reads';
-import { useNeedsYouActions } from '@/lib/needs-you-actions';
-import { notificationSender, notificationSenderLabel, safeNotificationLink, type NotificationFeedView, type NotificationPage, type NotificationView } from '@/lib/notifications';
+import { useAiHub } from '@/lib/use-ai-hub';
+import { useUpdates } from '@/lib/use-updates';
+import { useTaskUrlParam } from '@/lib/use-task-url';
+import { notificationsSummary, notificationsView, safeNotificationLink, type NotificationView, type NotificationsView } from '@/lib/notifications';
 
-type FilterTab = 'all' | 'unread';
-
-function getEntityIcon(entityType: NotificationEntityType | null) {
-  switch (entityType) {
-    case 'task':    return CheckSquare;
-    case 'project': return FolderKanban;
-    case 'lead':    return Target;
-    case 'comment': return MessageSquare;
-    case 'member':  return Users;
-    case 'webhook': return Webhook;
-    case 'schedule': return Repeat;
-    default:        return Bell;
-  }
-}
-
-/** Later pages, kept under the first page they follow; a fresh first page drops them. */
-interface MorePages {
-  base: NotificationPage | undefined;
-  items: NotificationView[];
-  cursor: string | null;
-}
-
-const VIEWS: readonly NotificationFeedView[] = ['updates', 'unread'];
+/** How many Updates show at first, and how many each Show more adds. */
+const STEP = 24;
 
 /**
- * Updates: notifications about what happened, newest first. A notice that
- * announces something waiting on you (a question or approval asked, an
- * agent's findings, an inbox decision) is not listed here: that item is in
- * Needs you, counted once. The first page is a cached read (live sync
- * refreshes it); Load more reads the pages after it.
+ * Notifications: what needs you, and what happened.
+ *
+ * - Needs you: every question, approval, stuck agent, review and suggestion
+ *   waiting on this person, answered in place (the one Needs you, the same
+ *   rows and count as the AI home and the bell). Nothing here is marked
+ *   done: an item leaves when it is handled.
+ * - Updates: notices about what happened, newest first. Open one to read it
+ *   (it is marked read); Done clears it from the list, Done brings it back.
+ *   A notice that announces something in Needs you is never listed here.
  */
 export default function NotificationsPage() {
   const router = useRouter();
-  const { isDemoMode } = useDemo();
-  const { team } = useApp();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { team, tasks, deleteTask, restoreRecord } = useApp();
   const { teamMemberId } = useAuth();
-  const actions = useNeedsYouActions();
-  const [filter, setFilter] = useState<FilterTab>('all');
-  const view: NotificationFeedView = filter === 'unread' ? 'unread' : 'updates';
-  const first = useRead(notificationsRead(view, isDemoMode));
-  const unreadCount = useRead(unreadNotificationsRead(isDemoMode)).data ?? first.data?.unread ?? 0;
-  const [more, setMore] = useState<MorePages>({ base: undefined, items: [], cursor: null });
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const hub = useAiHub();
+  const needsCount = hub.all.length;
+  const view = notificationsView(searchParams.get('view'));
+  const updates = useUpdates(view === 'done' ? 'done' : 'updates');
+  const [shown, setShown] = useState(STEP);
+  const { taskId: viewingTaskId, openTask, closeTask } = useTaskUrlParam();
+  const viewingTask = viewingTaskId ? tasks.find((t) => t.id === viewingTaskId) ?? null : null;
 
-  // A refreshed or switched first page starts the list over, as a new notification should.
-  const current = more.base === first.data ? more : { base: first.data, items: [], cursor: first.data?.next_cursor ?? null };
-  const notifications = [...(first.data?.items ?? []), ...current.items];
-  const isLoading = first.loading;
-  const hasMore = !!current.cursor && !isDemoMode;
-
-  const loadMore = async () => {
-    if (isLoadingMore || !current.cursor) return;
-    setIsLoadingMore(true);
-    try {
-      const page = await fetchNotificationPage(view, current.cursor);
-      setMore({ base: first.data, items: [...current.items, ...page.items], cursor: page.next_cursor });
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
-    } finally {
-      setIsLoadingMore(false);
-    }
+  const setView = (next: NotificationsView) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('view', next);
+    params.delete('task');
+    setShown(STEP);
+    router.replace(`${pathname}?${params}`, { scroll: false });
   };
 
-  // Shown at once on every cached list and the count; the write then refreshes them.
-  const markLocally = (read: (n: NotificationView) => boolean) => {
-    const update = (list: NotificationView[]) => list.map((n) => (read(n) ? { ...n, is_read: true } : n));
-    for (const v of VIEWS) {
-      const cached = notificationsRead(v, isDemoMode);
-      const page = peekRead(cached);
-      if (!page) continue;
-      setReadData(cached, () => ({ ...page, items: v === 'unread' ? page.items.filter((n) => !read(n)) : update(page.items) }));
-    }
-    // Pages loaded after the first one stay, under the first page as it now reads.
-    const base = first.data;
-    const nextBase = peekRead(notificationsRead(view, isDemoMode));
-    setMore((m) => (m.base && m.base === base ? { base: nextBase, items: update(m.items), cursor: m.cursor } : m));
-  };
-
-  const handleMarkAsRead = async (id: string) => {
-    markLocally((n) => n.id === id);
-    setReadData(unreadNotificationsRead(isDemoMode), (n) => Math.max(0, (n ?? 0) - 1));
-    await actions.markRead([id]);
-  };
-
-  const handleMarkAllAsRead = async () => {
-    if (unreadCount === 0) return;
-    markLocally(() => true);
-    setReadData(unreadNotificationsRead(isDemoMode), () => 0);
-    await actions.markRead('all');
-  };
-
-  const handleNotificationClick = async (notification: NotificationView) => {
-    if (!notification.is_read) await handleMarkAsRead(notification.id);
+  const open = async (n: NotificationView) => {
+    void updates.markRead(n.id);
     // Only a path in this app is followed, whatever the row holds.
-    const link = safeNotificationLink(notification.link);
+    const link = safeNotificationLink(n.link);
     if (link) router.push(link);
   };
 
-  const tabs: { id: FilterTab; label: string }[] = [
-    { id: 'all', label: 'All' },
-    { id: 'unread', label: 'Unread' },
-  ];
+  const done = async (n: NotificationView) => {
+    const toDone = view !== 'done';
+    if (!(await updates.setDone(n.id, toDone))) {
+      toast('error', toDone ? 'Could not mark it done' : 'Could not bring it back');
+      return;
+    }
+    toast('success', toDone ? 'Marked done' : 'Back in Updates', {
+      action: { label: 'Undo', onClick: () => void updates.setDone(n.id, !toDone) },
+    });
+  };
+
+  const trashTask = async (id: string) => {
+    closeTask();
+    if (await deleteTask(id)) toast('success', 'Moved to Trash', { action: { label: 'Undo', onClick: () => void restoreRecord('tasks', id) } });
+  };
+
+  const visible = updates.items.slice(0, shown);
+  // Rows already read come first from the server's page; the total says how many more the view holds.
+  const total = Math.max(updates.total ?? updates.items.length, updates.items.length);
+  const showMore = async () => {
+    const next = shown + STEP;
+    if (next > updates.items.length && updates.hasMore) await updates.loadMore();
+    setShown(next);
+  };
+
+  const subNav = useMemo(() => [
+    { key: 'needs' as const, label: 'Needs you', count: needsCount },
+    { key: 'updates' as const, label: 'Updates', count: updates.unread },
+    { key: 'done' as const, label: 'Done' },
+  ], [needsCount, updates.unread]);
 
   return (
     <div className="animate-fadeIn min-h-screen">
       <Header
         title="Notifications"
-        subtitle={
-          <span className="hidden sm:inline">
-            {unreadCount > 0 ? `${unreadCount} unread` : 'You are all caught up'}
-          </span>
-        }
-        actions={
-          <Button variant="secondary" size="sm" onClick={handleMarkAllAsRead} disabled={unreadCount === 0}>
-            <CheckCheck size={16} />
+        subtitle={<span className="hidden sm:inline">{notificationsSummary(needsCount, updates.unread)}</span>}
+        actions={view === 'updates' && updates.unread > 0 ? (
+          <Button variant="secondary" size="sm" onClick={() => void updates.markAllRead()}>
+            <CheckCheck size={16} aria-hidden="true" />
             <span className="hidden sm:inline">Mark all as read</span>
+            <span className="sm:hidden">All read</span>
           </Button>
-        }
+        ) : undefined}
       />
 
-      <div className="p-4 lg:p-6 space-y-4">
-        <div className="seg-track seg-sm w-fit">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setFilter(tab.id)}
-              className={`seg-item flex items-center gap-1.5 ${filter === tab.id ? 'is-active' : ''}`}
-            >
-              {tab.label}
-              {tab.id === 'unread' && unreadCount > 0 && (
-                <span className={`text-[11px] px-1.5 py-0.5 rounded-full leading-none ${
-                  filter === tab.id ? 'bg-white/20 text-white' : 'bg-brand-500/15 text-brand-300'
-                }`}>
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+      <div className="p-4 lg:p-6">
+        <div className="page-read space-y-4">
+          <SubNav label="Show" active={view} onChange={setView} items={subNav} />
 
-        <div className="glass-card rounded-2xl overflow-hidden">
-          {isLoading ? (
-            <div className="py-16 text-center text-zinc-400">
-              <Loader2 size={20} className="animate-spin mx-auto mb-3 text-brand-400" />
-              <p className="text-sm">Loading notifications...</p>
-            </div>
-          ) : notifications.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="w-12 h-12 rounded-full bg-white/[0.06] flex items-center justify-center mb-4">
-                <Bell size={20} className="text-zinc-400" />
-              </div>
-              <p className="text-sm font-medium text-zinc-300">
-                {filter === 'unread' ? 'No unread notifications' : 'No notifications yet'}
-              </p>
-              <p className="text-xs text-zinc-500 mt-1">You are all caught up</p>
-            </div>
+          {view === 'needs' ? (
+            <NeedsYouView bare needs={hub.company.needs} items={hub.all} drafts={hub.mine.drafts} onOpenTask={openTask} />
+          ) : updates.loading && updates.items.length === 0 ? (
+            <Skeleton label="Loading notifications" className="glass-card divide-y divide-white/[0.06] overflow-hidden rounded-xl">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="flex items-start gap-3 px-4 py-3 lg:px-5" aria-hidden="true">
+                  <div className="h-8 w-8 animate-pulse rounded-lg bg-white/[0.06] motion-reduce:animate-none" />
+                  <div className="flex-1 space-y-2 pt-1">
+                    <div className="h-3.5 w-2/3 animate-pulse rounded bg-white/[0.06] motion-reduce:animate-none" />
+                    <div className="h-3 w-1/3 animate-pulse rounded bg-white/[0.04] motion-reduce:animate-none" />
+                  </div>
+                </div>
+              ))}
+            </Skeleton>
+          ) : updates.failed ? (
+            <EmptyState framed variant="error" title="Could not load notifications" description="Check your connection, then try again." onRetry={updates.reload} />
+          ) : updates.items.length === 0 ? (
+            view === 'done' ? (
+              <EmptyState framed icon={<CheckCircle2 />} title="Nothing marked done" description="Updates you mark done move here, so you can bring one back." />
+            ) : (
+              <EmptyState framed icon={<Bell />} title="You are all caught up" description="Comments, assignments and changes on your work show here as they happen." />
+            )
           ) : (
-            <div className="divide-y divide-white/[0.06]">
-              {notifications.map(notification => {
-                const Icon = getEntityIcon(notification.entity_type);
-                return (
-                  <button
-                    key={notification.id}
-                    onClick={() => handleNotificationClick(notification)}
-                    className={`w-full text-left px-4 lg:px-5 py-4 hover:bg-white/[0.04] transition-colors ${
-                      !notification.is_read ? 'bg-brand-500/[0.06]' : ''
-                    }`}
-                  >
-                    <div className="flex items-start gap-3.5">
-                      <div
-                        className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 ${
-                          !notification.is_read ? 'bg-brand-500/15 text-brand-300' : 'bg-white/[0.06] text-zinc-400'
-                        }`}
-                      >
-                        <Icon size={17} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm ${!notification.is_read ? 'font-semibold text-white' : 'font-medium text-zinc-300'}`}>
-                          {notification.title}
-                        </p>
-                        {notification.message && (
-                          <p className="text-[13px] text-zinc-400 line-clamp-2 mt-0.5">{notification.message}</p>
-                        )}
-                        <SenderLine notification={notification} team={team} viewerId={teamMemberId ?? null} />
-                      </div>
-                      {!notification.is_read && (
-                        <div className="h-2 w-2 rounded-full bg-brand-500 shrink-0 mt-2" />
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="glass-card overflow-hidden rounded-xl">
+              <ul className="divide-y divide-white/[0.06]">
+                {visible.map((n) => (
+                  <li key={n.id}>
+                    <UpdateRow notification={n} team={team} viewerId={teamMemberId ?? null} onOpen={(row) => void open(row)} onDone={(row) => void done(row)} doneView={view === 'done'} />
+                  </li>
+                ))}
+              </ul>
+              <ShowMore shown={visible.length} total={total} step={STEP} onMore={() => void showMore()} noun="notifications" className="border-t border-white/[0.06]" />
             </div>
           )}
         </div>
-
-        {!isLoading && hasMore && notifications.length > 0 && (
-          <div className="flex justify-center">
-            <Button variant="ghost" size="sm" onClick={() => void loadMore()} disabled={isLoadingMore}>
-              {isLoadingMore ? <Loader2 size={16} className="animate-spin" /> : 'Load more'}
-            </Button>
-          </div>
-        )}
       </div>
-    </div>
-  );
-}
 
-/**
- * Who sent it and when: the person or agent with their face ("From Casey
- * Brooks (guest)"), or "From the app" for the app's own notices, so a
- * member's notice never passes for a system message.
- */
-function SenderLine({ notification, team, viewerId }: { notification: NotificationView; team: readonly { id: string; name: string; avatar?: string | null; role: string }[]; viewerId: string | null }) {
-  const sender = notificationSender(notification, team);
-  return (
-    <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-zinc-500">
-      {sender.kind === 'system'
-        ? <Bell size={12} aria-hidden="true" className="flex-shrink-0 text-zinc-500" />
-        : <Avatar name={sender.name} src={sender.avatar ?? undefined} id={sender.id} size="xs" />}
-      <span className="min-w-0 truncate text-zinc-400">{notificationSenderLabel(sender, viewerId)}</span>
-      <span aria-hidden="true">·</span>
-      <time dateTime={notification.created_at} title={formatFull(notification.created_at)} className="flex-shrink-0">{formatAgo(notification.created_at)}</time>
+      <TaskDetailPanel task={viewingTask} onClose={closeTask} onDelete={(id) => void trashTask(id)} />
     </div>
   );
 }

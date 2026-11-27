@@ -11,6 +11,8 @@
 //
 // What it posts (JSON, signed, see sign.mjs):
 //   { v: 1, t: 'RELAY_READY', d: { bot_id, guilds } }        when it connects or resumes
+//   { v: 1, t: 'RELAY_HEARTBEAT', d: { interval_seconds } }  every 5 minutes while connected,
+//                                                            so the app sees a relay that stopped
 //   { v: 1, t: 'MESSAGE_CREATE', d: <Discord's message>,
 //     channel: { id, type, parent_id } }                      for each message from a person
 // channel tells a thread (types 10 to 12, with its parent channel) from a
@@ -31,6 +33,8 @@ if (!/^https?:\/\//.test(PM_INBOUND_URL)) {
 }
 
 const DELIVERY_TRIES = 5;
+// The app reads a relay that sent heartbeats and then nothing for 15 minutes as stopped.
+const HEARTBEAT_SECONDS = 300;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Posts one event to the app, signed afresh on every try; retries what the app asks to retry. */
@@ -62,6 +66,23 @@ async function deliver(payload) {
   console.error(`[relay] gave up delivering ${payload.t} after ${DELIVERY_TRIES} tries`);
 }
 
+/** One signed post, no retries (heartbeats: the next one is the retry). */
+async function deliverOnce(payload) {
+  const body = JSON.stringify(payload);
+  try {
+    const response = await fetch(PM_INBOUND_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [SIGNATURE_HEADER]: signatureHeader(PM_RELAY_SECRET, body) },
+      body,
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (response.status === 401) console.error('[relay] the app refused the signature: check PM_RELAY_SECRET and PM_INBOUND_URL (make a new secret in the app if it was lost)');
+    else if (!response.ok) console.error(`[relay] the app answered ${response.status} for ${payload.t}`);
+  } catch {
+    console.error(`[relay] could not reach the app for ${payload.t}`);
+  }
+}
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
   // DMs arrive for channels the cache has not seen yet.
@@ -75,6 +96,13 @@ client.once(Events.ClientReady, () => {
   void hello();
 });
 client.on(Events.ShardResume, () => { void hello(); });
+
+// Checks in while the Gateway is up, so the app's "Not receiving" catches a
+// relay that stopped or lost Discord. One try: the next beat is the retry.
+setInterval(() => {
+  if (!client.isReady()) return;
+  void deliverOnce({ v: 1, t: 'RELAY_HEARTBEAT', d: { interval_seconds: HEARTBEAT_SECONDS } });
+}, HEARTBEAT_SECONDS * 1000).unref();
 
 // Join new threads so their messages reach the bot.
 client.on(Events.ThreadCreate, (thread) => {

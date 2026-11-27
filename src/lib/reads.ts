@@ -22,7 +22,7 @@ import {
 import { listTaskFiles, taskFileCandidates, type TaskFileCandidates, type TaskFileView } from '@/lib/task-files/client';
 import { invalidateTables, peekRead, useRead, warmReads, type Read } from '@/lib/query-cache';
 import type { QuestionView } from '@/lib/questions';
-import type { BlockedRunSignal } from '@/lib/autonomy';
+import type { BlockedCommentSignal, BlockedRunSignal } from '@/lib/autonomy';
 import type { NotificationFeedView, NotificationPage, Snooze } from '@/lib/notifications';
 import { demoNotificationPage, demoSnoozes, demoUnreadCount } from '@/lib/demo-notifications';
 import {
@@ -541,6 +541,30 @@ export function useBlockedRuns(): BlockedRunSignal[] {
   const { isDemoMode } = useDemo();
   const { teamMemberId } = useAuth();
   return useRead(teamMemberId ? blockedRunsRead(isDemoMode) : null).data ?? NO_BLOCKED_RUNS;
+}
+
+/**
+ * Agents' blocked comments that wait on the person (pm.my_blocked_comments:
+ * agents they manage, tasks they are assigned to or made), newest first;
+ * Needs you lists each until a person answers or the task moves. The demo
+ * works them out from its tasks instead (useNeedsYou). Empty before the
+ * update.
+ */
+export function blockedCommentsRead(): Read<BlockedCommentSignal[]> {
+  return {
+    key: 'blocked-comments',
+    tables: ['task_comments', 'tasks'],
+    ttlMs: 5 * 60_000,
+    load: async () => {
+      const { data, error } = await createClient().rpc('my_blocked_comments');
+      if (error) {
+        // A database before 20261127002700: no comment is marked blocked there.
+        if (['PGRST202', '42883'].includes(error.code ?? '')) return [];
+        throw error;
+      }
+      return (data ?? []) as BlockedCommentSignal[];
+    },
+  };
 }
 
 /**

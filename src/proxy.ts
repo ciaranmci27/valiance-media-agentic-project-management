@@ -1,13 +1,15 @@
 import { updateSession } from '@/lib/supabase/middleware';
 import { foreignOrigin, needsOriginCheck } from '@/lib/security/origin';
+import { NONCE_HEADER, newScriptNonce, pageContentSecurityPolicy, pagePolicyApplies } from '@/lib/security/frame-headers';
 import { type NextRequest, NextResponse } from 'next/server';
 
 /**
  * The app's request proxy (Next 16's name for middleware): the sign-in wall
- * for pages, the `next` return path, the session refresh, and CORS for the
- * public API. Next loads it only from `proxy.ts` beside the app directory,
- * which is `src/` here (next/dist/build/index.js: rootDir is the parent of
- * src/app, and the file must sit at '/' or '/src' of it). Up to 2.0.49 it sat
+ * for pages, the `next` return path, the session refresh, CORS for the
+ * public API, and each page's script nonce (Content-Security-Policy).
+ * Next loads it only from `proxy.ts` beside the app directory, which is
+ * `src/` here (next/dist/build/index.js: rootDir is the parent of src/app,
+ * and the file must sit at '/' or '/src' of it). Up to 2.0.49 it sat
  * at the app root as middleware.ts, where Next never loaded it.
  * `npm run test:security-hardening` fails if it moves.
  */
@@ -52,7 +54,22 @@ export async function proxy(request: NextRequest) {
     return NextResponse.json({ error: 'Cross-site request refused' }, { status: 403 });
   }
 
+  // A page gets a fresh script nonce: in the request's own policy header,
+  // where Next reads it and puts it on every script it renders, in
+  // NONCE_HEADER for the root layout's inline theme script, and in the
+  // answer's policy, which the browser enforces.
+  const nonce = pagePolicyApplies(request.nextUrl.pathname) ? newScriptNonce() : null;
+  const policy = nonce ? pageContentSecurityPolicy(request.nextUrl.pathname, nonce) : null;
+  if (nonce && policy) {
+    request.headers.set(NONCE_HEADER, nonce);
+    request.headers.set('content-security-policy', policy);
+  } else {
+    // A nonce is only ever the proxy's own, never one a caller sent.
+    request.headers.delete(NONCE_HEADER);
+  }
+
   const response = await updateSession(request);
+  if (policy) response.headers.set('Content-Security-Policy', policy);
 
   // Add CORS headers to API responses
   if (cors) {

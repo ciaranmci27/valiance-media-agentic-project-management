@@ -462,7 +462,7 @@ async function main() {
       const { openQuestionsRead, mySnoozesRead } = await import('../src/lib/reads');
       const actions = createNeedsYouActions({
         isDemoMode: false, teamMemberId: s.olivia,
-        approveSuggestion: async () => true, declineSuggestion: async () => true, rejectSuggestion: async () => true,
+        approveSuggestion: async () => true, declineSuggestion: async () => true, rejectSuggestion: async () => true, addComment: async () => true,
       });
       const view = (qid: string, extra: Loose = {}) => ({ id: qid, kind: 'question', status: 'open', choices: null, allow_other: true, created_at: new Date().toISOString(), ...extra });
       const openIds = () => (peekRead(openQuestionsRead(false)) ?? []).map((q: Loose) => q.id);
@@ -520,7 +520,7 @@ async function main() {
     demo.demoMarkDone([firstUnread.id], true);
     const afterDemo = demo.demoNotificationPage('updates');
     check('demo: sample notifications list with categories; done leaves Updates and the count', demoPage.items.length > 0 && demoPage.items.every((n) => !!n.category)
-      && demoPage.unread === 2 && afterDemo.unread === 1 && !afterDemo.items.some((n) => n.id === firstUnread.id)
+      && demoPage.unread >= 2 && afterDemo.unread === demoPage.unread - 1 && !afterDemo.items.some((n) => n.id === firstUnread.id)
       && demo.demoNotificationPage('done').items.some((n) => n.id === firstUnread.id), { before: demoPage.unread, after: afterDemo.unread });
     demo.demoSnooze({ item_kind: 'notification', item_id: afterDemo.items[0].id, until: new Date(Date.now() + 60_000).toISOString() });
     check('demo: a snoozed sample leaves Updates', !demo.demoNotificationPage('updates').items.some((n) => n.id === afterDemo.items[0].id) && demo.demoSnoozes().length === 1);

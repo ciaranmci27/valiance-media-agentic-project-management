@@ -29,7 +29,7 @@ export function demoNotificationPage(view: NotificationFeedView): NotificationPa
   const items = all().filter((row) => visible(row, hidden) && (view === 'done'
     ? !!row.done_at
     : !row.done_at && (view === 'updates' || !row.is_read)));
-  return { items: items.map((row) => ({ ...row })), unread: demoUnreadCount(), next_cursor: null };
+  return { items: items.map((row) => ({ ...row })), unread: demoUnreadCount(), total: items.length, next_cursor: null };
 }
 
 export function demoUnreadCount(): number {

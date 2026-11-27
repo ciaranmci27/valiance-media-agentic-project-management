@@ -9,6 +9,8 @@ import { CRM_TOOLS } from './crm';
 import { MONEY_TOOLS } from './money';
 import { WORK_TOOLS } from './work';
 import { AGENT_ACCESS_TOOLS } from './agent-access';
+import { EMAIL_TOOLS } from './email';
+import { SETTINGS_TOOLS } from './settings';
 
 /**
  * The tools that close the API and MCP parity gaps (2026-11-27), one file per
@@ -28,4 +30,6 @@ export const PARITY_TOOLS: PmTool[] = [
   ...MONEY_TOOLS,
   ...WORK_TOOLS,
   ...AGENT_ACCESS_TOOLS,
+  ...EMAIL_TOOLS,
+  ...SETTINGS_TOOLS,
 ];

@@ -2,7 +2,7 @@ import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { editApiKeyOverApi } from '@/lib/api/key-edit';
 import { currentApiVia } from '@/lib/api/request-context';
-import { updateApiKeySchema, type UpdateApiKey } from '@/lib/schemas/api-keys';
+import { updateApiKeyOverApiSchema, type UpdateApiKeyOverApi } from '@/lib/schemas/api-keys';
 
 /**
  * Renames a key and/or replaces its scopes, as Settings > Developers does.
@@ -12,7 +12,9 @@ import { updateApiKeySchema, type UpdateApiKey } from '@/lib/schemas/api-keys';
  * holds it (422 scope_not_held), the calling key carries it (403
  * scope_escalation), an Owner's key for anyone else's key and only an
  * agent's (403 owner_only, not_an_agent), never a scope agents never carry
- * (422 scope_never_for_agents). A revoked or ended key is 409. Audited with
+ * (422 scope_never_for_agents). give_beyond_role true lets an Owner's key
+ * give a company agent a scope its role lacks with the key, as its Access tab
+ * does (scopes_given in the answer, logged). A revoked or ended key is 409. Audited with
  * the key before and after. Answers the key with its state.
  *
  * A key that is not an Owner's never touches an Owner's key or the key of
@@ -21,7 +23,7 @@ import { updateApiKeySchema, type UpdateApiKey } from '@/lib/schemas/api-keys';
  *
  * Permission: api_keys.manage_all.
  */
-export const PATCH = withApi<UpdateApiKey, { id: string }>(async ({ supabase, params, body, access, scopes, apiKeyId, teamMemberId }) => {
+export const PATCH = withApi<UpdateApiKeyOverApi, { id: string }>(async ({ supabase, params, body, access, scopes, apiKeyId, teamMemberId }) => {
   const key = await editApiKeyOverApi(supabase, { memberId: teamMemberId, access, scopes, apiKeyId, via: currentApiVia() }, params.id, body);
   return success(key);
-}, { schema: updateApiKeySchema, permission: 'api_keys.manage_all' });
+}, { schema: updateApiKeyOverApiSchema, permission: 'api_keys.manage_all' });

@@ -14,15 +14,12 @@ export const NO_FRAMING_SOURCES = ['/oauth/:path*', '/login', '/login/:path*'] a
 export const OPEN_FRAMING_SOURCES = ['/portal/:path*'] as const;
 
 /**
- * The Content-Security-Policy every page carries. Kept to what holds on
- * every screen: no plugin content (`object`, `embed`) and no `<base>` that
- * re-points the page's relative links and scripts. A policy that limits
- * scripts needs a per-request nonce from the proxy, and the HTML previews
- * (portal pages, file previews, email bodies) render in srcdoc frames that
- * inherit the page's policy, so it would block the scripts and fonts those
- * files carry; that is left for a release that moves the previews to their
- * own origin. An install can send its own policy from src/custom/next.config.ts
- * (a later header with the same key replaces this one).
+ * The Content-Security-Policy every response carries. Kept to what holds
+ * everywhere: no plugin content (`object`, `embed`) and no `<base>` that
+ * re-points the page's relative links and scripts. Pages add a script
+ * policy with a per-request nonce on top (pageContentSecurityPolicy, set by
+ * src/proxy.ts). An install can send its own policy from
+ * src/custom/next.config.ts (a later header with the same key replaces this one).
  */
 export const BASE_CONTENT_SECURITY_POLICY = "object-src 'none'; base-uri 'self'";
 
@@ -66,4 +63,47 @@ export function noFramingHeaders(): HeaderRule[] {
       { key: 'X-Frame-Options', value: 'DENY' },
     ],
   }));
+}
+
+/** The request header the proxy puts the page's script nonce in (read by the root layout). */
+export const NONCE_HEADER = 'x-nonce';
+
+/**
+ * Whether a request gets the page policy with a script nonce: every page but
+ * the client portal (its HTML pages run their own scripts in a frame that
+ * inherits the page's policy, and an install may embed it). API routes,
+ * Next's own files and static files answer no HTML that runs the app's
+ * scripts, so they keep the base policy alone.
+ */
+export function pagePolicyApplies(pathname: string): boolean {
+  if (pathname.startsWith('/api/') || pathname.startsWith('/_next/')) return false;
+  if (pathname === '/portal' || pathname.startsWith('/portal/')) return false;
+  if (pathname.startsWith('/.well-known/')) return false;
+  return true;
+}
+
+const NO_FRAMING_PREFIXES = NO_FRAMING_SOURCES.map((source) => source.replace(/\/:path\*$/, ''));
+
+/**
+ * A page's whole Content-Security-Policy, with its script nonce: scripts
+ * run only when Next or the layout gave them this request's nonce, or when
+ * such a script loaded them ('strict-dynamic'); 'self' and https: are
+ * ignored by browsers that know 'strict-dynamic' and only help older ones.
+ * Workers (the PDF preview's) load from the app itself or a blob. In
+ * development React needs eval for its debugging, so 'unsafe-eval' is added
+ * there only. The framing rule is the page's own: 'none' for sign-in and the
+ * consent screen, 'self' everywhere else.
+ */
+export function pageContentSecurityPolicy(pathname: string, nonce: string, dev = process.env.NODE_ENV !== 'production'): string {
+  const noFraming = NO_FRAMING_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  // 'wasm-unsafe-eval': the invoice PDF preview lays pages out with WebAssembly (yoga-layout).
+  const scripts = `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https: 'wasm-unsafe-eval'${dev ? " 'unsafe-eval'" : ''}`;
+  return `frame-ancestors ${noFraming ? "'none'" : "'self'"}; ${BASE_CONTENT_SECURITY_POLICY}; ${scripts}; worker-src 'self' blob:`;
+}
+
+/** A fresh nonce for one request: 128 random bits, base64. */
+export function newScriptNonce(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes));
 }

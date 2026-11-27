@@ -412,6 +412,8 @@ export interface Comment {
   user_id: string;
   text: string;
   created_at: string;
+  /** An agent said it is stuck on the task (blocked: true, or a "[BLOCKED]" start). Only ever true on an agent's comment. */
+  blocked?: boolean;
 }
 
 // ============================================================

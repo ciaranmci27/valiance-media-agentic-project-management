@@ -113,6 +113,10 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       'api/workspace/my-inbox',
       'api/workspace/projects/[id]/email-addresses', 'api/workspace/projects/[id]/email-domains',
       'api/workspace/projects/[id]/email-senders', 'api/workspace/tasks/[id]/source-emails',
+      // A project's email (its own addresses, sender domains and addresses) over the API.
+      'api/v1/projects/[id]/email-addresses', 'api/v1/projects/[id]/email-domains', 'api/v1/projects/[id]/email-senders',
+      // Your own inbox over your own key (Settings > Email > Your inbox).
+      'api/v1/me/inboxes',
       '(protected)/inbox',
       '(protected)/settings/(sections)/email/addresses', '(protected)/settings/(sections)/email/handler',
       '(protected)/settings/(sections)/email/rules', '(protected)/settings/(sections)/email/inbox',
@@ -157,8 +161,8 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
     // The question sums for Agents > Analytics, and whether an open question
     // holds a waiting run (the run feed reads it as the caller).
     rpcs: ['agent_question_stats', 'agent_run_has_open_question',
-      // The runs marked blocked that wait on the signed-in person (Needs you).
-      'my_blocked_runs'],
+      // The runs and agents' blocked comments that wait on the signed-in person (Needs you).
+      'my_blocked_runs', 'my_blocked_comments'],
     routes: [
       // Every agent event and run, in order, for a data system.
       'api/v1/agent-events',
@@ -207,6 +211,8 @@ export const CORE_ROUTES: string[] = [
   'api/v1/tasks', 'api/v1/team-members', 'api/v1/projects', 'api/v1/api-keys',
   // Every key reads its own setup (pm_guide's context), a person's too, with AI agents on or off.
   'api/v1/agents/me',
+  // A person's own settings over their key: notification choices and their sign-in email.
+  'api/v1/me/notification-preferences', 'api/v1/me/email',
   'api/workspace/access', 'api/workspace/api-keys', 'api/workspace/brand', 'api/workspace/me', 'api/workspace/region', 'api/workspace/modules', 'api/workspace/setup-checks', 'api/workspace/secrets', 'api/workspace/encryption', 'api/workspace/webhook-retries', 'api/welcome',
   'api/workspace/projects', 'api/workspace/questions', 'api/workspace/notifications', 'api/workspace/tasks', 'api/workspace/team-directory', 'api/workspace/team-members',
   'api/workspace/updates',

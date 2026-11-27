@@ -83,7 +83,7 @@ So an Owner's setup key that made ten agent keys can retire all of them in one c
 
 - **Expiry**: `expires_in_days` (1 to 3650, or `null` for none) on a new key. Left out, the workspace's lifetime applies: one for agent keys (`agent_key_lifetime_days`), one for people's keys (`personal_key_lifetime_days`). For anyone but an Owner, a lifetime that is set is also the longest a new key may last: a longer one, or no expiry, gets the lifetime instead. An Owner sets both in Settings > Developers > Key lifetimes, or with `PATCH /api/workspace/key-settings` and `PATCH /api/workspace/key-settings/personal`. None by default. Keys made earlier keep their own expiry.
 - **Rotation**: `rotate_api_key` (`POST /api/v1/api-keys/{id}/rotate`) makes a successor with the same member, scopes and name. Its secret is in this answer only.
-  - The old key keeps working for `overlap_hours` (0 to 168, default 24), then answers `401 api_key_expired`.
+  - The old key keeps working for `overlap_hours` (0 to 168, default 24), then answers `401 api_key_expired`. An agent replacing its own key gets 1 hour at most (and by default): a longer ask is held to 1, so a key it swaps out because it may have leaked stops soon.
   - A key is rotated once: rotate its newest key next time (`409 not_rotatable`).
   - A revoked or expired key cannot be rotated (`409 key_revoked`, `409 key_expired`).
   - The successor keeps the old key's place in the lineage.

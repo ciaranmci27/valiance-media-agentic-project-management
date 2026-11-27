@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { withApi } from '@/lib/api/middleware';
 import { paginated } from '@/lib/api/response';
-import { ApiError, badRequest } from '@/lib/api/errors';
+import { ApiError, badRequest, forbidden } from '@/lib/api/errors';
 import { capSetupScopes, recordSetupConfirm, unrecordedConfirm } from '@/lib/api/ai-setup-guard';
 import { parsePagination } from '@/lib/api/pagination';
 import { logAudit } from '@/lib/api/audit';
 import { currentAiSetup } from '@/lib/api/request-context';
-import { checkKeyGrant, insertApiKey } from '@/lib/api/agent-setup';
+import { checkKeyGrant, insertApiKey, loadSetupTarget } from '@/lib/api/agent-setup';
+import { addAgentScopeGrants, apiScopesBeyondRole, removeAgentScopeGrants } from '@/lib/api/agent-scope-grants';
 import { newKeyExpiry } from '@/lib/api/key-lifetime';
 import { createMemberApiKeySchema, type CreateMemberApiKey } from '@/lib/schemas';
 import { listKeysPage } from '@/lib/api/key-manage';
@@ -51,6 +52,10 @@ export const GET = withApi(async ({ supabase, searchParams }) => {
  * ai_setup_scope_outside_template); money, people, settings, acting for
  * someone, keys, webhooks and credentials are left off and wait for the
  * Owner's Allow on the setup screen (needs_owner_confirm in the answer).
+ * give_beyond_role true lets an Owner's key give a company agent a power its
+ * role lacks with the key, as the agent's Access tab does (never one agents
+ * never carry, never one the calling key does not carry; never in an AI
+ * setup session); the powers given are answered as scopes_given and logged.
  * The full key is in this answer
  * only, never stored and never shown again, so the Idempotency-Key header is
  * refused here.
@@ -65,22 +70,41 @@ export const POST = withApi<CreateMemberApiKey>(async ({ supabase, body, access,
       reason: 'ai_setup_nothing_granted', waits_on_owner: cap.confirm,
     });
   }
-  const granted = await checkKeyGrant(supabase, { memberId: teamMemberId, access, scopes }, { memberId: body.member_id, scopes: cap.granted });
-  const { key, secret } = await insertApiKey(supabase, {
-    name: body.name,
-    memberId: granted.target.id,
-    createdBy: teamMemberId,
-    // A key an AI setup session makes for an agent never hangs off the setup
-    // key, or revoking that key later (or once it ends) would take the
-    // agent's key down with it (hire_agent's keys have no parent either).
-    createdByKeyId: currentAiSetup() ? null : apiKeyId,
-    scopes: granted.scopes,
-    permissions: body.permissions,
-    expiresAt: await newKeyExpiry(supabase, granted.target.id, body.expires_in_days, access),
-  });
-  logAudit(supabase, { method: 'POST', endpoint: '/api/v1/api-keys', entityType: 'api_key', entityId: key.id, apiKeyId, teamMemberId, requestBody: body, afterSnapshot: key, statusCode: 201 });
+  const granter = { memberId: teamMemberId, access, scopes };
+  // give_beyond_role: an Owner gives a company agent a power its role lacks, with this key, as its Access tab does.
+  let beyondRole: string[] = [];
+  if (body.give_beyond_role) {
+    if (currentAiSetup()) {
+      throw forbidden("An AI setup session never gives an agent a power beyond its role: the Owner gives it on the agent's Access tab", { reason: 'ai_setup_beyond_role' });
+    }
+    beyondRole = await apiScopesBeyondRole(supabase, granter, await loadSetupTarget(supabase, granter, body.member_id), cap.granted);
+  }
+  const given = await addAgentScopeGrants(supabase, body.member_id, beyondRole, teamMemberId);
+  let made: Awaited<ReturnType<typeof insertApiKey>>;
+  let granted: Awaited<ReturnType<typeof checkKeyGrant>>;
+  try {
+    granted = await checkKeyGrant(supabase, granter, { memberId: body.member_id, scopes: cap.granted });
+    made = await insertApiKey(supabase, {
+      name: body.name,
+      memberId: granted.target.id,
+      createdBy: teamMemberId,
+      // A key an AI setup session makes for an agent never hangs off the setup
+      // key, or revoking that key later (or once it ends) would take the
+      // agent's key down with it (hire_agent's keys have no parent either).
+      createdByKeyId: currentAiSetup() ? null : apiKeyId,
+      scopes: granted.scopes,
+      permissions: body.permissions,
+      expiresAt: await newKeyExpiry(supabase, granted.target.id, body.expires_in_days, access),
+    });
+  } catch (failure) {
+    // The powers given for this key go again when the key is not made.
+    await removeAgentScopeGrants(supabase, body.member_id, given).catch((error) => console.error('[API] key scope grants not undone', error));
+    throw failure;
+  }
+  const { key, secret } = made;
+  logAudit(supabase, { method: 'POST', endpoint: '/api/v1/api-keys', entityType: 'api_key', entityId: key.id, apiKeyId, teamMemberId, requestBody: beyondRole.length ? { ...body, scopes_given: beyondRole } : body, afterSnapshot: key, statusCode: 201 });
   const waits = cap.confirm.length
     ? (await recordSetupConfirm(supabase, { kind: 'key_scopes', agentId: granted.target.id, apiKeyId: key.id, scopes: cap.confirm })) ?? unrecordedConfirm(cap.confirm)
     : null;
-  return NextResponse.json({ success: true, data: { key, secret, ...(waits ? { needs_owner_confirm: waits } : {}) } }, { status: 201, headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.json({ success: true, data: { key, secret, ...(beyondRole.length ? { scopes_given: beyondRole } : {}), ...(waits ? { needs_owner_confirm: waits } : {}) } }, { status: 201, headers: { 'Cache-Control': 'no-store' } });
 }, { schema: createMemberApiKeySchema, permission: 'api_keys.manage_all', returnsSecret: true });

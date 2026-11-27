@@ -6,9 +6,10 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { hasPermission } from '@/lib/access-control';
 import { useRead } from '@/lib/query-cache';
-import { mySnoozesRead, useBlockedRuns, useOpenQuestions } from '@/lib/reads';
-import { computeNeedsYou, type NeedsYouItem } from '@/lib/autonomy';
+import { blockedCommentsRead, mySnoozesRead, useBlockedRuns, useOpenQuestions } from '@/lib/reads';
+import { computeNeedsYou, type BlockedCommentSignal, type NeedsYouItem } from '@/lib/autonomy';
 import { buildAgentNeedsYou, type AgentNeedsYou } from '@/lib/agents-tab';
+import { blockedCommentSignals } from '@/lib/ai-home';
 import { activeSnoozes, agentNeedsYouWithoutSnoozed, needsYouWithoutSnoozed, nextSnoozeWake, type Snooze } from '@/lib/notifications';
 
 export interface NeedsYou {
@@ -23,6 +24,7 @@ export interface NeedsYou {
 }
 
 const NO_SNOOZES: Snooze[] = [];
+const NO_BLOCKED: BlockedCommentSignal[] = [];
 /** setTimeout's ceiling; a later wake re-arms when this one fires. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
@@ -41,6 +43,10 @@ export function useNeedsYou(): NeedsYou {
   const questions = useOpenQuestions();
   const blockedRuns = useBlockedRuns();
   const snoozes = useRead(teamMemberId ? mySnoozesRead(isDemoMode) : null).data ?? NO_SNOOZES;
+  // Agents' blocked comments: the database says which wait on this person;
+  // the demo works them out from its own tasks.
+  const blockedRead = useRead(teamMemberId && !isDemoMode ? blockedCommentsRead() : null).data ?? NO_BLOCKED;
+  const blockedComments = useMemo(() => (isDemoMode ? blockedCommentSignals(tasks, team) : blockedRead), [isDemoMode, tasks, team, blockedRead]);
   const oversight = hasPermission(access, 'agents.manage');
 
   // The moment snoozes are judged at; moved on when the next one wakes.
@@ -62,11 +68,12 @@ export function useNeedsYou(): NeedsYou {
     agentActivity,
     questions,
     blockedRuns,
+    blockedComments,
     // Once the workspace has loaded, a question whose task or project is no
     // longer in it went to Trash: it leaves every count at once.
     // A failed tasks or projects read is not proof anything went to Trash.
     placesLoaded: !loading && !loadErrors.includes('tasks') && !loadErrors.includes('projects'),
-  }), [tasks, taskSuggestions, projects, teamMemberId, oversight, agentActivity, questions, blockedRuns, loading, loadErrors]);
+  }), [tasks, taskSuggestions, projects, teamMemberId, oversight, agentActivity, questions, blockedRuns, blockedComments, loading, loadErrors]);
 
   return useMemo(() => {
     const hidden = activeSnoozes(snoozes, now);

@@ -10,6 +10,7 @@ import { bearerChallenge } from '@/lib/api/connect-ai';
 import { isConnectAccessToken } from '@/lib/connect-ai';
 import { ACT_FOR_HEADER } from '@/lib/delegation';
 import { createPmServer, type McpCaller } from '@/lib/mcp/server';
+import { trustedClientIp } from '@/lib/api/bad-key-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -106,7 +107,7 @@ export async function POST(request: NextRequest) {
   let gateKey: { id: string; memberId: string } | null = null;
   try {
     const actFor = request.headers.get(ACT_FOR_HEADER);
-    const { supabase, keyRow, access, principal, connection, aiSetup } = await resolveApiKey(key, actFor, { connect: true });
+    const { supabase, keyRow, access, principal, connection, aiSetup } = await resolveApiKey(key, actFor, { connect: true, clientIp: trustedClientIp(request.headers) });
     gateClient = supabase;
     gateKey = { id: keyRow.id, memberId: keyRow.team_member_id };
     const { data: member } = await supabase
@@ -134,6 +135,11 @@ export async function POST(request: NextRequest) {
     };
   } catch (caught) {
     if (caught instanceof ApiError && caught.statusCode === 401) return unauthorizedRpc(request, caught.message, caught.details, connect);
+    if (caught instanceof ApiError && caught.statusCode === 429) {
+      const resetAt = Date.parse(String((caught.details as { reset_at?: unknown } | undefined)?.reset_at ?? ''));
+      const wait = Number.isFinite(resetAt) ? Math.max(1, Math.ceil((resetAt - Date.now()) / 1000)) : 60;
+      return rpcError(429, caught.message, caught.details, { 'Retry-After': String(wait) });
+    }
     if (caught instanceof ApiError) return rpcError(caught.statusCode, caught.message, caught.details);
     console.error('[mcp] key', caught);
     return rpcError(500, 'Something went wrong on the server.', { reason: 'internal' });

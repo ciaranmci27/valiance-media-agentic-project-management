@@ -6,6 +6,8 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import Modal from '@/components/ui/Modal';
 import { storedFileHref } from '@/lib/storage/stored-file-url';
+import { useScriptNonce } from '@/lib/security/script-nonce';
+import { withScriptNonce } from '@/lib/security/preview-nonce';
 
 const MARKDOWN_STYLES = `<style>
 .md-preview{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#1f2328;word-wrap:break-word}
@@ -153,6 +155,8 @@ function SpreadsheetTable({ rows }: { rows: string[][] }) {
 
 export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewModalProps) {
   const [content, setContent] = useState<string | null>(null);
+  // The page's script nonce: an HTML preview's own scripts run only with it (srcdoc takes the page's policy).
+  const nonce = useScriptNonce();
   const [sheetRows, setSheetRows] = useState<string[][] | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -265,7 +269,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
     if (isHtml && content !== null) {
       return (
         <iframe
-          srcDoc={content}
+          srcDoc={withScriptNonce(content, nonce)}
           sandbox="allow-scripts"
           className="w-full h-[70vh] rounded-lg border border-white/[0.08]"
           title={file.name}

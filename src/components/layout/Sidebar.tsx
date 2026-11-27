@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -24,6 +24,8 @@ import {
 import { useApp } from '@/lib/store';
 import { AI_HOME, hubCountLabel } from '@/lib/ai-home';
 import { useAiHub } from '@/lib/use-ai-hub';
+import { bellCountLabel } from '@/lib/notifications';
+import { BellPopover, useBell } from '@/components/notifications/BellPopover';
 import { useNeedsYou } from '@/lib/use-needs-you';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -144,6 +146,9 @@ export function Sidebar() {
   // means an agent is blocked on a decision only the Owner can make. The Inbox
   // takes the tone of its most pressing thread.
   const myTasksCount = radarCount + remindersDue;
+  const bellCount = aiHub.all.length + unreadNotifications;
+  const bellRef = useRef<HTMLButtonElement>(null);
+  const bell = useBell();
   const unreadTasks = [...unreadByProject.values()].reduce((sum, n) => sum + n, 0);
   const financeEntry = financeViews(access).entry;
   const coreNavItems: NavEntry[] = [
@@ -165,8 +170,10 @@ export function Sidebar() {
     // timesheet alone (its own page at /time when no money module is on).
     ...(financeEntry ? [{ href: financeEntry.href, icon: FINANCE_ENTRY_ICONS[financeEntry.kind], label: financeEntry.label }] : []),
     ...(aiEntry ? [aiEntry] : []),
+    // The bell: one number, each thing once (what needs you, then unread
+    // Updates; a notice announcing a Needs you item is never counted again).
     { href: '/notifications', icon: Bell, label: 'Notifications',
-      count: { value: unreadNotifications, label: plural(unreadNotifications, 'unread notification'), tone: 'danger' } },
+      count: { value: bellCount, label: bellCountLabel(aiHub.all.length, unreadNotifications), tone: aiHub.all.length > 0 ? 'danger' : 'brand' } },
   ];
   // The install's entries (src/custom), after the core ones or the entry each names.
   const navItems = placeNavItems<NavEntry>(coreNavItems, customNavItems);
@@ -298,6 +305,34 @@ export function Sidebar() {
                     </div>
                   )}
                 </div>
+              );
+            }
+            // The bell opens its popover (a sheet on phones); See all inside it opens the page.
+            if (item.href === '/notifications') {
+              return (
+                <button
+                  key={item.href}
+                  ref={bellRef}
+                  type="button"
+                  onClick={() => {
+                    // On phones the sheet replaces the open drawer.
+                    if (window.matchMedia('(max-width: 639px)').matches) closeSidebar();
+                    bell.toggle();
+                  }}
+                  aria-haspopup="dialog"
+                  aria-expanded={bell.open}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                    isActive || bell.open
+                      ? 'bg-brand-500/15 text-brand-300 glow-brand-soft'
+                      : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
+                  }`}
+                >
+                  <span className="relative flex-shrink-0 leading-none">
+                    <item.icon size={18} aria-hidden="true" />
+                    {item.count && <CountBadge {...badgeProps(item.count)} placement="icon" />}
+                  </span>
+                  <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
+                </button>
               );
             }
             return (
@@ -447,6 +482,7 @@ export function Sidebar() {
           )}
         </div>
       </aside>
+      <BellPopover anchorRef={bellRef} open={bell.open} onClose={bell.close} onNavigate={closeSidebar} hub={aiHub} />
     </>
   );
 }

@@ -1,6 +1,7 @@
 import { InboxError, type InboxContext } from '@/lib/communications/inbox-service';
+import { isModuleEnabled } from '@/lib/access-control';
 import { logAudit } from './audit';
-import { ApiError } from './errors';
+import { ApiError, moduleOff } from './errors';
 import type { ApiContext } from './middleware';
 
 /**
@@ -54,4 +55,35 @@ export function auditInboxDecision(
     teamMemberId: ctx.teamMemberId,
     statusCode: entry.statusCode ?? 200,
   });
+}
+
+/**
+ * The audit line for an Inbox setup write over the API (Settings > Email, a
+ * project's email): what was asked and what it saved. Settings only, never
+ * mail, so the body and the saved row are kept.
+ */
+export function auditInboxSetup(
+  ctx: Pick<ApiContext, 'supabase' | 'apiKeyId' | 'teamMemberId'>,
+  entry: { method: string; endpoint: string; entityType: string; entityId?: string | null; body?: unknown; after?: unknown; statusCode?: number },
+): void {
+  logAudit(ctx.supabase, {
+    method: entry.method,
+    endpoint: entry.endpoint,
+    entityType: entry.entityType,
+    entityId: entry.entityId ?? undefined,
+    apiKeyId: ctx.apiKeyId,
+    teamMemberId: ctx.teamMemberId,
+    requestBody: entry.body,
+    afterSnapshot: entry.after,
+    statusCode: entry.statusCode ?? 200,
+  });
+}
+
+/**
+ * The Inbox's settings that live on another path (a project's email, your
+ * own inbox): refused while the Inbox is switched off, as the app's routes
+ * refuse them. Routes under /api/v1/inbox get this from their permission.
+ */
+export function assertInboxOn(access: ApiContext['access']): void {
+  if (!isModuleEnabled(access, 'inbox')) throw moduleOff('inbox');
 }

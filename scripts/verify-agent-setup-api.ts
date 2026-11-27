@@ -36,6 +36,7 @@ import { join } from 'node:path';
 import { applyMigrationsFrom, createFullSchemaDatabase, SCHEMA_PATH } from './full-schema-db';
 import { startFakePostgrest } from './fake-postgrest';
 import { diffSnapshots, pmSnapshot } from './lib/pm-catalog';
+import { openWebhookSecret } from '../src/lib/webhooks/secret';
 
 const MIGRATION = '20261124000400_agent_setup_api.sql';
 const MIGRATION_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', MIGRATION), 'utf8');
@@ -197,7 +198,7 @@ async function main() {
   const db = await createFullSchemaDatabase();
   const s = await seed(db);
   const server = await startFakePostgrest(db, { handle: authStandIn(db) });
-  Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'fake-anon-key' });
+  Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key', APP_ENCRYPTION_KEY: 'e'.repeat(64), NEXT_PUBLIC_SUPABASE_ANON_KEY: 'fake-anon-key' });
   signInAsOwner(server.url);
   try {
     const agentsRoute = await import('../src/app/api/v1/agents/route');
@@ -287,7 +288,7 @@ async function main() {
       && hook.body.data?.endpoint?.member_id === agent && JSON.stringify(hook.body.data?.endpoint?.project_ids) === JSON.stringify([s.apex])
       && !('secret' in (hook.body.data?.endpoint ?? {})), hook.body);
     const stored = (await s.q('SELECT secret FROM pm.webhook_endpoints WHERE id = $1', [hook.body.data?.endpoint?.id]))[0];
-    check('create_webhook_endpoint: the stored secret is the one returned, so deliveries verify', stored?.secret === signing);
+    check('create_webhook_endpoint: the stored secret opens to the one returned, so deliveries verify', !!stored && openWebhookSecret(hook.body.data.endpoint.id, stored.secret) === signing);
 
     const after = await setup(s.keys.owner, agent);
     const d = after.body.data ?? {};

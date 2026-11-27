@@ -147,6 +147,30 @@ export function withCategory(row: Notification): NotificationView {
   return { ...row, category: row.category ?? notificationCategoryOf(row.entity_type, row.title) };
 }
 
+/** The Notifications page's views: Needs you, Updates, Done. */
+export type NotificationsView = 'needs' | 'updates' | 'done';
+
+/** The view a ?view= asks for; anything else is Needs you. */
+export function notificationsView(value: string | null | undefined): NotificationsView {
+  return value === 'updates' || value === 'done' ? value : 'needs';
+}
+
+/** The page's one line: "3 need you, 2 unread", "You are all caught up". */
+export function notificationsSummary(needs: number, unread: number): string {
+  const parts = [
+    ...(needs > 0 ? [`${needs} ${needs === 1 ? 'needs' : 'need'} you`] : []),
+    ...(unread > 0 ? [`${unread} unread`] : []),
+  ];
+  return parts.length ? parts.join(', ') : 'You are all caught up';
+}
+
+/** The bell's count in words: one number, each thing once. */
+export function bellCountLabel(needs: number, unread: number): string {
+  const total = needs + unread;
+  if (total === 0) return 'Nothing new';
+  return notificationsSummary(needs, unread);
+}
+
 /** Which Updates list: open ones, unread ones, or the ones marked done. */
 export type NotificationFeedView = 'updates' | 'unread' | 'done';
 
@@ -156,6 +180,8 @@ export const NOTIFICATION_FEED_VIEWS: readonly NotificationFeedView[] = ['update
 export interface NotificationPage {
   items: NotificationView[];
   unread: number;
+  /** How many the view holds in all ("Show 24 more of 76"); null when the database cannot say yet. */
+  total?: number | null;
   /** Pass back as `before` for the next page; null on the last one. */
   next_cursor: string | null;
 }

@@ -41,7 +41,7 @@ export interface FetchedAttachment {
 export type ParsedInbound =
   | { kind: 'challenge'; challenge: string }
   /** A verified hello from a relay (Discord's, when it connects): the connection is heard; nothing is recorded. */
-  | { kind: 'ping' }
+  | { kind: 'ping'; heartbeat?: true }
   | { kind: 'ignore'; reason: string }
   | {
     kind: 'message';

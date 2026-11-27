@@ -4,6 +4,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { isModuleEnabled, PERMISSION_IMPLIED_BY, type AccessContext, type PermissionKey } from '@/lib/access-control';
 import { getActorClient, getServiceClient } from './supabase-service';
 import { hashApiKey } from './crypto';
+import { assertBadKeyBudget, noteBadKey, trustedClientIp } from './bad-key-limit';
 import { passRequestGate, pausedRefusal, projectPausedRefusal, pauseExempt, type RequestGate } from './request-gate';
 import { writeGateRefusal } from './write-gate';
 import { ApiError, unauthorized, forbidden, tooManyRequests, badRequest, notFound, moduleOff } from './errors';
@@ -163,6 +164,12 @@ export interface ResolveApiKeyOptions {
    * else such a token is 401 connect_token_not_accepted.
    */
   connect?: boolean;
+  /**
+   * The caller's trusted address (trustedClientIp). An address that sent
+   * too many keys matching nothing lately is answered 429 before the
+   * lookup (lib/api/bad-key-limit.ts); null counts nothing.
+   */
+  clientIp?: string | null;
 }
 
 /**
@@ -184,6 +191,9 @@ export interface ResolveApiKeyOptions {
  */
 export async function resolveApiKey(apiKey: string | null, actFor: string | null = null, options: ResolveApiKeyOptions = {}): Promise<ResolvedApiKey> {
   if (!apiKey) throw unauthorized('Missing x-api-key header', { reason: 'missing_api_key' });
+  const clientIp = options.clientIp ?? null;
+  // Before any lookup: an address flooding wrong keys never reaches the database.
+  assertBadKeyBudget(clientIp);
   if (isConnectAccessToken(apiKey)) {
     if (!options.connect) {
       throw unauthorized("A connected AI tool's sign-in works only on the MCP server", {
@@ -196,7 +206,10 @@ export async function resolveApiKey(apiKey: string | null, actFor: string | null
       throw forbidden('This is not available while acting for someone', { reason: 'act_for_not_allowed', hint: 'A connected AI tool already acts as its person. Send the request without X-Act-For.' });
     }
     const service = getServiceClient();
-    const resolved = await resolveConnection(service, apiKey);
+    const resolved = await resolveConnection(service, apiKey).catch((error: unknown) => {
+      if (error instanceof ApiError && (error.details as { reason?: string } | undefined)?.reason === 'invalid_token') noteBadKey(clientIp, apiKey);
+      throw error;
+    });
     const aiSetup = await connectionSetupGrant(service, resolved.connection.grantId, resolved.keyRow.team_member_id, resolved.access);
     return { supabase: service, keyRow: resolved.keyRow, access: resolved.access, principal: null, connection: resolved.connection, aiSetup };
   }
@@ -215,7 +228,10 @@ export async function resolveApiKey(apiKey: string | null, actFor: string | null
   if (missingPauseColumns(keyError)) ({ data: found, error: keyError } = await lookup(KEY_COLUMNS));
   const keyRow = found as unknown as (ApiKeyRow & { paused_at?: string | null }) | null;
 
-  if (keyError || !keyRow) throw unauthorized('Invalid or revoked API key', { reason: 'invalid_api_key' });
+  if (keyError || !keyRow) {
+    if (!keyError) noteBadKey(clientIp, apiKey);
+    throw unauthorized('Invalid or revoked API key', { reason: 'invalid_api_key' });
+  }
   if (keyRow.disabled_at) throw unauthorized('API key is disabled', { reason: 'api_key_disabled' });
   if (keyRow.expires_at && new Date(keyRow.expires_at).getTime() <= Date.now()) {
     throw unauthorized('API key is expired', { reason: 'api_key_expired' });
@@ -289,7 +305,7 @@ export function withApi<TBody = unknown, TParams = Record<string, string>>(
       const inConnection = apiRequestContext.getStore()?.connection === true;
       const bearer = options?.acceptsConnection ? /^Bearer\s+(\S+)$/i.exec(request.headers.get('authorization') ?? '')?.[1] ?? null : null;
       const credential = request.headers.get('x-api-key') ?? (bearer && isConnectAccessToken(bearer) ? bearer : null);
-      const { supabase, keyRow, access, principal, connection, aiSetup } = await resolveApiKey(credential, actFor, { connect: inConnection || !!options?.acceptsConnection });
+      const { supabase, keyRow, access, principal, connection, aiSetup } = await resolveApiKey(credential, actFor, { connect: inConnection || !!options?.acceptsConnection, clientIp: trustedClientIp(request.headers) });
       service = supabase;
 
       // An AI setup session (lib/ai-setup.ts) reaches the setup routes only.

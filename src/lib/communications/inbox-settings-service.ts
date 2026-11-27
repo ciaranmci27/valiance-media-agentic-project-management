@@ -2,11 +2,11 @@ import { comms } from '@/lib/communications/db';
 import { promises as dns } from 'node:dns';
 import { randomBytes } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { accessAllows, accessAllowsProject } from '@/lib/api/access';
+import { accessAllows } from '@/lib/api/access';
 import { domainOf, isHostname, normalizeAddress, validateClientSenderAddress } from './email/addresses';
 import { mergeClientSenders, type ProjectContactAddress } from './mapping';
 import { isPublicEmailDomain, validateClientDomain } from './email/public-domains';
-import { assertId, InboxError, ownAddresses, type InboxContext } from './inbox-service';
+import { assertId, inboxAllows, InboxError, inboxReaches, ownAddresses, type InboxContext } from './inbox-service';
 import { ownerColumnRead, ownersReadPersonalInboxes } from './inbox-visibility';
 import { DEFAULT_COLUMNS, inboxDefaults, inboxHandlerRows, isMissingSchema, NO_DEFAULTS, readDefaults, type InboxDefaults } from './inbox-handlers';
 import type { InboxSettingsRequest, MyInboxRequest, ProjectAddressPatch, ProjectAddressRequest, YourAddressPatch, YourAddressRequest } from './schemas';
@@ -43,14 +43,18 @@ async function inboxRow(service: SupabaseClient, id: string): Promise<Row | null
   );
 }
 
+// Each check reads the request's channel (inboxAllows): the app's grants in
+// the app, the member's API grants (and the key's scope, where a key carries
+// it) through /api/v1.
 function requireManage(ctx: InboxContext) {
-  if (!accessAllows(ctx.access, 'inbound_email.manage')) throw new InboxError(403, 'Forbidden');
+  if (!inboxAllows(ctx, 'inbound_email.manage')) throw new InboxError(403, 'Managing inboxes needs permission to manage email inboxes.', 'manage_inboxes');
 }
 
 /** Connecting your own inbox: a person (never an agent) with inbound_email.personal. */
 function requirePersonal(ctx: InboxContext) {
-  if (ctx.access.role === 'agent' || !accessAllows(ctx.access, 'inbound_email.personal')) {
-    throw new InboxError(403, 'Connecting your own inbox needs permission to connect your own inbox.');
+  // inbound_email.personal is an app permission on either channel (inbox-service.ts).
+  if (ctx.access.role === 'agent' || !accessAllows(ctx.access, 'inbound_email.personal', 'app')) {
+    throw new InboxError(403, 'Connecting your own inbox needs permission to connect your own inbox.', 'personal_inbox');
   }
 }
 
@@ -578,17 +582,17 @@ export async function lookupMx(ctx: InboxContext, domainInput: string, resolve: 
 
 function canReadDomains(ctx: InboxContext): boolean {
   return ['contacts.read', 'contacts.read_all', 'contacts.manage', 'inbound_email.read', 'inbound_email.manage']
-    .some((key) => accessAllows(ctx.access, key as Parameters<typeof accessAllows>[1]));
+    .some((key) => inboxAllows(ctx, key as Parameters<typeof inboxAllows>[1]));
 }
 
 function canManageDomains(ctx: InboxContext): boolean {
   return ctx.access.role !== 'agent'
-    && (accessAllows(ctx.access, 'contacts.manage') || accessAllows(ctx.access, 'inbound_email.manage'));
+    && (inboxAllows(ctx, 'contacts.manage') || inboxAllows(ctx, 'inbound_email.manage'));
 }
 
 function requireProject(ctx: InboxContext, projectId: string): string {
   const id = assertId(projectId, 'project id');
-  if (!accessAllowsProject(ctx.access, id)) throw new InboxError(403, 'Project access denied');
+  if (!inboxReaches(ctx, id)) throw new InboxError(403, 'Project access denied');
   return id;
 }
 
@@ -631,7 +635,7 @@ const SENDER_COLUMNS = 'id, address, project_id, created_at';
 
 function canReadContacts(ctx: InboxContext): boolean {
   return ['contacts.read', 'contacts.read_all', 'contacts.manage']
-    .some((key) => accessAllows(ctx.access, key as Parameters<typeof accessAllows>[1]));
+    .some((key) => inboxAllows(ctx, key as Parameters<typeof inboxAllows>[1]));
 }
 
 /** Every address of every contact on the project. */

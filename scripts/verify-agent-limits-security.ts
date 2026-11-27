@@ -60,7 +60,10 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function migrationChecks() {
   const at = SCHEMA_SQL.indexOf(BANNER);
-  check('schema.sql: its section is the migration, word for word, and last', at > 0 && SCHEMA_SQL.slice(at + BANNER.length) === MIGRATION_SQL);
+  // Found by its banner: later releases append their own sections after it.
+  const next = SCHEMA_SQL.indexOf('\n-- ============================================================\n-- ', at + BANNER.length);
+  const section = SCHEMA_SQL.slice(at + BANNER.length, next > 0 ? next : SCHEMA_SQL.length);
+  check('schema.sql: its section is the migration, word for word', at > 0 && section.trimEnd() === MIGRATION_SQL.trimEnd());
   check('migration: no em or en dash', !MIGRATION_SQL.includes(String.fromCharCode(0x2013)) && !MIGRATION_SQL.includes(String.fromCharCode(0x2014)));
   const old = await createFullSchemaDatabase({ schemaSql: SCHEMA_SQL.slice(0, at) });
   await old.exec('RESET ROLE');
@@ -184,7 +187,7 @@ async function main() {
   const db = await createFullSchemaDatabase();
   const s = await seed(db);
   const server = await startFakePostgrest(db, { handle: authStandIn(db) });
-  Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'fake-anon-key' });
+  Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key', APP_ENCRYPTION_KEY: 'e'.repeat(64), NEXT_PUBLIC_SUPABASE_ANON_KEY: 'fake-anon-key' });
   try {
     const runsRoute = await import('../src/app/api/v1/agents/runs/route');
     const runRoute = await import('../src/app/api/v1/agents/runs/[id]/route');

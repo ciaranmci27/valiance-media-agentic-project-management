@@ -26,7 +26,7 @@ export function YourAssistantTab({ hub, onOpenTask, onOpenSetup }: {
 
   return (
     <div className="space-y-6">
-      <NeedsYouView scope="mine" needs={hub.mine.needs} items={hub.mine.items} comments={hub.mine.comments} drafts={hub.mine.drafts} onOpenTask={onOpenTask} />
+      <NeedsYouView scope="mine" needs={hub.mine.needs} items={hub.mine.items} drafts={hub.mine.drafts} onOpenTask={onOpenTask} />
       {showAssistant && <AssistantSection view={hub.assistant!} onOpenSetup={onOpenSetup} />}
       {/* Your own AI tools: anyone who signs in; keys are not made in the demo or by guests. */}
       <ConnectAiSection canMakeKeys={!isDemoMode && access?.role !== 'guest'} />

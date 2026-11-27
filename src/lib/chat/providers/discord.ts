@@ -26,7 +26,9 @@ import {
  * a relay's retry records nothing twice. The body is
  * { v: 1, t: 'MESSAGE_CREATE', d: <Discord's message>, channel: { id, type, parent_id } }
  * (channel tells a thread from a channel), or { v: 1, t: 'RELAY_READY' } when
- * the relay connects, which marks the connection heard ("Connected").
+ * the relay connects, which marks the connection heard ("Connected"), or
+ * { v: 1, t: 'RELAY_HEARTBEAT' } every RELAY_HEARTBEAT_SECONDS while it runs,
+ * which also stamps relay_seen_at, so a relay that stops reads Not receiving.
  *
  * Normalised: a DM has no guild_id. A thread's messages belong to its parent
  * channel (conversation) with the thread as thread_id, so a mapped channel's
@@ -232,6 +234,7 @@ export const discordAdapter: ChatAdapter = {
     let payload: Loose;
     try { payload = JSON.parse(body); } catch { return { kind: 'ignore', reason: 'invalid_json' }; }
     if (payload?.t === 'RELAY_READY') return { kind: 'ping' };
+    if (payload?.t === 'RELAY_HEARTBEAT') return { kind: 'ping', heartbeat: true };
     if (payload?.t !== 'MESSAGE_CREATE' || !payload.d || typeof payload.d !== 'object') return { kind: 'ignore', reason: 'not_a_message' };
     const message = payload.d;
     const author = message.author;

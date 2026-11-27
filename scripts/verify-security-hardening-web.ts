@@ -113,7 +113,7 @@ function sinks() {
   const modal = readFileSync(join(SRC, 'components', 'projects', 'ClientEmailPreviewModal.tsx'), 'utf8');
   check('sinks: the client email preview writes only into a frame without scripts', preview === 2 && sandboxes(modal).length === 1 && sandboxes(modal).every((v) => v === 'allow-same-origin'), preview);
   for (const [file, frame] of [
-    ['src/components/ui/FilePreviewModal.tsx', 'srcDoc={content}'],
+    ['src/components/ui/FilePreviewModal.tsx', 'srcDoc={withScriptNonce(content, nonce)}'],
     ['src/app/portal/[token]/page/[fileId]/page.tsx', 'srcDoc={htmlContent}'],
   ] as const) {
     const text = readFileSync(join(APP, file), 'utf8');

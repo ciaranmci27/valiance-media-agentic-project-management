@@ -48,9 +48,11 @@ import { PARITY_TOOLS } from './parity';
  * file: credentials (list, reveal, write), pasting a chat bot token or signing
  * secret, revealing a webhook signing secret (rotating answers a new one once,
  * as creating does), integration secrets, the agent service key, a key's
- * collection by the assistant host, binary uploads, the event and audit
- * exports, meeting packages, the deprecated shadow-plan compare, and the fleet
- * publisher's agent health (an agent reports its own with heartbeat). Roles &
+ * collection by the assistant host, binary uploads (a logo, a picture, a
+ * photo: parity/settings.ts), changing your own sign-in email (it takes your
+ * password), an invite link itself (resend_invite emails it, never answers
+ * it), the event and audit exports, meeting packages, the deprecated
+ * shadow-plan compare, and the fleet publisher's agent health (an agent reports its own with heartbeat). Roles &
  * permissions, sign-in methods, Connect AI and API switches, encryption and
  * app updates stay with a signed-in person in the app.
  *
@@ -813,13 +815,18 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'add_task_comment',
     lead: 'Add a comment to a task.',
-    detail: 'Posted under your own name.',
-    input: z.object({ task_id: id('task_id'), text: z.string().min(1).max(20_000), idempotency_key: idempotencyKeyInput }).strict(),
+    detail: "Posted under your own name. blocked: true says you are stuck on this task: it shows on Needs you for the task's people and your managers until a person replies or the task moves. For a decision use ask_human or request_approval with your run_id instead; a comment is the record.",
+    input: z.object({
+      task_id: id('task_id'),
+      text: z.string().min(1).max(20_000),
+      blocked: z.boolean().optional().describe('You are stuck on this task until a person replies'),
+      idempotency_key: idempotencyKeyInput,
+    }).strict(),
     permission: 'tasks.read',
     method: 'POST',
     path: '/api/v1/tasks/{id}/comments',
     // The route requires user_id but always uses the key's member.
-    request: ({ task_id, text }, context) => ({ params: { id: task_id }, body: { user_id: context.memberId, text } }),
+    request: ({ task_id, text, blocked }, context) => ({ params: { id: task_id }, body: { user_id: context.memberId, text, ...(blocked === undefined ? {} : { blocked }) } }),
   }),
   routeTool({
     name: 'add_task_file',
@@ -1407,12 +1414,13 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'list_notifications',
     lead: 'List your own notifications, newest first.',
-    detail: 'is_read=false for unread only. view: all (default, every notification), updates (what the app lists as Updates: not done, receipts for something waiting on you left out) or done. category narrows to one kind, such as task_comments, agent_message or reminder. Each has category, project_id, actor_id and done_at. Grouped: list_notification_groups.',
+    detail: 'is_read=false for unread only. view: all (default, every notification), updates (what the app lists as Updates: not done, receipts for something waiting on you left out), unread (those Updates not read yet) or done. category narrows to one kind, such as task_comments, agent_message or reminder. Each has category, project_id, actor_id and done_at. With a view other than all, meta.next_cursor pages on: pass it back as before (with the same view, no other filter). Grouped: list_notification_groups.',
     input: z.object({
       is_read: z.boolean().optional(),
       entity_type: z.enum(['task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal', 'question']).optional(),
-      view: z.enum(['all', 'updates', 'done']).optional(),
+      view: z.enum(['all', 'updates', 'unread', 'done']).optional(),
       category: z.string().regex(/^[a-z][a-z0-9_]{0,59}$/).optional().describe('A category key such as task_comments'),
+      before: z.string().min(1).max(100).optional().describe('meta.next_cursor from the previous page'),
       page, limit: limit(25),
     }).strict(),
     permission: 'notifications.manage_own',
@@ -2292,13 +2300,14 @@ export const PM_TOOLS: PmTool[] = [
     name: 'create_api_key',
     lead: 'Make an API key for an agent; the secret shows once.',
     detail:
-      "Needs api_keys.manage_all, and an Owner's key for an agent (agent_id may also be your own member). The new key is tied to yours: revoking yours revokes it. Every scope must be one the agent holds (get_agent_setup lists them as available_scopes) and one your own key carries: a key never grants more than it has. read_only refuses its writes. The answer's secret is the only copy: hand it to the agent's host now. An agent's key ends after 90 days unless you send expires_in_days (null: until revoked, an Owner only) or the workspace sets a lifetime. In an AI setup session the key carries at most the agent's template powers (403 ai_setup_scope_outside_template); sensitive ones are left off and wait for the Owner's Allow (needs_owner_confirm). No idempotency_key: on a timeout, list_api_keys before trying again.",
+      "Needs api_keys.manage_all, and an Owner's key for an agent (agent_id may also be your own member). The new key is tied to yours: revoking yours revokes it. Every scope must be one the agent holds (get_agent_setup lists them as available_scopes) and one your own key carries: a key never grants more than it has. With give_beyond_role true, an Owner's key gives a company agent a scope its role lacks, as its Access tab does (never one agents never carry; scopes_given in the answer, logged). read_only refuses its writes. The answer's secret is the only copy: hand it to the agent's host now. An agent's key ends after 90 days unless you send expires_in_days (null: until revoked, an Owner only) or the workspace sets a lifetime. In an AI setup session the key carries at most the agent's template powers (403 ai_setup_scope_outside_template); sensitive ones are left off and wait for the Owner's Allow (needs_owner_confirm). No idempotency_key: on a timeout, list_api_keys before trying again.",
     input: z.object({
       agent_id: id('agent_id'),
       name: z.string().min(1).max(100),
       scopes: z.array(API_SCOPE).min(1),
       read_only: z.boolean().optional(),
       expires_in_days: z.number().int().min(1).max(3650).nullable().optional().describe("Days until the key stops working, or null for no expiry; left out, the workspace's key lifetime for that member, which caps it unless yours is an Owner's key"),
+      give_beyond_role: z.boolean().optional().describe("true: a scope the company agent's role lacks is given to it alone (an Owner's key, never one agents never carry)"),
     }).strict(),
     permission: 'api_keys.manage_all',
     method: 'POST',
@@ -2335,8 +2344,13 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'update_api_key',
     lead: 'Rename an API key or change its scopes; the secret stays.',
-    detail: "Needs api_keys.manage_all. Send name, scopes (the full new list) or both. Removing scopes is always allowed. A scope the key does not carry yet is added only as create_api_key would allow: the key's member holds it, your own key carries it, an Owner's key for an agent's key, never one agents never carry. A revoked or expired key cannot be changed. Applies from the key's next request.",
-    input: z.object({ key_id: id('key_id'), name: z.string().min(1).max(100).optional(), scopes: z.array(API_SCOPE).min(1).optional() }).strict(),
+    detail: "Needs api_keys.manage_all. Send name, scopes (the full new list) or both. Removing scopes is always allowed. A scope the key does not carry yet is added only as create_api_key would allow: the key's member holds it, your own key carries it, an Owner's key for an agent's key, never one agents never carry. give_beyond_role true lets an Owner's key give a company agent a scope its role lacks (scopes_given, logged). A revoked or expired key cannot be changed. Applies from the key's next request.",
+    input: z.object({
+      key_id: id('key_id'),
+      name: z.string().min(1).max(100).optional(),
+      scopes: z.array(API_SCOPE).min(1).optional(),
+      give_beyond_role: z.boolean().optional().describe("true: a scope the company agent's role lacks is given to it alone (an Owner's key only)"),
+    }).strict(),
     permission: 'api_keys.manage_all',
     method: 'PATCH',
     path: '/api/v1/api-keys/{id}',
@@ -2368,7 +2382,7 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'rotate_api_key',
     lead: 'Replace a key, keeping the old one alive for a while.',
-    detail: "Needs api_keys.manage_all (an Owner's key for an agent's key), or assistants.provision for a personal agent's key. The new key has the same member, scopes and name; the old one keeps working for overlap_hours (default 24, 0 to 168), then stops. A key is replaced once: rotate the new one next time. The answer's secret is the only copy: hand it to the host now, before the old key stops. No idempotency_key.",
+    detail: "Needs api_keys.manage_all (an Owner's key for an agent's key), or assistants.provision for a personal agent's key. The new key has the same member, scopes and name; the old one keeps working for overlap_hours (default 24, 0 to 168; your own key: 1 hour at most), then stops. A key is replaced once: rotate the new one next time. The answer's secret is the only copy: hand it to the host now, before the old key stops. No idempotency_key.",
     input: z.object({ key_id: id('key_id'), overlap_hours: z.number().min(0).max(168).optional() }).strict(),
     permission: ['api_keys.manage_all', 'assistants.provision'],
     method: 'POST',

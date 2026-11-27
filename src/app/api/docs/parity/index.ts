@@ -7,6 +7,8 @@ import { NOTIFICATIONS_ENDPOINTS } from './notifications';
 import { INBOX_ENDPOINTS } from './inbox';
 import { CRM_ENDPOINTS } from './crm';
 import { MONEY_ENDPOINTS } from './money';
+import { EMAIL_ENDPOINTS } from './email';
+import { SETTINGS_ENDPOINTS } from './settings';
 
 /** The API and MCP parity routes (2026-11-27), one file per area. Each names its own scopes. */
 export const PARITY_ENDPOINTS: EndpointDoc[] = [
@@ -18,4 +20,6 @@ export const PARITY_ENDPOINTS: EndpointDoc[] = [
   ...INBOX_ENDPOINTS,
   ...CRM_ENDPOINTS,
   ...MONEY_ENDPOINTS,
+  ...EMAIL_ENDPOINTS,
+  ...SETTINGS_ENDPOINTS,
 ];

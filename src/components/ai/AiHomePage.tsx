@@ -175,7 +175,7 @@ export function AiHomePage() {
         {panel('company', (
           <div className="space-y-6">
             <AgentsPauseBanner />
-            <NeedsYouView scope="company" needs={hub.company.needs} items={hub.company.items} comments={hub.company.comments} onOpenTask={openTask} />
+            <NeedsYouView scope="company" needs={hub.company.needs} items={hub.company.items} onOpenTask={openTask} />
             <SubNav label="Company AI views" active={view} onChange={(next) => setPlace('company', next)}
               items={COMPANY_VIEWS.map((key) => ({ key, label: COMPANY_VIEW_LABELS[key] }))} />
             {viewPanel('agents', <AgentOrgChart onHire={canHire ? () => router.push(HIRE_HREF) : undefined} />)}

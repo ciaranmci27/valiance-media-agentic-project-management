@@ -16,7 +16,7 @@ import { useSettingsAccess } from '@/components/settings/settings-groups';
  * then the MCP and API addresses and docs.
  */
 export default function DeveloperSettingsPage() {
-  const { teamMemberId, access } = useAuth();
+  const { access } = useAuth();
   const { show, webhooksState } = useSettingsAccess();
   return (
     <>
@@ -27,7 +27,7 @@ export default function DeveloperSettingsPage() {
       {show.webhooks && (
         <div id="webhooks" className="scroll-mt-6">
           {webhooksState === 'manage'
-            ? <WebhooksPanel teamMemberId={teamMemberId} />
+            ? <WebhooksPanel />
             : <WebhooksOffCard canTurnOn={webhooksState === 'turn-on'} />}
         </div>
       )}

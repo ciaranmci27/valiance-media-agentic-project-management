@@ -160,6 +160,11 @@ export interface ProfileInput {
   now?: Date;
   /** Defaults to the service client's auth admin lookup. */
   lastSignIn?: LastSignInLoader;
+  /**
+   * Leaves the activity section out: an API key has no row level security
+   * of its own to read activity rows through (its feed is GET /api/v1/activities).
+   */
+  withoutActivity?: boolean;
 }
 
 // ── Time zone helpers ────────────────────────────────────────────────────
@@ -596,7 +601,7 @@ export async function assembleTeamProfile(input: ProfileInput): Promise<TeamProf
   const [work, time, activity, usage, signedIn, latest] = await Promise.all([
     showWork ? loadWork(service, context, windows) : undefined,
     showTime ? loadTime(service, context, windows, now) : undefined,
-    full ? loadActivity(service, reader, access, context, null) : undefined,
+    full && !input.withoutActivity ? loadActivity(service, reader, access, context, null) : undefined,
     showUsage ? loadUsage(service, context, windows) : undefined,
     full && target.auth_user_id ? lastSignIn(target.auth_user_id) : null,
     full ? latestAction(service, access, context) : null,

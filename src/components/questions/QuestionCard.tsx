@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/inputs/Textarea';
 import { TemplateDraftReviewPanel } from '@/components/templates/TemplateDraftReviewPanel';
 import { invalidateTables } from '@/lib/query-cache';
 import { useNeedsYouActions, type ActionResult } from '@/lib/needs-you-actions';
-import { ANSWER_MAX, answerLine, approvalDetailRows, approvalTypeLabel, decisionLine, externalLinkHost, textAnswers, type QuestionView } from '@/lib/questions';
+import { ANSWER_MAX, answerLine, approvalDetailCount, approvalDetailRows, approvalReady, approvalTypeLabel, decisionLine, externalLinkHost, textAnswers, type QuestionView } from '@/lib/questions';
 import { timeAgo } from '@/lib/task-times';
 import { groupTargetLabel } from '@/lib/groups';
 import { formatTime, formatDay, formatFull } from '@/lib/time-format';
@@ -64,9 +64,11 @@ function expiresLabel(iso: string): string {
   return sameDay ? `Closes at ${formatTime(when)}` : `Closes ${formatDay(when)}`;
 }
 
-export function QuestionCard({ question, variant = 'panel', place, onOpenTask, lead }: {
+export function QuestionCard({ question, variant = 'panel', dense = false, place, onOpenTask, lead }: {
   question: QuestionView;
   variant?: Variant;
+  /** hub: tighter padding (the bell). */
+  dense?: boolean;
   /** band and hub: show where it hangs (task or project), opening the task on click. */
   place?: boolean;
   onOpenTask?: (taskId: string) => void;
@@ -82,13 +84,21 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask, l
   const [result, setResult] = useState<QuestionView | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null);
-  const [showAllDetails, setShowAllDetails] = useState(false);
+  const [showAllDetails, setShowAllDetailsState] = useState(false);
+  /** Every row has been on screen once: Show less afterwards keeps Approve usable. */
+  const [seenAllDetails, setSeenAllDetails] = useState(false);
+  const setShowAllDetails = (next: boolean | ((open: boolean) => boolean)) => setShowAllDetailsState((open) => {
+    const value = typeof next === 'function' ? next(open) : next;
+    if (value) setSeenAllDetails(true);
+    return value;
+  });
   const [reviewing, setReviewing] = useState(false);
   /** hub: the context, details and a written answer are open. */
   const [more, setMore] = useState(false);
   /** The server's word when it refused because the question is no longer open. */
   const [closed, setClosed] = useState<string | null>(null);
   const detailsId = useId();
+  const readHintId = useId();
   const actionLineId = useId();
   /** hub: the ask is longer than its two lines, so it is read in full (More) before answering. */
   const headlineRef = useRef<HTMLParagraphElement>(null);
@@ -108,6 +118,8 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask, l
   const group = question.asked_to_group ? groupTargetLabel(question.asked_to_group_name) : null;
   const askedByYou = question.asked_by === teamMemberId;
   const approval = question.kind === 'approval';
+  /** Every detail row of the approval has been on screen (or the list is short): Approve may go. */
+  const readyToApprove = !approval || approvalReady(question.action, seenAllDetails);
   const choices = approval ? [] : question.choices ?? [];
   const words = textAnswers(question);
   const canSend = !busy && (choice !== null || (words && text.trim().length > 0));
@@ -137,8 +149,14 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask, l
   // The card shows its own outcome line first, so the item stays on the
   // lists until the server answers (optimistic: false); the action layer
   // refreshes them after.
+  // One decision per tap: a second click before the first re-renders is dropped.
+  const inFlight = useRef(false);
   const answer = async (decide?: 'approve' | 'reject') => {
     if (!decide && !canSend) return;
+    // Approve only once every detail row has been on screen (security review, finding 4).
+    if (decide === 'approve' && !readyToApprove) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy('answer');
     setDeciding(decide ?? null);
     setError(null);
@@ -147,6 +165,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask, l
     else if (choice !== null) body.choice = choice;
     if (text.trim()) body.text = text.trim();
     settle(await actions.answer(question, body, { optimistic: false }));
+    inFlight.current = false;
     setBusy(null);
     setDeciding(null);
   };
@@ -242,6 +261,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask, l
   // details are cut to fit; Show all reveals every row whole, so a person
   // approving money or a client email can read every fact before deciding.
   const shortDetails = approval ? approvalDetailRows(question.action) : null;
+  const detailCount = approval ? approvalDetailCount(question.action) : 0;
   const details = approval && showAllDetails ? approvalDetailRows(question.action, { all: true }) : shortDetails;
   const detailList = details && details.rows.length > 0 && (
     <div className={`rounded-lg bg-white/[0.04] px-2.5 py-2 ${compact ? 'text-[11px]' : 'text-xs'}`}>
@@ -255,8 +275,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask, l
       </dl>
       {shortDetails?.truncated && (
         <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-zinc-500">
-          {!showAllDetails && details.hidden > 0 && <span>{details.hidden} more not shown</span>}
-          {!showAllDetails && details.hidden === 0 && <span>Some details are cut</span>}
+          {!showAllDetails && <span id={readHintId}>{details.hidden > 0 ? `${details.rows.length} of ${detailCount} shown. Read them all to approve.` : 'Some details are shortened. Read them in full to approve.'}</span>}
           <button
             type="button"
             aria-expanded={showAllDetails}
@@ -264,7 +283,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask, l
             onClick={() => setShowAllDetails((open) => !open)}
             className="rounded font-medium text-brand-300 hover:text-brand-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
           >
-            {showAllDetails ? 'Show less' : 'Show all'}
+            {showAllDetails ? 'Show less' : `Show all ${detailCount}`}
           </button>
         </p>
       )}
@@ -390,7 +409,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask, l
         {question.can_answer && approval && (
           <>
             {!draftId && (
-              <Button type="button" size="sm" onClick={() => void answer('approve')} disabled={!!busy || offFor('approve')} aria-describedby={actsOn('approve')}>
+              <Button type="button" size="sm" onClick={() => void answer('approve')} disabled={!!busy || offFor('approve') || !readyToApprove} aria-describedby={readyToApprove ? actsOn('approve') : readHintId}>
                 {deciding === 'approve' ? 'Approving' : 'Approve'}
               </Button>
             )}
@@ -435,9 +454,12 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask, l
     // approval is Approve or Reject; the context, every detail, a written
     // answer and Cancel wait behind More (owner critique A23).
     const quickChoice = async (option: string) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
       setBusy('answer');
       setError(null);
       settle(await actions.answer(question, { choice: option }, { optimistic: false }));
+      inFlight.current = false;
       setBusy(null);
     };
     const hasMore = !!context || !!actionText || words || question.can_cancel || !!question.expires_at;
@@ -445,7 +467,7 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask, l
     // A one-tap answer only once the whole ask is on screen: a longer one is read in full first.
     const readFirst = clamped && question.can_answer;
     return (
-      <div className="px-4 py-3 lg:px-5">
+      <div className={dense ? 'px-3 py-2.5' : 'px-4 py-3 lg:px-5'}>
         <div className="flex items-start gap-3">
           {lead ?? (
             <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-amber-500/[0.14] text-amber-300">
@@ -456,10 +478,15 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask, l
             <p ref={headlineRef} className={`whitespace-pre-wrap break-words text-sm font-medium text-white ${more ? '' : 'line-clamp-2'}`} title={more ? undefined : headline}>{headline}</p>
             <p className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-zinc-500">
               <span className="flex-shrink-0 font-medium text-zinc-300">{question.asked_by_name ?? 'An agent'}</span>
+              {/* "Waiting on you" is already the wait line's own words: said once. */}
+              {!(forYou && !approval && !group) && (
+                <>
+                  <span className="text-zinc-600" aria-hidden="true">·</span>
+                  <span className={`flex-shrink-0 ${forYou ? 'text-amber-300' : ''}`}>{label}</span>
+                </>
+              )}
               <span className="text-zinc-600" aria-hidden="true">·</span>
-              <span className={`flex-shrink-0 ${forYou ? 'text-amber-300' : ''}`}>{label}</span>
-              <span className="text-zinc-600" aria-hidden="true">·</span>
-              <time dateTime={question.created_at} className="flex-shrink-0 tabular-nums" title={formatFull(question.created_at)}>{waited}</time>
+              <time dateTime={question.created_at} className={`flex-shrink-0 tabular-nums ${forYou ? 'text-amber-300' : ''}`} title={formatFull(question.created_at)}>{waited}</time>
               {placeLine && <><span className="text-zinc-600" aria-hidden="true">·</span>{question.task_title && <span className="flex-shrink-0">Unblocks</span>}{placeLine}</>}
             </p>
             {more ? (
@@ -479,9 +506,12 @@ export function QuestionCard({ question, variant = 'panel', place, onOpenTask, l
                   ) : (
                     <>
                       {reviewButton}
-                      {question.can_answer && approval && !draftId && (
+                      {question.can_answer && approval && !draftId && (readyToApprove ? (
                         <Button type="button" size="sm" onClick={() => void answer('approve')} disabled={!!busy || offFor('approve')} aria-describedby={actsOn('approve')}>{deciding === 'approve' ? 'Approving' : 'Approve'}</Button>
-                      )}
+                      ) : (
+                        // A long list of what is approved is read in full first: More opens every row.
+                        <Button type="button" size="sm" aria-expanded={false} onClick={() => { setMore(true); setShowAllDetails(true); }}>Read all {detailCount} and approve</Button>
+                      ))}
                       {question.can_answer && approval && (
                         <Button type="button" size="sm" variant="secondary" onClick={() => void answer('reject')} disabled={!!busy}>{deciding === 'reject' ? 'Rejecting' : 'Reject'}</Button>
                       )}

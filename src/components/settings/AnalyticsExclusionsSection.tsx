@@ -20,20 +20,7 @@ import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
 import { useDemo } from '@/lib/demo-context';
 import type { ExcludedIp } from '@/lib/types';
-
-/** Lenient validator for the IP-entry form. Accepts IPv4 dotted-quad and
- *  most IPv6 shapes (including '::1'). The portal analytics filter does a
- *  literal string match, so anything more strict here would just reject
- *  legitimate entries from admins who paste their address. */
-function isPlausibleIp(value: string): boolean {
-  const v = value.trim();
-  if (v.length === 0 || v.length > 45) return false;
-  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(v)) {
-    return v.split('.').every((p) => Number(p) >= 0 && Number(p) <= 255);
-  }
-  if (/^[0-9a-fA-F:]+$/.test(v) && v.includes(':')) return true;
-  return false;
-}
+import { isPlausibleIp } from '@/lib/analytics-exclusions';
 
 export function AnalyticsExclusionsSection() {
   const { businessSettings, updateBusinessSettings } = useApp();

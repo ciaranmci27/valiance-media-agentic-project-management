@@ -375,11 +375,13 @@ export async function insertComment(
   supabase: SupabaseClient,
   taskId: string,
   userId: string,
-  text: string
+  text: string,
+  /** An agent's comment saying it is stuck (the database keeps it false for anyone else). */
+  blocked = false,
 ) {
   const { data, error } = await supabase
     .from('task_comments')
-    .insert({ task_id: taskId, user_id: userId, text })
+    .insert({ task_id: taskId, user_id: userId, text, ...(blocked ? { blocked: true } : {}) })
     .select()
     .single();
 

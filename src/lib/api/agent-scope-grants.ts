@@ -147,3 +147,34 @@ export async function removeAgentScopeGrants(service: SupabaseClient, agentId: s
     if (error) throw error;
   }
 }
+
+/**
+ * Over the API (create_api_key, update_api_key with give_beyond_role): the
+ * scopes among `scopes` a company agent lacks, checked as its Access tab
+ * checks them. Only for an active company agent (a personal agent's powers
+ * are its person's); never beyond what the calling key may hand on (it
+ * carries the scope and its member holds it); an Owner only, never a scope
+ * agents never carry (assertMayGiveAgentScopes). Answers the scopes to give
+ * with addAgentScopeGrants before the key is written; empty when it lacks
+ * none.
+ */
+export async function apiScopesBeyondRole(
+  service: SupabaseClient,
+  granter: Granter,
+  target: { id: string; role: string; delegateOf: string | null },
+  scopes: readonly string[],
+): Promise<string[]> {
+  if (target.role !== 'agent' || target.delegateOf) {
+    throw new ApiError(422, 'VALIDATION_ERROR', 'give_beyond_role is for a company agent: a person, or a personal agent, holds only what their role gives', { reason: 'beyond_role_agents_only' });
+  }
+  const beyond = await agentScopesBeyondRole(service, granter, target.id, scopes);
+  if (beyond.length === 0) return [];
+  // What this key may hand on: it carries the scope and its member holds it on the API (agent-setup.ts grantableScopes).
+  const held = new Set<string>(apiScopesFor(granter.access));
+  const beyondCaller = beyond.filter((scope) => !granter.scopes.includes(scope) || !held.has(scope));
+  if (beyondCaller.length) {
+    throw forbidden(`A key can only grant scopes it holds itself: ${beyondCaller.join(', ')}`, { reason: 'scope_escalation', beyond_caller: beyondCaller });
+  }
+  assertMayGiveAgentScopes(granter.access, beyond);
+  return beyond;
+}

@@ -5,7 +5,7 @@ import { INVOICE_WEBHOOK_EVENT_TYPES, type WebhookDelivery, type WebhookDelivery
 import { ApiError, forbidden, notFound } from './errors';
 import { accessAllows, accessAllowsProject, apiKeyAllows } from './access';
 import { insertWebhookEndpoint, withEndpointColumns } from '@/lib/supabase/queries';
-import { sealWebhookSecret } from '@/lib/webhooks/secret';
+import { assertWebhookKey, sealWebhookSecret } from '@/lib/webhooks/secret';
 import { generateWebhookSecret } from '@/lib/webhooks/sign';
 
 /**
@@ -45,13 +45,15 @@ export async function listWebhookEndpoints(
 
 /**
  * Adds an endpoint from the server with its secret sealed at rest (bound to
- * the endpoint's id, chosen here), or stored as given while the host has no
- * APP_ENCRYPTION_KEY. The caller keeps the plaintext to show once.
+ * the endpoint's id, chosen here). Without APP_ENCRYPTION_KEY on the host it
+ * is refused (409 encryption_key_missing) before anything is written. The
+ * caller keeps the plaintext to show once.
  */
 export async function insertServerWebhookEndpoint(
   service: SupabaseClient,
   endpoint: Omit<Parameters<typeof insertWebhookEndpoint>[1], 'id'>,
 ): Promise<WebhookEndpoint> {
+  assertWebhookKey();
   const id = randomUUID();
   return insertWebhookEndpoint(service, { ...endpoint, id, secret: sealWebhookSecret(id, endpoint.secret) });
 }
@@ -232,12 +234,14 @@ export async function requeueEndpointDelivery(service: SupabaseClient, endpointI
 /**
  * A new signing secret for the endpoint, for when the old one may have
  * leaked: the endpoint keeps its id, filters and delivery history. Sealed at
- * rest when the host has APP_ENCRYPTION_KEY. The old secret stops at once:
+ * rest; without APP_ENCRYPTION_KEY on the host it is refused (409
+ * encryption_key_missing) and the old secret stays. The old secret stops at once:
  * deliveries from now on are signed with the new one. Answers the plaintext
  * for the caller to show once; 404 when there is no such endpoint.
  */
 export async function rotateWebhookSecret(service: SupabaseClient, endpointId: string): Promise<string> {
   if (!UUID_FORMAT.test(endpointId)) throw notFound('Webhook endpoint');
+  assertWebhookKey();
   const secret = generateWebhookSecret();
   const { data, error } = await service.from('webhook_endpoints').update({ secret: sealWebhookSecret(endpointId, secret) }).eq('id', endpointId).select('id');
   if (error) throw error;

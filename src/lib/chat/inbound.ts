@@ -172,9 +172,9 @@ export async function handleChatInbound(
     await stampHeard(service, connection.id);
     return done({ challenge: parsed.challenge });
   }
-  // A relay's hello (Discord): verified, so the connection is heard. Nothing is recorded.
+  // A relay's hello or heartbeat (Discord): verified, so the connection is heard. Nothing is recorded.
   if (parsed.kind === 'ping') {
-    await stampHeard(service, connection.id);
+    await stampHeard(service, connection.id, parsed.heartbeat === true);
     return done({ status: 'ok' });
   }
   if (parsed.kind === 'ignore') return done({ status: 'ignored', reason: parsed.reason });
@@ -627,8 +627,18 @@ export function companyQuietWords(status: AssistantStatus, name: string): string
 }
 
 /** The connection was heard: a verified request, its refusals left behind. */
-async function stampHeard(service: SupabaseClient, connectionId: string): Promise<void> {
-  await service.from('chat_connections').update({ last_inbound_at: new Date().toISOString() }).eq('id', connectionId);
+/**
+ * The connection is heard now. A relay's heartbeat also stamps relay_seen_at
+ * (20261127002600), so its silence later reads Not receiving; on a database
+ * before it, only last_inbound_at is stamped.
+ */
+async function stampHeard(service: SupabaseClient, connectionId: string, heartbeat = false): Promise<void> {
+  const now = new Date().toISOString();
+  if (heartbeat) {
+    const { error } = await service.from('chat_connections').update({ last_inbound_at: now, relay_seen_at: now }).eq('id', connectionId);
+    if (!missingColumn(error)) return;
+  }
+  await service.from('chat_connections').update({ last_inbound_at: now }).eq('id', connectionId);
 }
 
 /**

@@ -12,23 +12,37 @@ import { createNotificationSchema } from '@/lib/schemas';
 import { requireAgentsEnabled } from '@/lib/api/agents';
 import { logAudit } from '@/lib/api/audit';
 import { z } from 'zod';
-import { RECEIPT_CATEGORIES, agentNoticeCategory } from '@/lib/notifications';
-import { missingFoundation, notificationsNotReady, upsertNotification } from '@/lib/api/notifications';
+import { NextResponse } from 'next/server';
+import { RECEIPT_CATEGORIES, agentNoticeCategory, decodeCursor, encodeCursor, type NotificationFeedView, type NotificationView } from '@/lib/notifications';
+import { missingFoundation, notificationFeed, notificationsNotReady, upsertNotification } from '@/lib/api/notifications';
 import { isRelativeAppPath } from '@/lib/security/safe-url';
 
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   if (!teamMemberId) throw badRequest('API key must be linked to a team member to access notifications');
 
-  const { page, limit, offset } = parsePagination(searchParams);
   const isRead = searchParams.get('is_read');
   const entityType = searchParams.get('entity_type');
   // view: all (every notification, as before), updates (what the app lists
-  // as Updates: not done, receipts left out) or done.
+  // as Updates: not done, receipts left out), unread (those not read yet)
+  // or done.
   const view = searchParams.get('view') ?? 'all';
-  if (!['all', 'updates', 'done'].includes(view)) throw badRequest('view must be all, updates or done');
+  if (!['all', 'updates', 'unread', 'done'].includes(view)) throw badRequest('view must be all, updates, unread or done');
   const category = searchParams.get('category');
   if (category !== null && !/^[a-z][a-z0-9_]{0,59}$/.test(category)) throw badRequest('category must be a category key such as task_comments');
 
+  // Keyset paging (before: the previous page's meta.next_cursor), as the app
+  // pages Updates: the same rows pm.notification_feed lists, snoozed left out.
+  const before = searchParams.get('before');
+  if (before !== null) {
+    if (view === 'all') throw badRequest('before pages view updates, unread or done; send view too');
+    if (isRead !== null || entityType || category) throw badRequest('before cannot be combined with is_read, entity_type or category');
+    if (!decodeCursor(before)) throw badRequest('before must be a next_cursor from a previous page');
+    const limit = Math.min(100, Math.max(1, Number(searchParams.get('limit')) || 25));
+    const items = await notificationFeed(supabase, teamMemberId, { view: view as NotificationFeedView, limit, before });
+    return keysetPage(items, view as NotificationFeedView, limit);
+  }
+
+  const { page, limit, offset } = parsePagination(searchParams);
   let query = supabase
     .from('team_member_notifications')
     .select('*', { count: 'exact' })
@@ -36,23 +50,39 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
     .is('cleared_at', null);
 
   if (isRead === 'true') query = query.eq('is_read', true);
-  else if (isRead === 'false') query = query.eq('is_read', false);
+  else if (isRead === 'false' || view === 'unread') query = query.eq('is_read', false);
 
   if (entityType) query = query.eq('entity_type', entityType);
   if (category) query = query.eq('category', category);
-  if (view === 'updates') query = query.is('done_at', null).not('category', 'in', `(${RECEIPT_CATEGORIES.join(',')})`);
+  if (view === 'updates' || view === 'unread') query = query.is('done_at', null).not('category', 'in', `(${RECEIPT_CATEGORIES.join(',')})`);
   if (view === 'done') query = query.not('done_at', 'is', null);
 
-  const { data, count, error } = await readPage(query
-    .order('created_at', { ascending: false })
-    .order('id'), { offset, limit });
+  const { data, count, error } = await readPage(view === 'all'
+    ? query.order('created_at', { ascending: false }).order('id')
+    // The keyset order, so meta.next_cursor carries on from this page.
+    : query.order(view === 'done' ? 'done_at' : 'created_at', { ascending: false }).order('id', { ascending: false }), { offset, limit });
 
   if (error) {
     if ((view !== 'all' || category) && missingFoundation(error)) throw notificationsNotReady();
     throw error;
   }
-  return paginated(data || [], { page, limit, total: count || 0 });
+  const rows = (data || []) as NotificationView[];
+  const response = paginated(rows, { page, limit, total: count || 0 });
+  if (view === 'all') return response;
+  const body = await response.json() as { meta: Record<string, unknown> };
+  return NextResponse.json({ ...body, meta: { ...body.meta, next_cursor: rows.length === limit ? cursorAt(rows[rows.length - 1], view as NotificationFeedView) : null } });
 }, { permission: 'notifications.manage_own' });
+
+function cursorAt(row: NotificationView, view: NotificationFeedView): string | null {
+  const at = view === 'done' ? row.done_at : row.created_at;
+  return at ? encodeCursor(at, row.id) : null;
+}
+
+/** A keyset page: { data, meta: { limit, next_cursor } }. */
+function keysetPage(items: NotificationView[], view: NotificationFeedView, limit: number) {
+  const last = items[items.length - 1];
+  return NextResponse.json({ success: true, data: items, meta: { limit, next_cursor: items.length === limit && last ? cursorAt(last, view) : null } });
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

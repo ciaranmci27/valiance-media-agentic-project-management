@@ -74,29 +74,29 @@ export async function updateSession(request: NextRequest) {
     // Chat providers (Slack, Telegram): each request is verified by its connection's adapter.
     || request.nextUrl.pathname.startsWith('/api/chat/inbound/')
   ) {
-    return NextResponse.next();
+    return NextResponse.next({ request });
   }
   // In env-forced demo mode, skip all auth checks. Requires the server-only
   // DEMO_MODE flag in addition to the public one, so a mis-set public env var
   // can never disable auth on a real deployment.
   if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && process.env.DEMO_MODE === 'true') {
-    return NextResponse.next();
+    return NextResponse.next({ request });
   }
 
   // Without the Supabase settings nothing can load: every page goes to the
   // static page that names them (it reads nothing and shows no values).
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim()) {
     // The logo and favicon routes fall back to the default brand without a database.
-    if (request.nextUrl.pathname.startsWith('/api/brand/') || request.nextUrl.pathname.startsWith('/api/logo')) return NextResponse.next();
+    if (request.nextUrl.pathname.startsWith('/api/brand/') || request.nextUrl.pathname.startsWith('/api/logo')) return NextResponse.next({ request });
     if (request.nextUrl.pathname === '/setup-required' || request.nextUrl.pathname.startsWith('/_next') || request.nextUrl.pathname.startsWith('/api/')) {
       return request.nextUrl.pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'The app is not connected to Supabase yet.' }, { status: 503 })
-        : NextResponse.next();
+        : NextResponse.next({ request });
     }
     const url = request.nextUrl.clone();
     url.pathname = '/setup-required';
     url.search = '';
-    return NextResponse.rewrite(url);
+    return NextResponse.rewrite(url, { request });
   }
 
   let supabaseResponse = NextResponse.next({
