@@ -37,7 +37,7 @@ export const INBOX_ENDPOINTS: EndpointDoc[] = [
   },
   {
     method: 'GET', path: '/api/v1/inbox/threads/:threadId', group: GROUP, scopes: READ,
-    description: 'One conversation, as the Inbox shows it: every email oldest first with its triage, attachments and linked tasks, the projects it is filed on, its plans (items with ids), replies owed, can_triage (whether the key\'s member may act on it) and reply_draft (its newest). 404 for a conversation in an inbox the key cannot read. MCP: get_inbox_thread (bounded text).',
+    description: 'One conversation, as the Inbox shows it: every email oldest first with its triage, attachments and linked tasks, the projects it is filed on, its plans (items with ids), replies owed, can_triage (whether the key\'s member may act on it) reply_draft (its newest) and reply_drafter (who writes a draft asked for here, or null). 404 for a conversation in an inbox the key cannot read. MCP: get_inbox_thread (bounded text).',
     params: [threadParam],
   },
   {
@@ -74,7 +74,7 @@ export const INBOX_ENDPOINTS: EndpointDoc[] = [
   },
   {
     method: 'POST', path: '/api/v1/inbox/threads/:threadId/draft', group: GROUP, scopes: PERSON,
-    description: `Ask the inbox's agent for a reply draft to the newest email. One request waits per conversation: asking again while one waits answers that one. 409 when the inbox has no agent, or its assistant has Draft replies off. Nothing is sent. Answers the draft (201).${PERSON_NOTE} MCP: request_reply_draft.`,
+    description: `Ask the inbox's agent for a reply draft to the newest email; on a personal inbox with no agent of its own, its person's assistant writes it. One request waits per conversation: asking again while one waits answers that one. 409 when nobody can write it (no agent and no assistant, assistants off, or the assistant cannot read the inbox until Sort my inbox is on), or the writer has Draft replies off. Nothing is sent. Answers the draft (201).${PERSON_NOTE} MCP: request_reply_draft.`,
     params: [threadParam],
     body: [{ name: 'instructions', type: 'string', required: false, description: 'What to say, up to 2000 characters' }],
   },

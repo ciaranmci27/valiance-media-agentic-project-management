@@ -64,6 +64,8 @@ export function BrandLoader({
   // The square mark (the favicon) fits the round splash best; a wide logo
   // shrinks to an unreadable strip inside it, so it is the fallback.
   const markSrc = brand.logos.favicon && !failed.includes(brand.logos.favicon) ? brand.logos.favicon : null;
+  // The square logo for dark backgrounds, when one is uploaded apart from it: the theme picks one.
+  const markDarkSrc = markSrc && brand.logos.squareDark && brand.logos.squareDark !== markSrc && !failed.includes(brand.logos.squareDark) ? brand.logos.squareDark : null;
   const darkSrc = brand.logos.dark && !failed.includes(brand.logos.dark) ? brand.logos.dark : null;
   const lightSrc = brand.logos.light && !failed.includes(brand.logos.light) ? brand.logos.light : null;
   const markFailed = (src: string) => () => setFailed((list) => [...list, src]);
@@ -96,7 +98,14 @@ export function BrandLoader({
               change never swaps an image mid-load; a theme with no logo shows
               the name in its place. */}
           <span className="brand-splash-mark">
-            {markSrc ? (
+            {markSrc && markDarkSrc ? (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element -- an uploaded file of any size, served from storage */}
+                <img src={markDarkSrc} alt={brand.name} className="brand-splash-mark-img is-mark is-dark" onError={markFailed(markDarkSrc)} />
+                {/* eslint-disable-next-line @next/next/no-img-element -- an uploaded file of any size, served from storage */}
+                <img src={markSrc} alt={brand.name} className="brand-splash-mark-img is-mark is-light" onError={markFailed(markSrc)} />
+              </>
+            ) : markSrc ? (
               // eslint-disable-next-line @next/next/no-img-element -- an uploaded file of any size, served from storage
               <img src={markSrc} alt={brand.name} className="brand-splash-mark-img is-mark" onError={markFailed(markSrc)} />
             ) : (

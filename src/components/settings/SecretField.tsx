@@ -237,7 +237,6 @@ export function SecretField({
         title={`Remove the ${label.toLowerCase()}?`}
         message={`The value saved in the app is deleted. If your host has ${envName}, that one is used again; otherwise this stops working until you set it again.`}
         confirmLabel="Remove"
-        doubleConfirm={false}
       />
     </li>
   );

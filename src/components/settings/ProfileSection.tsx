@@ -7,6 +7,9 @@ import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import { useDemo } from '@/lib/demo-context';
 import { Button } from '@/components/ui/Button';
+import { useDiscardGuard } from '@/components/ui/useDiscardGuard';
+import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
+import { SettingsSaveBar } from '@/components/settings/SettingsSaveBar';
 import { Input } from '@/components/ui/Input';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import Modal from '@/components/ui/Modal';
@@ -114,8 +117,6 @@ export function ProfileSection() {
     }
     setUserName(checked.name);
 
-    const emailChanged = userEmail.trim().toLowerCase() !== originalEmail.toLowerCase();
-
     if (emailChanged) {
       setShowEmailConfirm(true);
       return;
@@ -131,6 +132,19 @@ export function ProfileSection() {
       setProfileLoading(false);
     }
   };
+
+  // What the form holds against what is saved: the bar shows only while they differ.
+  const savedName = currentMember?.name ?? user?.user_metadata?.display_name ?? '';
+  const emailChanged = userEmail.trim().toLowerCase() !== originalEmail.toLowerCase();
+  const dirty = userName.trim() !== savedName.trim() || emailChanged;
+  const discard = () => {
+    setUserName(savedName);
+    setUserEmail(originalEmail);
+    setNameError('');
+    setEmailError('');
+  };
+  // Leaving with unsaved edits asks first (the browser's own prompt; Settings has no close button to guard).
+  const guard = useDiscardGuard(dirty, discard);
 
   const handleConfirmEmailChange = async () => {
     if (!teamMemberId) return;
@@ -189,16 +203,8 @@ export function ProfileSection() {
 
   return (
     <>
-      <section id="profile" className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 bg-brand-500/15 rounded-lg">
-            <User className="text-brand-300" size={20} />
-          </div>
-          <div>
-            <h2 className="font-semibold text-white">Profile</h2>
-            <p className="text-sm text-zinc-400">Manage your account settings</p>
-          </div>
-        </div>
+      <section id="profile" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6">
+        <SettingsSectionHeader icon={User} title="Profile" description="Your photo, name and the email you sign in with." />
 
         <div className="flex items-center gap-4 mb-6">
           <AvatarUpload
@@ -243,11 +249,14 @@ export function ProfileSection() {
           />
         </div>
 
-        <div className="mt-4">
-          <Button onClick={handleSaveProfile} disabled={profileLoading}>
-            {profileLoading ? 'Saving' : 'Save changes'}
-          </Button>
-        </div>
+        <SettingsSaveBar
+          dirty={dirty}
+          saving={profileLoading}
+          onDiscard={discard}
+          onSave={() => { void handleSaveProfile(); }}
+          message={emailChanged ? 'New email not saved' : undefined}
+        />
+        {guard.dialog}
       </section>
 
       <Modal

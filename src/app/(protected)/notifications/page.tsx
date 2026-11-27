@@ -16,9 +16,15 @@ import { UpdateRow } from '@/components/notifications/UpdateRow';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useAiHub } from '@/lib/use-ai-hub';
-import { useUpdates } from '@/lib/use-updates';
+import { useGroupedUpdates, useUpdates } from '@/lib/use-updates';
+import { useNeedsYouActions } from '@/lib/needs-you-actions';
+import { FilterButton, FilterOption, FilterSection } from '@/components/ui/FilterButton';
+import { UpdateGroupRow } from '@/components/notifications/UpdateGroupRow';
 import { useTaskUrlParam } from '@/lib/use-task-url';
-import { notificationsSummary, notificationsView, safeNotificationLink, type NotificationView, type NotificationsView } from '@/lib/notifications';
+import {
+  NO_UPDATE_FILTERS, notificationsSummary, notificationsView, safeNotificationLink, updateFilterCount,
+  type NotificationGroup, type NotificationView, type NotificationsView, type UpdateFilters,
+} from '@/lib/notifications';
 
 /** How many Updates show at first, and how many each Show more adds. */
 const STEP = 24;
@@ -30,23 +36,31 @@ const STEP = 24;
  *   waiting on this person, answered in place (the one Needs you, the same
  *   rows and count as the AI home and the bell). Nothing here is marked
  *   done: an item leaves when it is handled.
- * - Updates: notices about what happened, newest first. Open one to read it
- *   (it is marked read); Done clears it from the list, Done brings it back.
+ * - Updates: notices about what happened, grouped by what they are about
+ *   ("Website wireframes: 3 updates", each notice a tap away), newest first,
+ *   filtered to agents or some projects. Opening a group reads it; Done
+ *   clears it (with Undo); the Done view brings any one back.
  *   A notice that announces something in Needs you is never listed here.
  */
 export default function NotificationsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { team, tasks, deleteTask, restoreRecord } = useApp();
+  const { team, tasks, projects, deleteTask, restoreRecord } = useApp();
   const { teamMemberId } = useAuth();
   const hub = useAiHub();
   const needsCount = hub.all.length;
   const view = notificationsView(searchParams.get('view'));
-  const updates = useUpdates(view === 'done' ? 'done' : 'updates');
+  // Done lists each notice; Updates lists them grouped by what they are about.
+  const updates = useUpdates('done');
+  const [filters, setFilters] = useState<UpdateFilters>(NO_UPDATE_FILTERS);
+  const grouped = useGroupedUpdates(filters);
+  const actions = useNeedsYouActions();
   const [shown, setShown] = useState(STEP);
   const { taskId: viewingTaskId, openTask, closeTask } = useTaskUrlParam();
   const viewingTask = viewingTaskId ? tasks.find((t) => t.id === viewingTaskId) ?? null : null;
+  const filterCount = updateFilterCount(filters);
+  const projectChoices = useMemo(() => [...projects].sort((x, y) => x.name.localeCompare(y.name)), [projects]);
 
   const setView = (next: NotificationsView) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -56,22 +70,48 @@ export default function NotificationsPage() {
     router.replace(`${pathname}?${params}`, { scroll: false });
   };
 
-  const open = async (n: NotificationView) => {
-    void updates.markRead(n.id);
-    // Only a path in this app is followed, whatever the row holds.
+  // Only a path in this app is followed, whatever the row holds.
+  const follow = (n: NotificationView) => {
     const link = safeNotificationLink(n.link);
     if (link) router.push(link);
   };
 
-  const done = async (n: NotificationView) => {
-    const toDone = view !== 'done';
-    if (!(await updates.setDone(n.id, toDone))) {
-      toast('error', toDone ? 'Could not mark it done' : 'Could not bring it back');
+  const openOne = (n: NotificationView) => {
+    if (!n.is_read) void actions.markRead([n.id]);
+    follow(n);
+  };
+
+  const openGroup = (group: NotificationGroup) => {
+    void grouped.markGroupRead(group);
+    follow(group.latest);
+  };
+
+  /** Done, with Undo: the notices come back as they were. */
+  const doneWithUndo = (ids: string[], words: string) => {
+    toast('success', words, { action: { label: 'Undo', onClick: () => void actions.markDone(ids, false) } });
+  };
+
+  const doneGroup = async (group: NotificationGroup) => {
+    const ids = await grouped.doneGroup(group);
+    if (!ids) {
+      toast('error', 'Could not mark it done');
       return;
     }
-    toast('success', toDone ? 'Marked done' : 'Back in Updates', {
-      action: { label: 'Undo', onClick: () => void updates.setDone(n.id, !toDone) },
-    });
+    doneWithUndo(ids, ids.length > 1 ? `${ids.length} updates marked done` : 'Marked done');
+  };
+
+  const doneOne = async (n: NotificationView) => {
+    const outcome = await actions.markDone([n.id], true);
+    if (outcome.status !== 'done') toast('error', 'Could not mark it done');
+    else doneWithUndo([n.id], 'Marked done');
+  };
+
+  const notDone = async (n: NotificationView) => {
+    if (!(await updates.setDone(n.id, false))) {
+      toast('error', 'Could not bring it back');
+      return;
+    }
+    toast('success', 'Back in Updates', { action: { label: 'Undo', onClick: () => void updates.setDone(n.id, true) } });
   };
 
   const trashTask = async (id: string) => {
@@ -79,12 +119,26 @@ export default function NotificationsPage() {
     if (await deleteTask(id)) toast('success', 'Moved to Trash', { action: { label: 'Undo', onClick: () => void restoreRecord('tasks', id) } });
   };
 
-  const visible = updates.items.slice(0, shown);
-  // Rows already read come first from the server's page; the total says how many more the view holds.
-  const total = Math.max(updates.total ?? updates.items.length, updates.items.length);
+  /** What a group is about, by name: its task's title or its project's name, when this person can see it. */
+  const placeOf = (group: NotificationGroup): string | null => {
+    const id = group.latest.entity_id;
+    if (!id) return null;
+    if (group.latest.entity_type === 'task') return tasks.find((t) => t.id === id)?.title ?? null;
+    if (group.latest.entity_type === 'project') return projects.find((p) => p.id === id)?.name ?? null;
+    return null;
+  };
+
+  const doneList = updates.items.slice(0, shown);
+  const groupList = grouped.groups.slice(0, shown);
+  const listed = view === 'done' ? updates.items.length : grouped.groups.length;
+  // The total says how many more the view holds than the pages read so far.
+  const total = Math.max((view === 'done' ? updates.total : grouped.total) ?? listed, listed);
   const showMore = async () => {
     const next = shown + STEP;
-    if (next > updates.items.length && updates.hasMore) await updates.loadMore();
+    if (next > listed) {
+      if (view === 'done' && updates.hasMore) await updates.loadMore();
+      if (view === 'updates' && grouped.hasMore) await grouped.loadMore();
+    }
     setShown(next);
   };
 
@@ -93,6 +147,34 @@ export default function NotificationsPage() {
     { key: 'updates' as const, label: 'Updates', count: updates.unread },
     { key: 'done' as const, label: 'Done' },
   ], [needsCount, updates.unread]);
+
+  const loading = view === 'done' ? updates.loading && updates.items.length === 0 : grouped.loading && grouped.groups.length === 0;
+  const failed = view === 'done' ? updates.failed : grouped.failed;
+  const reload = view === 'done' ? updates.reload : grouped.reload;
+
+  const filterButton = (
+    <FilterButton activeCount={filterCount} onClear={() => { setFilters(NO_UPDATE_FILTERS); setShown(STEP); }} title="Filter updates">
+      <FilterSection label="From">
+        <FilterOption selected={!filters.fromAgents} onToggle={() => { setFilters({ ...filters, fromAgents: false }); setShown(STEP); }}>Anyone</FilterOption>
+        <FilterOption selected={filters.fromAgents} onToggle={() => { setFilters({ ...filters, fromAgents: true }); setShown(STEP); }}>Agents</FilterOption>
+      </FilterSection>
+      {projectChoices.length > 0 && (
+        <FilterSection label="Projects">
+          {projectChoices.map((project) => {
+            const on = filters.projectIds.includes(project.id);
+            return (
+              <FilterOption key={project.id} selected={on} onToggle={() => {
+                setFilters({ ...filters, projectIds: on ? filters.projectIds.filter((id) => id !== project.id) : [...filters.projectIds, project.id] });
+                setShown(STEP);
+              }}>
+                <span className="truncate">{project.name}</span>
+              </FilterOption>
+            );
+          })}
+        </FilterSection>
+      )}
+    </FilterButton>
+  );
 
   return (
     <div className="animate-fadeIn min-h-screen">
@@ -110,11 +192,14 @@ export default function NotificationsPage() {
 
       <div className="p-4 lg:p-6">
         <div className="page-read space-y-4">
-          <SubNav label="Show" active={view} onChange={setView} items={subNav} />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <SubNav label="Show" active={view} onChange={setView} items={subNav} />
+            {view === 'updates' && filterButton}
+          </div>
 
           {view === 'needs' ? (
             <NeedsYouView bare needs={hub.company.needs} items={hub.all} drafts={hub.mine.drafts} onOpenTask={openTask} />
-          ) : updates.loading && updates.items.length === 0 ? (
+          ) : loading ? (
             <Skeleton label="Loading notifications" className="glass-card divide-y divide-white/[0.06] overflow-hidden rounded-xl">
               {[0, 1, 2, 3].map((i) => (
                 <div key={i} className="flex items-start gap-3 px-4 py-3 lg:px-5" aria-hidden="true">
@@ -126,24 +211,39 @@ export default function NotificationsPage() {
                 </div>
               ))}
             </Skeleton>
-          ) : updates.failed ? (
-            <EmptyState framed variant="error" title="Could not load notifications" description="Check your connection, then try again." onRetry={updates.reload} />
-          ) : updates.items.length === 0 ? (
+          ) : failed ? (
+            <EmptyState framed variant="error" title="Could not load notifications" description="Check your connection, then try again." onRetry={reload} />
+          ) : listed === 0 ? (
             view === 'done' ? (
               <EmptyState framed icon={<CheckCircle2 />} title="Nothing marked done" description="Updates you mark done move here, so you can bring one back." />
+            ) : filterCount > 0 ? (
+              <EmptyState framed variant="filtered" title="No updates match" description="Nothing from these filters is waiting to be read." onClearFilters={() => setFilters(NO_UPDATE_FILTERS)} />
             ) : (
               <EmptyState framed icon={<Bell />} title="You are all caught up" description="Comments, assignments and changes on your work show here as they happen." />
             )
           ) : (
             <div className="glass-card overflow-hidden rounded-xl">
               <ul className="divide-y divide-white/[0.06]">
-                {visible.map((n) => (
+                {view === 'done' ? doneList.map((n) => (
                   <li key={n.id}>
-                    <UpdateRow notification={n} team={team} viewerId={teamMemberId ?? null} onOpen={(row) => void open(row)} onDone={(row) => void done(row)} doneView={view === 'done'} />
+                    <UpdateRow notification={n} team={team} viewerId={teamMemberId ?? null} onOpen={openOne} onDone={(row) => void notDone(row)} doneView />
+                  </li>
+                )) : groupList.map((group) => (
+                  <li key={group.group_key}>
+                    <UpdateGroupRow
+                      group={group}
+                      place={placeOf(group)}
+                      team={team}
+                      viewerId={teamMemberId ?? null}
+                      onOpenGroup={openGroup}
+                      onOpenOne={openOne}
+                      onDoneGroup={(g) => void doneGroup(g)}
+                      onDoneOne={(n) => void doneOne(n)}
+                    />
                   </li>
                 ))}
               </ul>
-              <ShowMore shown={visible.length} total={total} step={STEP} onMore={() => void showMore()} noun="notifications" className="border-t border-white/[0.06]" />
+              <ShowMore shown={Math.min(shown, listed)} total={total} step={STEP} onMore={() => void showMore()} noun={view === 'done' ? 'notifications' : 'groups of updates'} className="border-t border-white/[0.06]" />
             </div>
           )}
         </div>

@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { Timer } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
-import { Button } from '@/components/ui/Button';
+import { useDiscardGuard } from '@/components/ui/useDiscardGuard';
+import { SettingsSaveBar } from '@/components/settings/SettingsSaveBar';
 import { Select } from '@/components/ui/inputs/Select';
 import { toast } from '@/components/ui/Toast';
 import { workspaceApi } from '@/lib/agent-workspace';
@@ -38,6 +39,9 @@ export function KeyLifetimeSection({ agentsOn }: { agentsOn: boolean }) {
     if (agentDays !== undefined) setAgent(keyLifetimeChoice(agentDays));
   };
 
+  const dirty = personalChanged || agentChanged;
+  const guard = useDiscardGuard(dirty, discard);
+
   const save = async () => {
     setBusy(true);
     try {
@@ -63,12 +67,12 @@ export function KeyLifetimeSection({ agentsOn }: { agentsOn: boolean }) {
   };
 
   return (
-    <section id="key-lifetimes" className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6" aria-labelledby="key-lifetimes-heading">
+    <section id="key-lifetimes" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6" aria-labelledby="key-lifetimes-heading">
       <SettingsSectionHeader
         icon={Timer}
         headingId="key-lifetimes-heading"
         title="Key lifetimes"
-        description="How long new API keys last before they stop working. Keys made before keep their own expiry."
+        description="How long new keys last before they stop working. Keys made before keep their own expiry."
       />
       {!loaded ? (
         <p className="text-sm text-zinc-400" role="status">{failed ? 'Could not load the settings.' : 'Loading'}</p>
@@ -90,12 +94,15 @@ export function KeyLifetimeSection({ agentsOn }: { agentsOn: boolean }) {
               helperText="Every new company agent key lasts this long, and so does each key a rotation makes. Replace it before it ends to keep the agent connected."
             />
           )}
-          <div className="flex justify-end gap-2 sm:col-span-2">
-            {(personalChanged || agentChanged) && <Button variant="ghost" onClick={discard}>Discard</Button>}
-            <Button onClick={save} disabled={!(personalChanged || agentChanged) || busy}>{busy ? 'Saving' : 'Save'}</Button>
-          </div>
         </div>
       )}
+      {guard.dialog}
+      <SettingsSaveBar
+        dirty={dirty}
+        saving={busy}
+        onDiscard={discard}
+        onSave={() => { void save(); }}
+      />
     </section>
   );
 }

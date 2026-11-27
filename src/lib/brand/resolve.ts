@@ -17,6 +17,8 @@ export interface WorkspaceBrandRow {
   logo_light_path: string | null;
   logo_dark_path: string | null;
   favicon_path: string | null;
+  /** Missing until migration 20261127003100 is applied: read as none (the square logo then serves both themes). */
+  logo_square_dark_path?: string | null;
   invert_logo_in_sidebar: boolean | null;
   show_name_under_logo: boolean | null;
   /** Missing until migration 20261121063000 is applied: read as 'list'. */
@@ -39,6 +41,7 @@ export const EMPTY_BRAND_SETTINGS: BrandSettings = {
   logoLightUrl: null,
   logoDarkUrl: null,
   faviconUrl: null,
+  squareDarkUrl: null,
   invertLogoInSidebar: false,
   showNameUnderLogo: false,
   sidebarProjects: 'list',
@@ -80,6 +83,7 @@ export function rowToSettings(row: WorkspaceBrandRow | null, supabaseUrl?: strin
     logoLightUrl: brandFileUrl(row.logo_light_path, supabaseUrl),
     logoDarkUrl: brandFileUrl(row.logo_dark_path, supabaseUrl),
     faviconUrl: brandFileUrl(row.favicon_path, supabaseUrl),
+    squareDarkUrl: brandFileUrl(row.logo_square_dark_path ?? null, supabaseUrl),
     invertLogoInSidebar: row.invert_logo_in_sidebar === true,
     showNameUnderLogo: row.show_name_under_logo === true,
     sidebarProjects: row.sidebar_projects === 'menu' ? 'menu' : 'list',
@@ -104,6 +108,7 @@ export function resolveBrand(settings: BrandSettings): Brand {
       light: settings.logoLightUrl,
       dark: settings.logoDarkUrl ?? settings.logoLightUrl,
       favicon: settings.faviconUrl,
+      squareDark: settings.squareDarkUrl ?? settings.faviconUrl,
     },
     invertLogoInSidebar: settings.invertLogoInSidebar,
     showNameUnderLogo: settings.showNameUnderLogo,

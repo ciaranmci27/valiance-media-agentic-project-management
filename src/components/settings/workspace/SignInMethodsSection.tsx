@@ -156,7 +156,6 @@ export function SignInMethodsSection() {
         message={confirming ? `${warning(confirming) ?? ''} They cannot sign in until they have one. Ask them to add it in Settings > Account first, or switch back here any time.` : ''}
         confirmLabel="Switch anyway"
         variant="default"
-        doubleConfirm={false}
       />
     </section>
   );

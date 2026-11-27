@@ -9,19 +9,22 @@ export const NOTIFICATIONS_ENDPOINTS: EndpointDoc[] = [
   // Notifications
   {
     method: 'POST', path: '/api/v1/notifications/done', group: 'Notifications', scopes: OWN,
-    description: 'Marks the key\'s own member\'s notifications done (done implies read), not done again, or every open Update done, as the Notifications page does. { all: true } leaves receipts (notices for a question or approval waiting in Needs you) as they are. Answers { updated }. 503 database_update_needed before 20261127000700. MCP: mark_notifications_done.',
+    description: 'Marks the key\'s own member\'s notifications done (done implies read), not done again, every open Update done, or every open Update in one group (group_key, as Done on a grouped row), as the Notifications page does. { all: true } and group_key leave receipts (notices for a question or approval waiting in Needs you) as they are. Answers { updated }. 503 database_update_needed before 20261127000700. MCP: mark_notifications_done.',
     body: [
       { name: 'ids', type: 'uuid[]', required: false, description: '1-200 of your notification ids (or all)' },
       { name: 'done', type: 'boolean', required: false, description: 'With ids: true (default) marks done, false not done again' },
       { name: 'all', type: 'boolean', required: false, description: 'true: every open Update done (instead of ids)' },
+      { name: 'group_key', type: 'string', required: false, description: 'Every open Update in this group done (instead of ids), from GET /api/v1/notifications/groups' },
     ],
   },
   {
     method: 'GET', path: '/api/v1/notifications/groups', group: 'Notifications', scopes: OWN,
-    description: 'The key\'s own member\'s Updates grouped by what they are about (entity type and id), as the Notifications page groups them: { groups: [{ latest, group_key, group_count, unread_count }], next_cursor }, newest group first; done, receipts and snoozed notifications left out. MCP: list_notification_groups.',
+    description: 'The key\'s own member\'s Updates grouped by what they are about (entity type and id), as the Notifications page groups them: { groups: [{ latest, group_key, group_count, unread_count }], total, next_cursor }, newest group first; done, receipts and snoozed notifications left out. total is how many groups match (null before 20261127002700). A group\'s rows: GET /api/v1/notifications?group_key=. 503 database_update_needed for from or project_id before 20261127002700. MCP: list_notification_groups.',
     queryParams: [
       { name: 'limit', type: 'number', description: '1-100, default 30' },
       { name: 'before', type: 'string', description: 'The previous page\'s next_cursor' },
+      { name: 'from', type: 'string', description: 'agents: only notices an agent sent; anyone (default): every one' },
+      { name: 'project_id', type: 'uuid', description: 'Only notices about these projects: repeat it or separate ids with commas (up to 50)' },
     ],
   },
   {

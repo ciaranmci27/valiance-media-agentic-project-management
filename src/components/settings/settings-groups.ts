@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { hasPermission, isModuleEnabled, type AccessContext, type PermissionKey } from '@/lib/access-control';
 import { customSettingsGroups, useCustomSettingsVisibility } from '@/lib/extensions/hooks';
-import { webhooksSectionState } from '@/lib/developers-settings';
+import { ownKeysInSettings, seesDevelopers, webhooksSectionState } from '@/lib/developers-settings';
 
 /**
  * The Settings area's menu: one page per group, each listing the ids of the
@@ -25,6 +25,8 @@ export interface SettingsGroup {
   sectionIds: string[];
   /** Sections that moved to a sub-page of the group (Email's are pages of their own). */
   sectionHrefs?: Record<string, string>;
+  /** Where someone who cannot see this group lands instead of Account (an old link to it, say). */
+  fallbackHref?: string;
 }
 
 /** The pages under Settings > Email, each linked from its overview. */
@@ -71,8 +73,10 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       'mail-rules': EMAIL_PAGES.rules,
     },
   },
-  // Assistants, chat apps and the agent service moved to AI > Setup; Connect AI and chat accounts to AI > Your assistant (AI_SECTION_HREFS).
-  { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'key-lifetimes', 'webhooks', 'webhook-retries', 'developer-docs'] },
+  // Assistants, chat apps and the agent service moved to AI > Setup; Connect AI, chat accounts and your own keys to AI > Your assistant (AI_SECTION_HREFS).
+  // Developers is for Owners, whoever manages every key and webhook managers: everyone's keys, key lifetimes, webhooks, the addresses.
+  // Anyone else following an old link to it lands on their own keys.
+  { key: 'developers', href: '/settings/developers', label: 'Developers', icon: Code2, sectionIds: ['api-keys', 'key-lifetimes', 'webhooks', 'webhook-retries', 'developer-docs'], fallbackHref: AI_SECTION_HREFS['my-keys'] },
   // The kill switch for every agent, whether people may connect AI tools, the audit log and how long it is kept (Owners only).
   { key: 'security', href: '/settings/security', label: 'Security', icon: ShieldCheck, sectionIds: ['agents-pause', 'connect-ai-setting', 'audit-log', 'audit-settings', 'data-retention'] },
   { key: 'data', href: '/settings/data', label: 'Data', icon: Database, sectionIds: ['trash', 'demo-mode'] },
@@ -81,6 +85,9 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
 ];
 
 export const DEFAULT_SETTINGS_HREF = '/settings/account';
+
+/** The list of Settings pages on phones (on wider screens it opens Account, whose menu sits beside it). */
+export const SETTINGS_HOME_HREF = '/settings';
 
 /** The page that holds an old /settings#<id> section, or null for an unknown id. */
 export function settingsHrefForSection(id: string): string | null {
@@ -107,6 +114,7 @@ export function useSettingsAccess() {
   const canManageSettings = hasPermission(access, 'settings.manage');
   const canManageSmtp = hasPermission(access, 'smtp.manage');
   const canManageAgents = hasPermission(access, 'agents.manage');
+  const canManageAllKeys = hasPermission(access, 'api_keys.manage_all');
   // Webhooks show while the module is off too, so they can be found and turned on.
   const webhooksState = webhooksSectionState({
     isDemoMode,
@@ -122,6 +130,12 @@ export function useSettingsAccess() {
   const isOwner = access?.role === 'owner';
   // Guests are outside collaborators (a client, a contractor): no keys, no Trash.
   const isGuest = access?.role === 'guest';
+  const developers = seesDevelopers({
+    isOwner,
+    isGuest,
+    canManageAllKeys,
+    holdsWebhooks: holdsIgnoringModules(access, 'webhooks.manage'),
+  });
 
   const show = {
     features: isOwner,
@@ -142,15 +156,18 @@ export function useSettingsAccess() {
     // hour approvals only while hours wait for review (either money module).
     invoiceDetails: canManageSettings && isModuleEnabled(access, 'billing'),
     hourApprovals: canManageSettings && hourApprovalsExist(access),
-    // Every active member can create personal keys; none in demo mode.
-    apiKeys: !isDemoMode && !isGuest,
+    // Other people's and agents' keys: Owners and whoever manages every key; none in demo mode.
+    // Your own keys live in AI > Your assistant (ApiKeysSection scope="mine").
+    apiKeys: !isDemoMode && (isOwner || canManageAllKeys),
+    // Your own keys, here only while the AI area (their home) is closed with AI agents off.
+    myKeys: ownKeysInSettings({ agentsOn: isModuleEnabled(access, 'agents'), isGuest, isDemoMode }),
     // How long new keys last, for people and agents: Owners only.
     keyLifetimes: isOwner && !isDemoMode,
     webhooks: webhooksState !== 'hidden',
     // Turning on retries writes a secret and Supabase Vault: Owners only, with webhooks on.
     webhookRetries: isOwner && !isDemoMode && isModuleEnabled(access, 'webhooks'),
-    // The MCP and API addresses and docs: anyone who may make a key.
-    developerDocs: !isGuest,
+    // The MCP and API addresses and docs: whoever sees Developers.
+    developerDocs: developers,
     // SMTP is hidden in demo mode; inboxes show there too, on sample data whose changes last until a reload.
     smtp: canManageSmtp && !isDemoMode,
     emailInboxes: canManageInboxes,
@@ -188,7 +205,7 @@ export function useSettingsAccess() {
     billing: show.invoiceDetails || show.hourApprovals,
     portal: show.analyticsExclusions,
     email: show.smtp || show.emailInboxes || show.myInbox || show.receiving,
-    developers: show.apiKeys || show.keyLifetimes || show.webhooks || show.webhookRetries || show.developerDocs,
+    developers: show.myKeys || (developers && (show.apiKeys || show.keyLifetimes || show.webhooks || show.webhookRetries || show.developerDocs)),
     security: show.agentsPause || show.connectAiSetting || show.auditLog || show.dataRetention,
     data: !isGuest,
   };

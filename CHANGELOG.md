@@ -9,6 +9,38 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.54 (2026-11-27)
+
+### Added
+- **Snooze anything in Needs you** (later today, tomorrow, next week) from a row's menu, with Undo. It comes back on its own.
+- **Updates grouped by what they are about** ("Website wireframes: 3 updates"). Open a group to read it all, Done to finish it, or show each update in place. One Filter button: from agents, or chosen projects.
+- `GET /api/v1/notifications/groups` takes `from=agents` and `project_id` and returns `total`; `GET /api/v1/notifications?group_key=` lists one group; `mark-all-read` and `done` take `group_key`. MCP `list_notification_groups`, `list_notifications`, `mark_all_notifications_read` and `mark_notifications_done` take the same.
+- **Task comments can notify the task's people:** `notify: true` on `POST /api/v1/tasks/:id/comments` and MCP `add_task_comment` tells its assignees and creator in the bell (the answer adds `notified`). It needs `notifications.send` and counts against `send_rate_per_minute`.
+- The person (or group) an expired question was asked of is told once.
+- An agent's page says "3 working now" when it runs several workers. Thread detail gains `reply_drafter`.
+- **Brand logos come as Horizontal and Square, each for the light and dark theme**, with previews at real size, a guard against the wrong shape and a hint when a logo may not show on its theme. With no square logo, the tab icon is a square crop of the horizontal logo.
+- On phones, Settings opens as a list of its pages.
+
+### Changed
+- **Agent pages:** the shared header and a phone menu; Pause keeps its place while the page loads and leaves "Paused X. Undo". Five tabs: Activity is on Overview, Agent notes on Rules, Connect on Access (old links land there). Rules saves through one save bar. Status words never show a clock under a minute.
+- **Runs:** one Filter button, plain columns (Worked on, Started, Took), a run opens in the side panel, days count in your profile time zone, and the list ends with "Show 24 more of 76".
+- **Analytics:** one Overview card with its filters in the header and one brand line chart picked from the stat strip. Its counts match Runs, and it never opens on an empty $0 chart.
+- A reply draft for a personal inbox with no agent of its own goes to its person's assistant.
+- The stopped-responding notice reads "X stopped responding. Its last check-in was N ago."; it moves to done when the agent is back.
+- An agent's blocked comment counts once in the bell: its comment notice stays out of Updates until someone answers. How long something has waited reads the same on every Needs you row.
+- **Your own API keys moved to AI > Your assistant**, beside Connect AI. Settings > Developers is for Owners, people who manage every key, and webhook managers; old links land on your keys.
+- Every Settings page shows its own name. Account saves from a save bar, shows time zones as a city and offset ("Phoenix, UTC-7") with search, and picks the theme with System, Light or Dark. Security and Key lifetimes save from a save bar, and Security says what it keeps in plain words. Updates puts commands, file names and check output behind a Details fold.
+- Confirm dialogs lost the ignored `doubleConfirm` prop.
+
+### Database
+- `20261127002900_agents_followups.sql`: `pm.agent_send_gate` (the send rate for comment notices) and a plainer `pm.run_watchdog` that also tells whoever an expired question was asked of.
+- `20261127003100_settings_cleanup.sql`: `workspace_brand.logo_square_dark_path` (the square logo for the dark theme).
+- `20261127003300_notifications_groups.sql` (functions only): grouped and filtered Updates, a group's rows, and a blocked comment's notice treated as part of the Needs you item.
+
+### Breaking
+- Personal assistants now get reply draft requests for their person's personal inbox in `GET /api/v1/inbox/reply-drafts` (they got none before).
+- `/api/workspace/brand/logo` accepts a fourth `kind=square_dark`; the v1 logo routes take it too.
+
 ## 2.0.53 (2026-11-27)
 
 ### Added

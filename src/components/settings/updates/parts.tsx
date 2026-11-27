@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronDown, Copy, ExternalLink, RotateCw } from 'lucide-react';
 import { formatAgo } from '@/lib/time-format';
 import { Button } from '@/components/ui/Button';
@@ -108,6 +108,22 @@ export function CheckButton({
       icon={<RotateCw size={13} aria-hidden="true" className={checking ? 'animate-spin motion-reduce:animate-none' : undefined} />}>
       {checking ? 'Checking' : label}
     </Button>
+  );
+}
+
+/**
+ * Developer words (commands, file names, raw check output, environment
+ * variables) folded under one quiet line, so the plain words come first
+ * (SE13). Open it to copy what whoever runs your server needs.
+ */
+export function TechDetails({ summary = 'Details for whoever runs your server', children }: { summary?: string; children: ReactNode }) {
+  const id = useId();
+  return (
+    <div className="mt-2">
+      <Disclosure id={id} summary={<span className="text-xs font-medium text-zinc-400">{summary}</span>}>
+        <div className="space-y-2 text-xs leading-relaxed text-zinc-300">{children}</div>
+      </Disclosure>
+    </div>
   );
 }
 

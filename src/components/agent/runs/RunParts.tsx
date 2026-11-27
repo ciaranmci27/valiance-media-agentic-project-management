@@ -16,7 +16,8 @@ import { formatMoneyExact, formatNumber } from '@/lib/format';
 import { timeAgo } from '@/lib/task-times';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import Modal from '@/components/ui/Modal';
+import { TaskPanelShell } from '@/components/tasks/TaskPanelShell';
+import { PanelHeader } from '@/components/ui/PanelHeader';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { QuestionCard } from '@/components/questions/QuestionCard';
 import { formatInZone } from '@/lib/time-format';
@@ -89,7 +90,7 @@ export function useCanSeeTrace(): (run: AgentRunSummary) => boolean {
 }
 
 /**
- * One run in a small dialog: what it is, how it went, its plan steps and
+ * One run in the side panel (DESIGN.md Rule 1): what it is, how it went, its plan steps and
  * notes (stored runs only; a step has neither), its tokens and cost, and the
  * harness's trace link. A run waiting on a person shows the open question it
  * waits on, answerable in place, and how long it has waited. Each run in its
@@ -130,8 +131,8 @@ function RunDetailDialog({ run: opened, onClose, onOpenTask, taskTitle, projectN
 
   if (!run) {
     return (
-      <Modal isOpen onClose={onClose} title="Run" size="lg">
-        <div className="space-y-4">
+      <TaskPanelShell labelledBy="run-panel-title" onClose={onClose} header={<PanelHeader id="run-panel-title" title="Run" onClose={onClose} />}>
+        <div className="space-y-4 px-5 pb-5">
           {back}
           {other.loading ? (
             <div className="space-y-2" aria-busy="true"><span className="sr-only" role="status">Loading the run</span>
@@ -144,7 +145,7 @@ function RunDetailDialog({ run: opened, onClose, onOpenTask, taskTitle, projectN
             </p>
           )}
         </div>
-      </Modal>
+      </TaskPanelShell>
     );
   }
 
@@ -215,8 +216,8 @@ function RunDetailBody({ run, back, agentName, onClose, onOpenTask, onOpenRun, t
   );
 
   return (
-    <Modal isOpen onClose={onClose} title={runTitle(run)} size="lg">
-      <div className="space-y-5">
+    <TaskPanelShell labelledBy="run-panel-title" onClose={onClose} header={<PanelHeader id="run-panel-title" title={runTitle(run)} onClose={onClose} />}>
+      <div className="space-y-5 px-5 pb-5">
         {back}
         <div className="flex flex-wrap items-center gap-2">
           <RunStatusPill run={run} />
@@ -374,13 +375,13 @@ function RunDetailBody({ run, back, agentName, onClose, onOpenTask, onOpenRun, t
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 rounded text-sm font-medium text-brand-300 hover:text-brand-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
-              Open trace
+              Open the full log
               <ExternalLink size={13} aria-hidden="true" />
               <span className="sr-only">(opens in a new tab)</span>
             </a>
           </div>
         )}
       </div>
-    </Modal>
+    </TaskPanelShell>
   );
 }

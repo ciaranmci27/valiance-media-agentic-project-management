@@ -48,7 +48,7 @@ export interface NewKeyAgent {
 
 /**
  * New key, one step at a time: a name, what it can do (in plain words,
- * grouped as the Access page groups them), how long it lasts (starting on
+ * grouped as Team > Roles & permissions groups them), how long it lasts (starting on
  * the workspace's personal key lifetime), then the secret, once. Only
  * Done closes the secret step; closing forgets the secret. A preset fills
  * the name and ticks its scopes (those the person holds); both stay editable.

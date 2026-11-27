@@ -298,7 +298,6 @@ export default function GroupPage() {
         title={`Remove ${removing?.name ?? 'them'} from ${g.name}?`}
         message={`They stop getting questions asked to the group.${phrases.length ? ` They also stop being able to ${joinPhrases(phrases)} through it.` : ''} Questions already asked stay as they are.`}
         confirmLabel="Remove"
-        doubleConfirm={false}
       />
     </div>
   );

@@ -109,6 +109,8 @@ const CHECKS: Record<string, { arg: number; channelArg?: number; channel?: Chann
   // A signed-in caller (scopes null) on the app channel, a key on the API channel.
   callerHolds: { arg: 1, channel: 'both' },
   keyHolds: { arg: 1, channel: 'api' },
+  // lib/api/event-feed.ts: the key's scopes and its member (a task comment's notify: true).
+  keyHoldsAny: { arg: 2, channel: 'api' },
   held: { arg: 0, channel: 'api' },
   holdsIgnoringModules: { arg: 1, channel: 'app' },
   // lib/task-files/service.ts and lib/api/task-move.ts: the caller's channel.

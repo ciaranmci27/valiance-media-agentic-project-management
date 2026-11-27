@@ -6,6 +6,7 @@ import {
   DEFAULT_BRAND,
   generateShades,
   isHexColor,
+  logoKindShape,
   type Brand,
   type BrandScale,
   type BrandSettings,
@@ -142,10 +143,13 @@ export async function fetchLogoFile(url: string, kind: LogoKind): Promise<File |
 // Pure helpers
 // ---------------------------------------------------------------------------
 
+const SQUARE_ACCEPT = 'image/png,image/jpeg,image/x-icon,image/vnd.microsoft.icon,.ico';
+
 export const LOGO_ACCEPT: Record<LogoKind, string> = {
   light: 'image/png,image/jpeg',
   dark: 'image/png,image/jpeg',
-  favicon: 'image/png,image/jpeg,image/x-icon,image/vnd.microsoft.icon,.ico',
+  favicon: SQUARE_ACCEPT,
+  square_dark: SQUARE_ACCEPT,
 };
 
 export function formatBytes(bytes: number): string {
@@ -158,7 +162,7 @@ export function formatBytes(bytes: number): string {
 
 /** The format and size line under each drop zone. */
 export function logoRule(kind: LogoKind): string {
-  return `${kind === 'favicon' ? 'PNG, JPG or ICO' : 'PNG or JPG'}, up to ${formatBytes(LOGO_MAX_BYTES[kind])}`;
+  return `${logoKindShape(kind) === 'square' ? 'PNG, JPG or ICO' : 'PNG or JPG'}, up to ${formatBytes(LOGO_MAX_BYTES[kind])}`;
 }
 
 /** The same rules the server applies, checked first so a wrong file fails at once. Null when it is fine. */
@@ -167,8 +171,9 @@ export function checkLogoFile(kind: LogoKind, file: File): string | null {
   const png = file.type === 'image/png' || name.endsWith('.png');
   const jpg = file.type === 'image/jpeg' || /\.jpe?g$/.test(name);
   const ico = file.type === 'image/x-icon' || file.type === 'image/vnd.microsoft.icon' || name.endsWith('.ico');
-  if (!(png || jpg || (kind === 'favicon' && ico))) {
-    return kind === 'favicon'
+  const square = logoKindShape(kind) === 'square';
+  if (!(png || jpg || (square && ico))) {
+    return square
       ? 'That file type isn\'t supported. Use a PNG, JPG or ICO file.'
       : 'That file type isn\'t supported. Use a PNG or JPG file (SVG isn\'t supported).';
   }
@@ -288,6 +293,7 @@ export function settingsFromBrand(brand: Brand): BrandSettings {
     logoLightUrl: brand.logos.light,
     logoDarkUrl: brand.logos.dark && brand.logos.dark !== brand.logos.light ? brand.logos.dark : null,
     faviconUrl: brand.logos.favicon,
+    squareDarkUrl: brand.logos.squareDark && brand.logos.squareDark !== brand.logos.favicon ? brand.logos.squareDark : null,
     invertLogoInSidebar: brand.invertLogoInSidebar,
     showNameUnderLogo: brand.showNameUnderLogo,
     sidebarProjects: brand.sidebarProjects,

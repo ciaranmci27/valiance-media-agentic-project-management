@@ -220,7 +220,6 @@ export function AddressReview({
         message={`Every address on ${domainTarget ?? 'it'}, listed or not, will read as written to you: ${handler} treats mail to any of them as a message addressed to you, and none is suggested here again. Listed addresses keep their project and whose. You can remove the domain later under Your domains.`}
         confirmLabel="Make it yours"
         variant="default"
-        doubleConfirm={false}
       />
     </div>
   );

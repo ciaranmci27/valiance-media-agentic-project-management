@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase/client';
 import { invalidateTables, peekRead, setReadData } from '@/lib/query-cache';
 import { blockedCommentsRead, decidedQuestionsRead, mySnoozesRead, openQuestionsRead } from '@/lib/reads';
 import { demoDecidedQuestions } from '@/lib/demo-agents-home';
-import { demoMarkDone, demoMarkRead, demoSnooze, demoUnsnooze } from '@/lib/demo-notifications';
+import { demoMarkDone, demoMarkGroupDone, demoMarkGroupRead, demoMarkRead, demoSnooze, demoUnsnooze } from '@/lib/demo-notifications';
 import type { QuestionView } from '@/lib/questions';
 import type { Snooze, SnoozeKind } from '@/lib/notifications';
 import type { AiReadiness } from '@/lib/types';
@@ -126,10 +126,10 @@ export interface NeedsYouActions {
   snooze: (kind: SnoozeKind, id: string, until: Date) => Promise<ActionResult<Snooze>>;
   /** Brings a snoozed item back now. */
   unsnooze: (kind: SnoozeKind, id: string) => Promise<ActionResult<true>>;
-  /** Marks notifications read (every unread one with 'all'). */
-  markRead: (ids: readonly string[] | 'all') => Promise<ActionResult<true>>;
-  /** Marks notifications done, read too (every open Update with 'all'), or not done again. */
-  markDone: (ids: readonly string[] | 'all', done?: boolean) => Promise<ActionResult<{ updated: number }>>;
+  /** Marks notifications read (every unread one with 'all', one group's with { group }). */
+  markRead: (ids: readonly string[] | 'all' | { group: string }) => Promise<ActionResult<true>>;
+  /** Marks notifications done, read too (every open Update with 'all', one group's with { group }), or not done again. */
+  markDone: (ids: readonly string[] | 'all' | { group: string }, done?: boolean) => Promise<ActionResult<{ updated: number }>>;
 }
 
 export type SuggestionOverrides = { priority?: string; assigned_to?: string | null; due_date?: string | null; project_id?: string; task_type?: string | null; ai_readiness?: AiReadiness | null };
@@ -265,7 +265,15 @@ export function createNeedsYouActions(deps: ActionDeps): NeedsYouActions {
     },
     markRead: async (ids) => {
       if (isDemoMode) {
-        demoMarkRead(ids);
+        if (typeof ids === 'object' && 'group' in ids) demoMarkGroupRead(ids.group);
+        else demoMarkRead(ids);
+      } else if (typeof ids === 'object' && 'group' in ids) {
+        try {
+          await sendJson('/api/workspace/notifications', { group_key: ids.group });
+        } catch {
+          invalidateTables(['team_member_notifications']);
+          return { status: 'failed', message: 'Could not mark it read' };
+        }
       } else {
         // Row security keeps this to the person's own notifications.
         const query = createClient().from('team_member_notifications').update({ is_read: true });
@@ -281,12 +289,14 @@ export function createNeedsYouActions(deps: ActionDeps): NeedsYouActions {
     },
     markDone: async (ids, done = true) => {
       if (isDemoMode) {
-        demoMarkDone(ids, done);
+        if (typeof ids === 'object' && 'group' in ids) demoMarkGroupDone(ids.group);
+        else demoMarkDone(ids, done);
         invalidateTables(['team_member_notifications']);
-        return { status: 'done', data: { updated: ids === 'all' ? 0 : ids.length } };
+        return { status: 'done', data: { updated: ids === 'all' || !Array.isArray(ids) ? 0 : ids.length } };
       }
       try {
-        const data = await sendJson<{ updated: number }>('/api/workspace/notifications/done', ids === 'all' ? { all: true } : { ids: [...ids], done });
+        const body = ids === 'all' ? { all: true } : 'group' in ids ? { group_key: ids.group } : { ids: [...ids], done };
+        const data = await sendJson<{ updated: number }>('/api/workspace/notifications/done', body);
         invalidateTables(['team_member_notifications']);
         return { status: 'done', data };
       } catch (error) {

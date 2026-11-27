@@ -75,11 +75,31 @@ export async function writeGateRefusal(db: SupabaseClient, agentId: string, path
         hint: 'Reads are not counted. An Owner changes the limit on the agent\'s Limits (write_rate_per_minute).',
       });
     case 'send_rate_limited':
-      return new ApiError(429, 'RATE_LIMIT_EXCEEDED', `This agent sent ${gate.limit} messages in the last minute (chat, notifications, questions and approvals), its limit. Wait a moment and try again.`, {
-        reason: 'send_rate_limited', limit: gate.limit, reset_at: gate.reset_at,
-        hint: 'Put several things in one message. An Owner changes the limit on the agent\'s Limits (send_rate_per_minute).',
-      });
+      return sendRateLimited(gate);
     default:
       return null;
   }
+}
+
+function sendRateLimited(gate: Row): ApiError {
+  return new ApiError(429, 'RATE_LIMIT_EXCEEDED', `This agent sent ${gate.limit} messages in the last minute (chat, notifications, questions and approvals), its limit. Wait a moment and try again.`, {
+    reason: 'send_rate_limited', limit: gate.limit, reset_at: gate.reset_at,
+    hint: 'Put several things in one message. An Owner changes the limit on the agent\'s Limits (send_rate_per_minute).',
+  });
+}
+
+/**
+ * One more send for a write that turned out to reach people (a task comment
+ * posted with notify: true), counted in the agent's send bucket only: the
+ * write gate already counted the write. null when it may go on; before
+ * 20261127002900 nothing is refused.
+ */
+export async function sendGateRefusal(db: SupabaseClient, agentId: string): Promise<ApiError | null> {
+  const { data, error } = await db.rpc('agent_send_gate', { p_agent_id: agentId, p_window_seconds: 60 });
+  if (error) {
+    if (missingWriteGate(error)) return null;
+    throw error;
+  }
+  const gate = (data ?? {}) as Row;
+  return gate.refused === 'send_rate_limited' ? sendRateLimited(gate) : null;
 }

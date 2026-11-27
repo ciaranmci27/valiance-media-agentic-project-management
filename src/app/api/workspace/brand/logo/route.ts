@@ -7,7 +7,9 @@ import { removeBrandLogo, uploadBrandLogo, type LogoRefusal } from '@/lib/brand/
 
 /**
  * Settings > Workspace > Brand: upload (POST, multipart `file`) or remove
- * (DELETE) one of the brand's files, `?kind=light|dark|favicon`. Owner only.
+ * (DELETE) one of the brand's files, `?kind=light|dark|favicon|square_dark`
+ * (the horizontal logo for light and dark backgrounds, the square logo for
+ * light ones, which is the tab icon, and the square logo for dark ones). Owner only.
  * The writer is lib/brand/logo-write.ts, shared with
  * /api/v1/workspace/brand/logo.
  */

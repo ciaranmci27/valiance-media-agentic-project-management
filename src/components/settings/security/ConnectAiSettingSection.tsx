@@ -14,10 +14,10 @@ type Switch = 'api_enabled' | 'enabled';
 
 const OFF_CONFIRM: Record<Switch, { title: string; message: string; label: string; done: string }> = {
   api_enabled: {
-    title: 'Turn off API access?',
+    title: 'Turn off keys and agents?',
     message: 'Every API key, every agent and every connected AI tool in this workspace is refused at once, until you turn it back on. Nothing is revoked or deleted.',
-    label: 'Turn off API access',
-    done: 'API access is off',
+    label: 'Turn off',
+    done: 'Keys, agents and AI tools are off',
   },
   enabled: {
     title: 'Stop people connecting AI tools?',
@@ -46,7 +46,7 @@ export function ConnectAiSettingSection() {
       const next = await workspaceApi<{ ready: boolean; enabled: boolean; api_enabled: boolean }>('/api/workspace/connect-ai', { method: 'PUT', body: { [which]: on } });
       setReadData(connectAiSettingRead, () => next);
       invalidateTables(['business_settings']);
-      toast('success', on ? (which === 'api_enabled' ? 'API access is on' : 'People can connect AI tools') : OFF_CONFIRM[which].done);
+      toast('success', on ? (which === 'api_enabled' ? 'Keys, agents and AI tools are on' : 'People can connect AI tools') : OFF_CONFIRM[which].done);
     } catch (error) {
       toast('error', error instanceof Error ? error.message : 'Could not change it. Try again.');
     } finally {
@@ -59,12 +59,12 @@ export function ConnectAiSettingSection() {
 
   const data = read.data;
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="connect-ai-setting-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="connect-ai-setting-heading">
       <SettingsSectionHeader
         icon={Sparkles}
         headingId="connect-ai-setting-heading"
-        title="API and Connect AI"
-        description="Each person can connect Claude, ChatGPT or another AI tool to their own work from Settings > Account. A tool signs in as them, can do only what they can, and never manages settings, people or keys."
+        title="Agents and AI tools"
+        description="Each person can connect Claude, ChatGPT or another AI tool to their own work from AI > Your assistant. A tool signs in as them, can do only what they can, and never manages settings, people or keys."
       />
       {!data ? (
         <p className="text-sm text-zinc-400" role="status">{read.failed ? 'Could not load the switches.' : 'Loading'}</p>
@@ -75,14 +75,14 @@ export function ConnectAiSettingSection() {
               checked={data.api_enabled}
               disabled={busy}
               onChange={(on) => flip('api_enabled', on)}
-              label="API access"
+              label="Let keys, agents and AI tools in"
               description={data.api_enabled
                 ? 'On: API keys, agents and connected AI tools work, each within what it may do.'
-                : 'Off: every API key, agent and connected AI tool is refused. Nothing is revoked; turn it on to let them back in.'}
+                : 'Off: every key, agent and connected AI tool is refused. Nothing is revoked; turn it on to let them back in.'}
             />
           </div>
           {!data.ready ? (
-            <p role="status" className="rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-amber-100">
+            <p role="status" className="rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-zinc-200">
               Connect AI needs the latest database update. Apply it from Settings &gt; Updates, then come back here.
             </p>
           ) : (
@@ -92,7 +92,7 @@ export function ConnectAiSettingSection() {
               onChange={(on) => flip('enabled', on)}
               label="Let people connect AI tools"
               description={data.enabled
-                ? (data.api_enabled ? 'On: anyone with API access can connect their own tools.' : 'On, but tools cannot connect while API access is off. Turn API access on above.')
+                ? (data.api_enabled ? 'On: anyone can connect their own tools.' : 'On, but tools cannot connect while keys and agents are off. Turn that on above.')
                 : 'Off: tools cannot sign in, and connected ones are refused until you turn this on.'}
             />
           )}
@@ -106,7 +106,6 @@ export function ConnectAiSettingSection() {
         message={confirming ? OFF_CONFIRM[confirming].message : ''}
         confirmLabel={confirming ? OFF_CONFIRM[confirming].label : 'Turn off'}
         variant="danger"
-        doubleConfirm={false}
       />
     </section>
   );

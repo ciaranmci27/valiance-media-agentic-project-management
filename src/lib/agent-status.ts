@@ -345,7 +345,12 @@ export function statusSentence(status: AgentStatus, now: number): string {
   const sentence = base.charAt(0).toUpperCase() + base.slice(1);
   if (status.mood === 'celebrating') return sentence;
   if (status.mood === 'offline') return `${sentence}: agent unreachable`;
-  if (status.telemetry === 'none' || !status.since) return `${sentence}, no activity logged`;
+  if (status.telemetry === 'none' || !status.since) return `${sentence}, nothing logged yet`;
+  // Under a minute is said in words, never as a clock ("Idle for 0s").
+  if (now - status.since < 60_000) {
+    if (status.mood === 'idle') return 'Idle, active just now';
+    return status.sinceMeans === 'working' ? `${sentence}, just started` : `${sentence} just now`;
+  }
   return `${sentence} for ${elapsedLabel(status.since, now)}`;
 }
 

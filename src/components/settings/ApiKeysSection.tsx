@@ -21,7 +21,8 @@ import { EditApiKeyModal } from '@/components/settings/EditApiKeyModal';
 import { NewApiKeyDialog } from '@/components/settings/NewApiKeyDialog';
 import { RotateApiKeyDialog } from '@/components/settings/RotateApiKeyDialog';
 import { canEditApiKey, hasPermission, isModuleEnabled, permissionLabel } from '@/lib/access-control';
-import { AGENT_KEYS_WHO, agentKeyRow, groupApiKeys, keyExpiry, keyPauseAction, replacedKeyIds } from '@/lib/developers-settings';
+import { AGENT_KEYS_WHO, agentKeyRow, groupApiKeys, keyExpiry, keyPauseAction, keysInScope, replacedKeyIds, type KeyListScope } from '@/lib/developers-settings';
+import { AI_SECTION_HREFS } from '@/lib/ai-home';
 import { useRead } from '@/lib/query-cache';
 import { connectAiSettingRead } from '@/lib/reads';
 import { useDemo } from '@/lib/demo-context';
@@ -54,10 +55,12 @@ const EXPIRY_TONES = { muted: 'text-zinc-400', warning: 'text-amber-300', danger
 const LINK = 'rounded font-medium text-brand-300 underline underline-offset-2 hover:decoration-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500';
 
 /**
- * Settings > Developers > API keys: the person's own keys, for scripts and
- * tools that call the API as them. New key is a short guided dialog; each
- * key can be edited, rotated (with an overlap) or revoked. An Owner also
- * sees other people's keys. Agent keys are listed with Edit (an Owner may
+ * API keys, in two places (P1). `scope="mine"` (AI > Your assistant, beside
+ * Connect AI): the person's own keys, for scripts and tools that call the
+ * API as them; New key is a short guided dialog, and each key can be edited,
+ * rotated (with an overlap), paused or revoked. `scope="workspace"`
+ * (Settings > Developers, Owners and whoever manages every key): other
+ * people's keys and agent keys. Agent keys are listed with Edit (an Owner may
  * give the agent a power its role lacks there) and Revoke (so one can be
  * stopped even with the Agents module off), and a link to their agent's
  * profile, where they are made and replaced (its Access tab, where what it
@@ -68,13 +71,20 @@ const LINK = 'rounded font-medium text-brand-300 underline underline-offset-2 ho
  * days before revoking them. While workspace API access is off, a banner
  * says every key is refused.
  */
-export function ApiKeysSection() {
-  const { team, apiKeys, revokeApiKey, setApiKeyPaused } = useApp();
+export function ApiKeysSection({ scope }: { scope: KeyListScope }) {
+  const { team, apiKeys: allKeys, revokeApiKey, setApiKeyPaused } = useApp();
   const { teamMemberId, access } = useAuth();
   const { isDemoMode } = useDemo();
   const agentsOn = isModuleEnabled(access, 'agents');
   const isOwner = access?.role === 'owner';
   const apiSwitch = useRead(isDemoMode ? null : connectAiSettingRead).data;
+  const canManageAllKeys = hasPermission(access, 'api_keys.manage_all');
+  // This list's keys only: yours in your own area, everyone else's in Developers.
+  const apiKeys = useMemo(() => keysInScope(allKeys, scope, teamMemberId), [allKeys, scope, teamMemberId]);
+  // Revoke unused covers every key this person manages, so it sits where all of them are listed:
+  // Developers for whoever manages everyone's keys, your own list for anyone else.
+  const showRevokeUnused = scope === 'workspace' ? (isOwner || canManageAllKeys) : !(isOwner || canManageAllKeys);
+  const mineScope = scope === 'mine';
 
   const [creating, setCreating] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ApiKey | null>(null);
@@ -161,7 +171,7 @@ export function ApiKeysSection() {
 
   const revokeAction = (key: ApiKey): RowAction => ({ label: 'Revoke', icon: <Ban size={14} aria-hidden="true" />, onClick: () => setRevokeTarget(key), variant: 'danger', divider: true });
   // Agent keys: always listed, editable and revocable; Open Connect only where the profile opens.
-  const agentRow = agentKeyRow({ agentsOn, canManageAgents: hasPermission(access, 'agents.manage'), canManageAllKeys: hasPermission(access, 'api_keys.manage_all') });
+  const agentRow = agentKeyRow({ agentsOn, canManageAgents: hasPermission(access, 'agents.manage'), canManageAllKeys });
 
   const actionsFor = (key: ApiKey, own: boolean): RowAction[] => [
     ...(canEditApiKey(access, teamMemberId, key)
@@ -178,22 +188,30 @@ export function ApiKeysSection() {
 
   return (
     <>
-      <section id="api-keys" className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6" aria-labelledby="api-keys-heading">
+      <section id={mineScope ? 'my-keys' : 'api-keys'} className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6" aria-labelledby={`${scope}-keys-heading`}>
         <SettingsSectionHeader
           icon={KeyRound}
-          title="API keys"
-          headingId="api-keys-heading"
-          description="Your own keys, for scripts and tools that use the API or MCP as you. Each key does only what you tick."
+          title={mineScope ? 'Your keys' : 'Everyone\'s keys'}
+          headingId={`${scope}-keys-heading`}
+          description={mineScope ? (
+            <>For a script or tool that cannot sign in with Connect AI. It works as you, and does only what you tick. The <Link href="/api/docs" className={LINK}>API docs</Link> say how to use one.</>
+          ) : (
+            agentsOn
+              ? <>Other people&apos;s keys and agent keys, to see, pause or revoke. <Link href={AI_SECTION_HREFS['my-keys']} className={LINK}>Your own keys</Link> are in AI, beside Connect AI.</>
+              : <>Other people&apos;s keys and agent keys, to see, pause or revoke. Your own keys are above.</>
+          )}
           action={(
             <div className="flex flex-wrap items-center gap-2">
-              {counts.active + counts.paused > 0 && (
+              {showRevokeUnused && counts.active + counts.paused > 0 && (
                 <Button size="sm" variant="secondary" onClick={() => setRevokingUnused(true)} icon={<Ban size={14} aria-hidden="true" />}>
                   Revoke unused
                 </Button>
               )}
-              <Button size="sm" onClick={() => setCreating(true)} icon={<Plus size={14} aria-hidden="true" />}>
-                New key
-              </Button>
+              {mineScope && (
+                <Button size="sm" onClick={() => setCreating(true)} icon={<Plus size={14} aria-hidden="true" />}>
+                  New key
+                </Button>
+              )}
             </div>
           )}
         />
@@ -208,18 +226,18 @@ export function ApiKeysSection() {
         </div>
 
         {apiSwitch && !apiSwitch.api_enabled && (
-          <div role="status" className="mb-4 flex items-start gap-3 rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-amber-100">
+          <div role="status" className="mb-4 flex items-start gap-3 rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-zinc-200">
             <ShieldOff size={16} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
             <p className="min-w-0 flex-1">
-              API access is off for this workspace, so every key below is refused until it is back on.{' '}
+              Keys and agents are turned off for this workspace, so every key below is refused until they are back on.{' '}
               {isOwner
-                ? <Link href="/settings/security#api-access" className={LINK}>Turn it on in Security</Link>
+                ? <Link href="/settings/security#api-access" className={LINK}>Turn them on in Security</Link>
                 : 'Ask an Owner to turn it on.'}
             </p>
           </div>
         )}
 
-        {tab === 'revoked' ? null : mine.length > 0 ? (
+        {tab === 'revoked' || !mineScope ? null : mine.length > 0 ? (
           <KeyList label="Your API keys">
             {mine.map((key) => (
               <KeyRow key={key.id} apiKey={key} replaced={replaced.has(key.id)} actions={actionsFor(key, true)} notice={pauseNotice(key)} />
@@ -232,8 +250,8 @@ export function ApiKeysSection() {
         )}
 
         {people.length > 0 && (
-          <div className="mt-6">
-            <p className="mb-2 text-xs font-medium text-zinc-400">Other people&apos;s keys</p>
+          <div>
+            <p className="mb-2 text-xs font-medium text-zinc-400">People&apos;s keys</p>
             <KeyList label="Other people's API keys">
               {people.map((key) => (
                 <KeyRow key={key.id} apiKey={key} replaced={replaced.has(key.id)} owner={memberName(key.team_member_id)} actions={actionsFor(key, false)} notice={pauseNotice(key)} />
@@ -242,8 +260,12 @@ export function ApiKeysSection() {
           </div>
         )}
 
-        {tab !== 'revoked' && (agents.length > 0 || (agentsOn && tab === 'active')) && (
-          <div className="mt-6 rounded-lg bg-white/[0.03] px-3.5 py-3">
+        {!mineScope && tab !== 'revoked' && people.length === 0 && agents.length === 0 && !(agentsOn && tab === 'active') && (
+          <EmptyState compact icon={tab === 'paused' ? <PauseCircle /> : <KeyRound />} title={tab === 'paused' ? 'No paused keys' : 'No other keys'} description="Keys other people make show here." />
+        )}
+
+        {!mineScope && tab !== 'revoked' && (agents.length > 0 || (agentsOn && tab === 'active')) && (
+          <div className={`${people.length > 0 ? 'mt-6 ' : ''}rounded-lg bg-white/[0.03] px-3.5 py-3`}>
             <div className="flex items-start gap-3">
               <Bot size={16} className="mt-0.5 flex-shrink-0 text-zinc-400" aria-hidden="true" />
               <p className="min-w-0 flex-1 text-sm text-zinc-300">
@@ -312,9 +334,9 @@ export function ApiKeysSection() {
         ))}
       </section>
 
-      <NewApiKeyDialog isOpen={creating} onClose={() => setCreating(false)} />
+      {mineScope && <NewApiKeyDialog isOpen={creating} onClose={() => setCreating(false)} />}
 
-      <RevokeUnusedKeysDialog isOpen={revokingUnused} onClose={() => setRevokingUnused(false)} demoKeys={apiKeys} team={team} />
+      {showRevokeUnused && <RevokeUnusedKeysDialog isOpen={revokingUnused} onClose={() => setRevokingUnused(false)} demoKeys={apiKeys} team={team} />}
 
       <RotateApiKeyDialog apiKey={rotateTarget} onClose={() => setRotateTarget(null)} />
 

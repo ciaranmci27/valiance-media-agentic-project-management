@@ -556,7 +556,6 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
         message={`This will change the login email for ${member.name || 'this member'} from "${member.email}" to "${email.trim().toLowerCase()}". They'll need to use the new email to sign in.`}
         confirmLabel="Update Email"
         variant="default"
-        doubleConfirm={false}
       />
     </>
   );

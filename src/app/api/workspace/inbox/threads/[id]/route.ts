@@ -1,5 +1,5 @@
 import { inboxRoute } from '@/lib/communications/inbox-route';
-import { latestDraft } from '@/lib/communications/inbox-drafts';
+import { draftWriter, latestDraft } from '@/lib/communications/inbox-drafts';
 import { threadDetail } from '@/lib/communications/inbox-service';
 
 export const dynamic = 'force-dynamic';
@@ -9,6 +9,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   return inboxRoute(async (ctx) => {
     const detail = await threadDetail(ctx, id);
-    return { ...detail, reply_draft: await latestDraft(ctx, detail.id) };
+    const [replyDraft, writer] = await Promise.all([latestDraft(ctx, detail.id), draftWriter(ctx.service, ctx.access, detail.inbox.id)]);
+    return { ...detail, reply_draft: replyDraft, reply_drafter: writer.writer };
   });
 }

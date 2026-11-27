@@ -441,7 +441,6 @@ export function ProjectEmailAddresses({ isOpen, projectId }: ProjectEmailAddress
           message={`Mail to ${removeTarget ? shownAddress(removeTarget) : 'this address'} will be dropped. Threads it already filed keep this project. To pause it instead, turn it off.`}
           confirmLabel="Delete"
           variant="danger"
-          doubleConfirm={false}
         />,
         document.body,
       )}

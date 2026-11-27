@@ -8,12 +8,12 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Toggle } from '@/components/ui/inputs/Toggle';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { OutcomeLine, type Outcome } from '@/components/settings/workspace/OutcomeLine';
-import { CopyCode, Mono } from './parts';
+import { CopyCode, Mono, TechDetails } from './parts';
 import { PM_SCHEMA_FIX_STEPS } from '@/lib/setup/schema-steps';
 
 const DESCRIPTION = 'Whether each update changes your database on its own while it deploys.';
 
-/** How many pending file names show before "Show all". */
+/** How many waiting change names show before "Show N more". */
 const SHORT_LIST = 5;
 
 function SetupStep({ number, children }: { number: number; children: ReactNode }) {
@@ -71,14 +71,19 @@ function PendingStatus({ database }: { database: DatabaseUpdates }) {
       <div role="status" className="rounded-lg bg-amber-500/[0.1] px-3.5 py-3 ring-1 ring-inset ring-amber-500/20">
         <p className="flex items-center gap-2 text-sm font-medium text-zinc-100">
           <AlertTriangle size={14} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
-          This database has no record of its changes yet
+          The app can&apos;t tell which database changes are in yet
         </p>
         <p className="mt-2 text-sm text-zinc-300">
           {database.mode === 'automatic'
-            ? 'Until it does, deploys go live without changing it. '
-            : 'Until it does, this page can\'t tell which changes are applied. '}
-          Run <CopyCode text="npm run db:migrate -- --baseline" /> once from your app&apos;s folder, with the connection string in <Mono>.env.local</Mono>.
+            ? 'Until it can, deploys go live without changing the database. '
+            : 'Until it can, this page can\'t say what is left to apply. '}
+          Whoever runs your server records them once, and this goes away.
         </p>
+        <TechDetails>
+          <span className="block">
+            Run <CopyCode text="npm run db:migrate -- --baseline" /> once from the app&apos;s folder, with the connection string in <Mono>.env.local</Mono>.
+          </span>
+        </TechDetails>
       </div>
     );
   }
@@ -99,11 +104,23 @@ function PendingStatus({ database }: { database: DatabaseUpdates }) {
     <div role="status" className="rounded-lg bg-amber-500/[0.1] px-3.5 py-3 ring-1 ring-inset ring-amber-500/20">
       <p className="flex items-center gap-2 text-sm font-medium text-zinc-100">
         <AlertTriangle size={14} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
-        {count === 1 ? '1 database change has not been applied' : `${count} database changes have not been applied`}
+        {count === 1 ? '1 database change is waiting' : `${count} database changes are waiting`}
       </p>
-      <ul id={listId} className="mt-2 space-y-1">
+      <p className="mt-2 text-sm text-zinc-300">
+        {database.mode === 'automatic'
+          ? 'Redeploy the app and they go in on their own.'
+          : 'Whoever runs your server applies them, so the app has everything this version needs.'}
+      </p>
+      <TechDetails>
+        <span className="block">
+          {database.mode === 'automatic'
+            ? <>Redeploy, or run <CopyCode text="npm run db:migrate" /> from the app&apos;s folder.</>
+            : <>Run <CopyCode text="npm run db:migrate" /> from the app&apos;s folder.</>}
+        </span>
+        <span className="block text-zinc-400">{count === 1 ? 'The change waiting:' : 'The changes waiting:'}</span>
+      <ul id={listId} className="space-y-1">
         {shown.map((name) => (
-          <li key={name} title={name} className="break-all font-mono text-xs text-zinc-200">{name}</li>
+          <li key={name} className="break-all font-mono text-[11px] text-zinc-300">{name}</li>
         ))}
       </ul>
       {count > SHORT_LIST && (
@@ -115,16 +132,10 @@ function PendingStatus({ database }: { database: DatabaseUpdates }) {
           className="mt-2 inline-flex items-center gap-1 rounded text-xs font-medium text-zinc-400 hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
         >
           <ChevronDown size={13} aria-hidden="true" className={`transition-transform ${showAll ? 'rotate-180' : ''}`} />
-          {showAll ? 'Show fewer' : `Show all ${count}`}
+          {showAll ? 'Show fewer' : `Show ${count - SHORT_LIST} more of ${count}`}
         </button>
       )}
-      <p className="mt-2.5 text-sm text-zinc-300">
-        {database.mode === 'automatic' ? (
-          <>Redeploy to apply them, or run <CopyCode text="npm run db:migrate" /> from your app&apos;s folder.</>
-        ) : (
-          <>Run <CopyCode text="npm run db:migrate" /> from your app&apos;s folder to apply them.</>
-        )}
-      </p>
+      </TechDetails>
     </div>
   );
 }
@@ -183,21 +194,20 @@ export function DatabaseCard({
   };
 
   const explanation = hostOff ? (
-    <>
-      Your host sets <Mono>MIGRATE_ON_DEPLOY=false</Mono>, which keeps this off. Remove it there to let deploys
-      update the database.
-    </>
+    <>Your host keeps this off. Whoever runs your server can change that there.</>
   ) : mode === 'automatic' ? (
     <>
       Each update changes your database while it deploys, before the new version goes live. If a change fails, the
       deploy stops and your live app stays as it was.
     </>
   ) : (
-    <>
-      Apply each update&apos;s database changes yourself: run <CopyCode text="npm run db:migrate" /> from your app&apos;s
-      folder before the update goes live.
-    </>
+    <>Whoever runs your server applies each update&apos;s database changes before the update goes live.</>
   );
+  const explanationDetails = hostOff ? (
+    <span className="block">Your host sets <Mono>MIGRATE_ON_DEPLOY=false</Mono>. Remove it there to let deploys update the database.</span>
+  ) : mode === 'manual' ? (
+    <span className="block">Run <CopyCode text="npm run db:migrate" /> from the app&apos;s folder before each update goes live.</span>
+  ) : null;
 
   return (
     <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="updates-database-heading">
@@ -217,6 +227,7 @@ export function DatabaseCard({
             label="Update the database with each release"
           />
           <p id={explanationId} className="text-sm text-zinc-300">{explanation}</p>
+          {explanationDetails && <TechDetails>{explanationDetails}</TechDetails>}
         </div>
       )}
 
@@ -227,12 +238,14 @@ export function DatabaseCard({
           <div role="status" className="mb-3 rounded-lg bg-amber-500/[0.1] px-3.5 py-3 ring-1 ring-inset ring-amber-500/20">
             <p className="flex items-center gap-2 text-sm font-medium text-zinc-100">
               <AlertTriangle size={14} className="flex-shrink-0 text-amber-300" aria-hidden="true" />
-              Share two schemas before the next major update
+              One Supabase setting before the next major update
             </p>
-            <p className="mt-1.5 text-sm text-zinc-300">The next major update moves the app into the pm and pm_custom schemas, and waits until Supabase shares them with the app.</p>
-            <ol className="mt-2 list-decimal space-y-1 pl-4 text-sm text-zinc-300">
-              {PM_SCHEMA_FIX_STEPS.map((step) => <li key={step}>{step}</li>)}
-            </ol>
+            <p className="mt-1.5 text-sm text-zinc-300">The next major update moves the app&apos;s data to its own place in your database, and waits until Supabase lets the app reach it.</p>
+            <TechDetails summary="How to change it in Supabase">
+              <ol className="list-decimal space-y-1 pl-4">
+                {PM_SCHEMA_FIX_STEPS.map((step) => <li key={step}>{step}</li>)}
+              </ol>
+            </TechDetails>
           </div>
         )}
         <PendingStatus database={database} />
@@ -246,7 +259,6 @@ export function DatabaseCard({
         message="Updates will deploy without their database changes until someone applies them."
         confirmLabel="Turn off"
         variant="danger"
-        doubleConfirm={false}
       />
     </section>
   );

@@ -10,7 +10,7 @@ import { AppKeyPointer, SecretField, SecretList } from '@/components/settings/Se
 import { secretStatus, secretsRead, type SecretsState } from '@/components/settings/secrets-data';
 import { useRead } from '@/lib/query-cache';
 import { NEW_TOKEN_URL } from './updates-data';
-import { CopyCode, ExternalButton, ExternalLinkText, Label, Mono } from './parts';
+import { CopyCode, ExternalButton, ExternalLinkText, Label, Mono, TechDetails } from './parts';
 
 const DESCRIPTION = 'How this app reaches your code on GitHub to install updates. You set it up once.';
 
@@ -98,13 +98,14 @@ function FixBox({ connection }: { connection: ConnectionInfo }) {
       return box('Update once by hand', (
         <>
           <p>
-            Your code doesn&apos;t have the update workflow yet (<Mono>.github/workflows/core-update.yml</Mono>). It comes
-            with the app&apos;s latest code.
+            Your code doesn&apos;t have the one-button update yet. It comes with the app&apos;s latest code, so the first
+            update is done by hand: ask your AI agent or whoever runs your code to take it. After that, every update runs
+            from here.
           </p>
-          <p>
-            Open your project in your code editor with your AI agent and ask it to run <CopyCode text="npm run upgrade" /> and
-            push. After that, every update runs from here.
-          </p>
+          <TechDetails>
+            <span className="block">The update workflow is missing (<Mono>.github/workflows/core-update.yml</Mono>).</span>
+            <span className="block">Run <CopyCode text="npm run upgrade" /> in the project and push.</span>
+          </TechDetails>
         </>
       ));
     case 'merge_commits_disabled':

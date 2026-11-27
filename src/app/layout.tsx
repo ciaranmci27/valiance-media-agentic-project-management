@@ -34,12 +34,20 @@ const dmMono = DM_Mono({
 /** Title, description and icons from the workspace's brand (Settings > Workspace > Brand). */
 export async function generateMetadata(): Promise<Metadata> {
   const brand = await getBrand();
-  // An uploaded favicon, or one drawn from the name and brand color.
+  // The square logo, or one made for it (a crop of the horizontal logo, else the name's letter on the brand color).
   const icon = brand.logos.favicon ?? '/api/brand/icon';
+  // A square logo for dark backgrounds shows in a browser set to dark.
+  const darkIcon = brand.logos.squareDark && brand.logos.squareDark !== brand.logos.favicon ? brand.logos.squareDark : null;
   return {
     title: `${brand.name} | ${brand.tagline}`,
     description: brand.description,
-    icons: { icon, shortcut: icon, apple: brand.logos.favicon ?? '/api/brand/icon?size=180' },
+    icons: {
+      icon: darkIcon
+        ? [{ url: icon, media: '(prefers-color-scheme: light)' }, { url: darkIcon, media: '(prefers-color-scheme: dark)' }]
+        : icon,
+      shortcut: icon,
+      apple: brand.logos.favicon ?? '/api/brand/icon?size=180',
+    },
   };
 }
 

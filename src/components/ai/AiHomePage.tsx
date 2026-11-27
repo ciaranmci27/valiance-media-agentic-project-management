@@ -33,21 +33,17 @@ const SUBTITLES: Record<AiTab, string> = {
   setup: 'Turn on assistants, connect chat apps and run the agent service.',
 };
 
-function runFiltersFrom(params: URLSearchParams): { filters: RunFeedFilters; page: number } {
+function runFiltersFrom(params: URLSearchParams): RunFeedFilters {
   const status = params.get('status');
   const from = params.get('from');
   const to = params.get('to');
-  const page = Number(params.get('page') ?? '1');
+  // An old ?page= is ignored: the list starts at the newest and grows with Show more.
   return {
-    filters: {
-      agentId: params.get('agent'),
-      status: isRunFilterStatus(status) ? status : null,
-      projectId: params.get('project'),
-      from: isDateKey(from) ? from : null,
-      to: isDateKey(to) ? to : null,
-    },
-    // The URL counts pages from 1; the read from 0.
-    page: Number.isInteger(page) && page > 1 ? page - 1 : 0,
+    agentId: params.get('agent'),
+    status: isRunFilterStatus(status) ? status : null,
+    projectId: params.get('project'),
+    from: isDateKey(from) ? from : null,
+    to: isDateKey(to) ? to : null,
   };
 }
 
@@ -102,17 +98,17 @@ export function AiHomePage() {
     pushParams(next);
   }, [searchParams, pushParams]);
 
-  const { filters: runFilters, page: runPage } = useMemo(
-    () => (active === 'company' && view === 'runs' ? runFiltersFrom(searchParams) : { filters: NO_RUN_FILTERS, page: 0 }),
+  const runFilters = useMemo(
+    () => (active === 'company' && view === 'runs' ? runFiltersFrom(searchParams) : NO_RUN_FILTERS),
     [active, view, searchParams],
   );
-  const setRunFeed = useCallback((filters: RunFeedFilters, page: number) => setPlace('company', 'runs', {
+  const setRunFeed = useCallback((filters: RunFeedFilters) => setPlace('company', 'runs', {
     agent: filters.agentId,
     status: filters.status,
     project: filters.projectId,
     from: filters.from ?? null,
     to: filters.to ?? null,
-    page: page > 0 ? String(page + 1) : null,
+    page: null,
   }), [setPlace]);
 
   // A link to a section (#connect-ai, #chat-connections) scrolls there once its part has drawn.
@@ -179,7 +175,7 @@ export function AiHomePage() {
             <SubNav label="Company AI views" active={view} onChange={(next) => setPlace('company', next)}
               items={COMPANY_VIEWS.map((key) => ({ key, label: COMPANY_VIEW_LABELS[key] }))} />
             {viewPanel('agents', <AgentOrgChart onHire={canHire ? () => router.push(HIRE_HREF) : undefined} />)}
-            {viewPanel('runs', <RunFeed filters={runFilters} page={runPage} onChange={setRunFeed} onOpenTask={openTask} />)}
+            {viewPanel('runs', <RunFeed filters={runFilters} onChange={setRunFeed} onOpenTask={openTask} />)}
             {viewPanel('analytics', <AgentAnalytics />)}
           </div>
         ))}

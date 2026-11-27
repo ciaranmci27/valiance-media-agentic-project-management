@@ -23,14 +23,14 @@ import { listTaskFiles, taskFileCandidates, type TaskFileCandidates, type TaskFi
 import { invalidateTables, peekRead, useRead, warmReads, type Read } from '@/lib/query-cache';
 import type { QuestionView } from '@/lib/questions';
 import type { BlockedCommentSignal, BlockedRunSignal } from '@/lib/autonomy';
-import type { NotificationFeedView, NotificationPage, Snooze } from '@/lib/notifications';
-import { demoNotificationPage, demoSnoozes, demoUnreadCount } from '@/lib/demo-notifications';
+import type { NotificationFeedView, NotificationGroupPage, NotificationPage, NotificationView, Snooze, UpdateFilters } from '@/lib/notifications';
+import { demoGroupRows, demoNotificationGroups, demoNotificationPage, demoSnoozes, demoUnreadCount } from '@/lib/demo-notifications';
 import {
   workspaceApi, type AgentDetail, type AgentListItem, type AgentTemplateView, type BriefEntry, type ProjectAgentAssignment, type ProjectBrief,
 } from '@/lib/agent-workspace';
 import { AGENT_TURNS_CACHE_TABLE, type AgentRunNote, type AgentRunPlanStep, type AgentRunSummary } from '@/lib/agent-runs';
 import {
-  NO_RUN_FILTERS, RUN_FEED_COLUMNS, RUNS_PAGE_SIZE, runFeedQuery, toRunSummary, type RunFeedFilters,
+  NO_RUN_FILTERS, RUN_FEED_COLUMNS, RUNS_PAGE_SIZE, runCursorFilter, runFeedQuery, toRunSummary, type RunCursor, type RunFeedFilters,
 } from '@/lib/agents-tab';
 import type {
   AgentActivity, BillingForecastItem, ProjectBillingPlan, ProjectBillingRun, ProjectContext, TaskSource, TeamActivity,
@@ -617,6 +617,32 @@ export function notificationsRead(view: NotificationFeedView, isDemo: boolean): 
   };
 }
 
+/** The member's Updates grouped by what they are about, filtered as the page asks (the first page; the total is in it). */
+export function notificationGroupsRead(filters: UpdateFilters, isDemo: boolean): Read<NotificationGroupPage> {
+  return {
+    key: `notification-groups:${filters.fromAgents ? 'agents' : 'anyone'}:${[...filters.projectIds].sort().join(',')}${isDemo ? ':demo' : ''}`,
+    tables: NOTIFICATION_TABLES,
+    load: async () => (isDemo ? demoNotificationGroups(filters) : fetchNotificationGroups(filters, null)),
+  };
+}
+
+/** A page of grouped Updates after `before`. */
+export function fetchNotificationGroups(filters: UpdateFilters, before: string | null): Promise<NotificationGroupPage> {
+  const query = new URLSearchParams({
+    ...(before ? { before } : {}),
+    ...(filters.fromAgents ? { from: 'agents' } : {}),
+    ...(filters.projectIds.length ? { project_id: filters.projectIds.join(',') } : {}),
+  });
+  return getWorkspaceData<NotificationGroupPage>(`/api/workspace/notifications/groups?${query}`, 'notifications');
+}
+
+/** One group's open Updates, newest first, as a grouped row expands. */
+export async function fetchGroupRows(groupKey: string, isDemo: boolean): Promise<NotificationView[]> {
+  if (isDemo) return demoGroupRows(groupKey);
+  const query = new URLSearchParams({ group: groupKey, limit: '100' });
+  return (await getWorkspaceData<{ items: NotificationView[] }>(`/api/workspace/notifications?${query}`, 'notifications')).items;
+}
+
 /** A page of the member's Updates after `before` (a page's next_cursor), for Load more. */
 export function fetchNotificationPage(view: NotificationFeedView, before: string | null): Promise<NotificationPage> {
   const query = new URLSearchParams({ view, ...(before ? { before } : {}) });
@@ -771,7 +797,10 @@ export function projectContextRead(projectId: string): Read<ProjectContext[]> {
 export interface AgentRunFeedPage {
   /** agent_name is left null: the screens name agents from the team list. */
   runs: AgentRunSummary[];
-  total: number;
+  /** Every row the filters match (counted on the first page; a later page answers null). */
+  total: number | null;
+  /** Where the next page starts; null when this page was the last. */
+  next: RunCursor | null;
 }
 
 const NO_NAMES: ReadonlyMap<string, string> = new Map();
@@ -786,23 +815,31 @@ const RUN_FEED_TABLES = ['agent_runs', AGENT_TURNS_CACHE_TABLE] as const;
  * run with agents.manage, never one on a task or project in Trash. Demo mode
  * reads its own few (demo-agents-home.ts).
  */
-export function agentRunFeedRead(filters: RunFeedFilters, page: number, isDemo: boolean, pageSize = RUNS_PAGE_SIZE): Read<AgentRunFeedPage> {
-  const query = runFeedQuery(filters, page, pageSize);
+export function agentRunFeedRead(filters: RunFeedFilters, after: RunCursor | null, isDemo: boolean, pageSize = RUNS_PAGE_SIZE, timeZone?: string): Read<AgentRunFeedPage> {
+  const query = runFeedQuery(filters, after, pageSize, timeZone);
   return {
     key: `${query.key}${isDemo ? ':demo' : ''}`,
     tables: RUN_FEED_TABLES,
     load: async () => {
-      if (isDemo) return demoRunFeedPage(filters, page, pageSize);
-      let request = createClient().from('agent_run_rows').select(RUN_FEED_COLUMNS, { count: 'exact' });
+      if (isDemo) return demoRunFeedPage(filters, after, pageSize, timeZone);
+      // The total is counted once, on the first page; later pages read only their rows.
+      let request = createClient().from('agent_run_rows').select(`${RUN_FEED_COLUMNS}, sort_at`, query.after ? undefined : { count: 'exact' });
       for (const [column, value] of query.eq) request = request.eq(column, value);
       if (query.started.gte) request = request.gte('sort_at', query.started.gte);
       if (query.started.lt) request = request.lt('sort_at', query.started.lt);
+      if (query.after) request = request.or(runCursorFilter(query.after));
       const { data, count, error } = await request
         .order('sort_at', { ascending: false })
         .order('id', { ascending: false })
-        .range(query.from, query.to);
+        .limit(query.limit);
       if (error) throw error;
-      return { runs: ((data ?? []) as Record<string, unknown>[]).map((row) => toRunSummary(row, NO_NAMES)), total: count ?? 0 };
+      const rows = (data ?? []) as Record<string, unknown>[];
+      const last = rows[rows.length - 1];
+      return {
+        runs: rows.map((row) => toRunSummary(row, NO_NAMES)),
+        total: query.after ? null : count ?? 0,
+        next: rows.length === query.limit && last ? { at: String(last.sort_at), id: String(last.id) } : null,
+      };
     },
   };
 }
@@ -812,7 +849,7 @@ export const RUNNING_RUNS_LIMIT = 100;
 
 /** Every running run (the roster's "current run"), newest first. */
 export function runningAgentRunsRead(isDemo: boolean): Read<AgentRunFeedPage> {
-  return agentRunFeedRead({ ...NO_RUN_FILTERS, status: 'running' }, 0, isDemo, RUNNING_RUNS_LIMIT);
+  return agentRunFeedRead({ ...NO_RUN_FILTERS, status: 'running' }, null, isDemo, RUNNING_RUNS_LIMIT);
 }
 
 export interface AgentRunDetail {
@@ -1067,7 +1104,7 @@ export function useAgentWarmer(): (agentId: string) => IntentHandlers {
   return useCallback(
     (agentId: string) => intent(() => warmReads([
       agentDetailRead(agentId, isDemoMode),
-      agentRunFeedRead({ ...NO_RUN_FILTERS, agentId }, 0, isDemoMode, 8),
+      agentRunFeedRead({ ...NO_RUN_FILTERS, agentId }, null, isDemoMode, 8),
     ])),
     [intent, isDemoMode],
   );

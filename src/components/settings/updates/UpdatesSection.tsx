@@ -132,7 +132,7 @@ export function UpdatesSection() {
       const database = await saveDatabaseUpdates(automatic);
       setDatabaseOutcome(!database ? null : automatic
         ? { tone: 'done', text: database.mode === 'automatic' ? 'Turned on. Each update now changes your database while it deploys.' : 'Turned on. It takes effect once your host allows it.' }
-        : { tone: 'done', text: 'Turned off. Apply each update\'s database changes with npm run db:migrate.' });
+        : { tone: 'done', text: 'Turned off. Whoever runs your server now applies each update\'s database changes.' });
     } catch (error) {
       setDatabaseOutcome({ tone: 'error', text: `Couldn't save. ${errorMessage(error)}`, onRetry: () => { void saveDatabase(automatic); } });
     } finally {

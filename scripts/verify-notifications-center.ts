@@ -35,7 +35,9 @@ import { diffSnapshots, pmSnapshot } from './lib/pm-catalog';
 import { computeNeedsYou, type BlockedCommentSignal } from '../src/lib/autonomy';
 import { blockedCommentSignals, waitedWords } from '../src/lib/ai-home';
 import { approvalDetailRows, approvalReady, APPROVAL_DETAIL_ROWS_MAX } from '../src/lib/questions';
-import { bellCountLabel, notificationsSummary, notificationsView } from '../src/lib/notifications';
+import {
+  bellCountLabel, groupKeyOf, groupLabel, NO_UPDATE_FILTERS, notificationsSummary, notificationsView, parseGroupKey, snoozeUntil, updateFilterCount,
+} from '../src/lib/notifications';
 import { PM_TOOLS as tools } from '../src/lib/mcp/tools';
 import type { Comment, Task, TeamMember } from '../src/lib/types';
 
@@ -45,6 +47,8 @@ const MIGRATION_SQL = readFileSync(join(MIGRATIONS_DIR, MIGRATION), 'utf8').repl
 const SCHEMA_SQL = readFileSync(SCHEMA_PATH, 'utf8').replace(/\r\n/g, '\n');
 const BANNER = '\n-- ============================================================\n-- NOTIFICATIONS CENTER (20261127002700_notifications_center.sql)\n-- ============================================================\n';
 const SRC = join(__dirname, '..', 'src');
+const GROUPS_MIGRATION = '20261127003300_notifications_groups.sql';
+const GROUPS_BANNER = '\n-- ============================================================\n-- NOTIFICATIONS GROUPS (20261127003300_notifications_groups.sql)\n-- ============================================================\n';
 
 let passed = 0;
 const failures: string[] = [];
@@ -65,6 +69,13 @@ async function migrationChecks() {
   const next = SCHEMA_SQL.indexOf('\n-- ============================================================\n-- ', at + BANNER.length);
   check('schema.sql: its section is the migration, word for word', at > 0 && SCHEMA_SQL.slice(at + BANNER.length, next < 0 ? undefined : next) === MIGRATION_SQL);
   check('migration: no em or en dash', !MIGRATION_SQL.includes(String.fromCharCode(0x2013)) && !MIGRATION_SQL.includes(String.fromCharCode(0x2014)));
+  // Groups and the blocked receipt came after 2.0.53 shipped 002700: their own migration and section.
+  const groupsSql = readFileSync(join(MIGRATIONS_DIR, GROUPS_MIGRATION), 'utf8').replace(/\r\n/g, '\n');
+  const gAt = SCHEMA_SQL.indexOf(GROUPS_BANNER);
+  const gNext = SCHEMA_SQL.indexOf('\n-- ============================================================\n-- ', gAt + GROUPS_BANNER.length);
+  check('schema.sql: the groups section is its migration, word for word', gAt > at && SCHEMA_SQL.slice(gAt + GROUPS_BANNER.length, gNext < 0 ? undefined : gNext) === groupsSql);
+  check('groups migration: functions only (safe to run twice), no em or en dash', !/\b(ALTER TABLE|CREATE TABLE|UPDATE pm\.|DELETE FROM|DROP )/.test(groupsSql)
+    && !groupsSql.includes(String.fromCharCode(0x2013)) && !groupsSql.includes(String.fromCharCode(0x2014)));
   const later = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql') && f > MIGRATION);
   check('migration: every later migration has its own section after this one', later.every((f) => SCHEMA_SQL.indexOf(`(${f})`, at + BANNER.length) > 0), later);
 
@@ -150,7 +161,7 @@ async function seed(db: PGlite) {
   };
   return {
     q, olivia, pat, sam, mia, quill, scout, project, task,
-    keys: { quill: await key(quill, ['tasks.read']), pat: await key(pat, ['tasks.read']), olivia: await key(olivia, ['notifications.manage_own']) },
+    keys: { quill: await key(quill, ['tasks.read']), pat: await key(pat, ['tasks.read']), olivia: await key(olivia, ['notifications.manage_own']), mia: await key(mia, ['notifications.manage_own']) },
   };
 }
 
@@ -179,6 +190,30 @@ function pureChecks() {
   check('page: one line, each count once', notificationsSummary(3, 2) === '3 need you, 2 unread' && notificationsSummary(1, 0) === '1 needs you' && notificationsSummary(0, 0) === 'You are all caught up'
     && bellCountLabel(0, 0) === 'Nothing new' && notificationsView('updates') === 'updates' && notificationsView('x') === 'needs');
 
+  // Snooze choices, in the viewer's own time.
+  const wed = new Date(2026, 10, 25, 14, 30);
+  const mon = new Date(2026, 10, 30, 8, 0);
+  const at = (d: Date) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  check('snooze: later today is three hours on; tomorrow is 9 am tomorrow; next week is 9 am next Monday (a week on from a Monday)',
+    at(snoozeUntil('later_today', wed)) === '2026-11-25 17:30' && at(snoozeUntil('tomorrow', wed)) === '2026-11-26 9:00'
+      && at(snoozeUntil('next_week', wed)) === '2026-11-30 9:00' && at(snoozeUntil('next_week', mon)) === '2026-12-7 9:00',
+    [snoozeUntil('later_today', wed), snoozeUntil('tomorrow', wed), snoozeUntil('next_week', wed), snoozeUntil('next_week', mon)].map(at));
+  const nyv = readFileSync(join(SRC, 'components/agent/NeedsYouView.tsx'), 'utf8');
+  check('snooze: every Needs you row but a reply draft has the snooze menu, through the one action layer', nyv.includes('menu={snoozeMenu(row)}')
+    && nyv.includes('const menu = snoozeMenu(row);') && nyv.includes('actions.snooze(target.kind, target.id, until)') && nyv.includes("default: return null;"));
+
+  // Groups.
+  check('groups: a key names what the group is about; a notice about nothing is its own group by id',
+    groupKeyOf({ entity_type: 'task', entity_id: 't-1', id: uid(1) }) === 'task:t-1' && groupKeyOf({ entity_type: null, entity_id: null, id: uid(1) }) === `notification:${uid(1)}`
+      && parseGroupKey('task:t-1')?.entityId === 't-1' && parseGroupKey('notification:nope') === null && parseGroupKey('bad key') === null);
+  check('groups: "Website relaunch: 3 updates" for many with a known place; the notice\'s own title for one, or when the place is unknown',
+    groupLabel({ group_count: 3, latest: { title: 'x' } }, 'Website relaunch') === 'Website relaunch: 3 updates'
+      && groupLabel({ group_count: 1, latest: { title: 'Only one' } }, 'Website relaunch') === 'Only one' && groupLabel({ group_count: 3, latest: { title: 'Latest' } }, null) === 'Latest');
+  check('filters: the button counts what is on', updateFilterCount(NO_UPDATE_FILTERS) === 0 && updateFilterCount({ fromAgents: true, projectIds: [uid(1), uid(2)] }) === 2);
+  const pageSrc = readFileSync(join(SRC, 'app/(protected)/notifications/page.tsx'), 'utf8');
+  check('filters: one FilterButton beside the views, never chips or selects of its own; Mentions only once a mention category exists',
+    (pageSrc.match(/<FilterButton/g) ?? []).length === 1 && !pageSrc.includes('<Select') && !/Mentions/.test(pageSrc));
+
   // One Needs you: every surface reads useAiHub (on useNeedsYou); the bell counts it plus unread Updates.
   const read = (path: string) => readFileSync(join(SRC, path), 'utf8');
   const page = read('app/(protected)/notifications/page.tsx');
@@ -188,6 +223,10 @@ function pureChecks() {
     page.includes('useAiHub()') && page.includes('items={hub.all}') && bell.includes('items={needs}') && sidebar.includes('hub={aiHub}')
       && ![page, bell, sidebar].some((src) => src.includes('computeNeedsYou(')));
   check('one count: the bell is what needs you plus unread Updates, once each', sidebar.includes('const bellCount = aiHub.all.length + unreadNotifications;'));
+  const qcard = readFileSync(join(SRC, 'components/questions/QuestionCard.tsx'), 'utf8');
+  check('wait: "Waiting on you" reads in one plain treatment on every row (no amber on questions, none elsewhere)',
+    /<time dateTime=\{question\.created_at\} className="flex-shrink-0 tabular-nums" title=\{formatFull\(question\.created_at\)\}>\{waited\}<\/time>/.test(qcard)
+      && !/text-amber[^"]*"[^>]*>\{waited\}/.test(qcard) && read('components/agent/NeedsYouView.tsx').includes('className="flex-shrink-0 tabular-nums">{waitedWords(row.at)}'));
   check('one Needs you: blocked comments come from the database (or the demo\'s mirror) into computeNeedsYou, not a second list',
     read('lib/use-needs-you.ts').includes('blockedComments,') && !read('lib/use-ai-hub.ts').includes('blockedComments('));
   check('MCP: add_task_comment takes blocked, and list_notifications takes before and view unread', (() => {
@@ -299,6 +338,53 @@ async function main() {
   check('count: each view\'s count is the rows its feed lists (receipts, done and snoozed apart)', JSON.stringify(counts) === JSON.stringify(feed)
     && counts.map((c) => c.n).join() === '3,2,1', { counts, feed });
 
+  // Grouping and filters (pm.notification_update_groups), for Mia.
+  const p2 = (await s.q<{ id: string }>("INSERT INTO pm.projects (name) VALUES ('Brand refresh') RETURNING id"))[0].id;
+  const t4 = (await s.q<{ id: string }>("INSERT INTO pm.tasks (project_id, title) VALUES ($1, 'Logo files') RETURNING id", [p2]))[0].id;
+  const g1 = await s.task('Website copy', []);
+  const note = async (title: string, entityType: string | null, entityId: string | null, actor: string | null, ago: number, category = 'task_comments') => {
+    // Read at first: one unread notice per thing is the dedup rule, so the unread ones are chosen below.
+    await s.q(`INSERT INTO pm.team_member_notifications (user_id, title, message, entity_type, entity_id, category, actor_id, created_at, is_read)
+      VALUES ($1, $2, 'm', $3, $4, $5, $6, now() - make_interval(mins => $7), true)`, [s.mia, title, entityType, entityId, category, actor, ago]);
+  };
+  await note('Quill commented', 'task', g1, s.quill, 10);
+  await note('Pat commented', 'task', g1, s.pat, 20);
+  await note('Quill moved it', 'task', g1, s.quill, 30);
+  await note('Website relaunch was updated', 'project', s.project, s.sam, 40, 'project_updates');
+  await note('Scout added the logo files', 'task', t4, s.scout, 50, 'entity_files');
+  await note('Welcome to the workspace', null, null, null, 60, 'general');
+  await note('Old one', 'task', g1, s.quill, 70);
+  await s.q("UPDATE pm.team_member_notifications SET done_at = now() WHERE user_id = $1 AND title = 'Old one'", [s.mia]);
+  await note('Snoozed one', 'task', t4, s.scout, 80, 'entity_files');
+  await s.q("INSERT INTO pm.member_snoozes (member_id, item_kind, item_id, until) SELECT $1, 'notification', id, now() + interval '1 day' FROM pm.team_member_notifications WHERE title = 'Snoozed one'", [s.mia]);
+  await s.q("SELECT pm.upsert_notification($1, 'Question from Quill', 'm', NULL, 'question', $2, 'question_asked')", [s.mia, randomUUID()]);
+  await s.q("UPDATE pm.team_member_notifications SET is_read = false WHERE user_id = $1 AND title IN ('Quill commented', 'Website relaunch was updated', 'Scout added the logo files', 'Welcome to the workspace')", [s.mia]);
+  type G = { group_key: string; group_count: number; unread_count: number; title: string };
+  const groups = async (agents = false, projects: string[] | null = null) =>
+    s.q<G>('SELECT group_key, group_count, unread_count, title FROM pm.notification_update_groups($1, 30, NULL, NULL, $2, $3)', [s.mia, agents, projects]);
+  const totalOf = async (agents = false, projects: string[] | null = null) => (await s.q<{ n: number }>('SELECT pm.notification_group_total($1, $2, $3) AS n', [s.mia, agents, projects]))[0].n;
+  const all = await groups();
+  check('groups: one per thing, latest first, counts and unread per group; done, snoozed and receipts left out',
+    all.map((g) => `${g.group_key.split(':')[0]}:${g.group_count}:${g.unread_count}:${g.title}`).join('|')
+      === 'task:3:1:Quill commented|project:1:1:Website relaunch was updated|task:1:1:Scout added the logo files|notification:1:1:Welcome to the workspace'
+      && all[0].group_key === `task:${g1}` && (await totalOf()) === 4, all);
+  const older = await s.q<G>('SELECT group_key, group_count, unread_count, title FROM pm.notification_groups($1, 30)', [s.mia]);
+  check('groups: unfiltered, the same answer as the foundation\'s notification_groups', JSON.stringify(older) === JSON.stringify(all), { older, all });
+  const agentsOnly = await groups(true);
+  check('filters: from agents keeps only notices an agent sent, counted again', agentsOnly.map((g) => `${g.group_key}:${g.group_count}`).join() === `task:${g1}:2,task:${t4}:1`
+    && (await totalOf(true)) === 2, agentsOnly);
+  const brand = await groups(false, [p2]);
+  check('filters: a project keeps its own notices only', brand.length === 1 && brand[0].group_key === `task:${t4}` && (await totalOf(false, [p2])) === 1, brand);
+  check('filters: both at once narrow together', (await groups(true, [s.project])).map((g) => g.group_key).join() === `task:${g1}`);
+  const pageOne = await s.q<G & { id: string; created_at: string }>('SELECT * FROM pm.notification_update_groups($1, 2)', [s.mia]);
+  const last = pageOne[1];
+  const pageTwo = await s.q<G>('SELECT group_key FROM pm.notification_update_groups($1, 2, $2, $3)', [s.mia, last.created_at, last.id]);
+  check('groups: keyset pages carry on with no group twice', pageOne.length === 2 && pageTwo.length === 2 && new Set([...pageOne, ...pageTwo].map((g) => g.group_key)).size === 4);
+  const rowsOfG1 = await s.q<{ title: string }>('SELECT title FROM pm.notification_group_rows($1, $2)', [s.mia, `task:${g1}`]);
+  check('group rows: one group\'s open notices, newest first', rowsOfG1.map((r) => r.title).join() === 'Quill commented,Pat commented,Quill moved it', rowsOfG1);
+  const oneOff = (await s.q<{ id: string }>("SELECT id FROM pm.team_member_notifications WHERE title = 'Welcome to the workspace'"))[0].id;
+  check('group rows: a notice about nothing is a group of itself', (await s.q('SELECT 1 FROM pm.notification_group_rows($1, $2)', [s.mia, `notification:${oneOff}`])).length === 1);
+
   const server = await startFakePostgrest(db);
   Object.assign(process.env, { NEXT_PUBLIC_SUPABASE_URL: server.url, SUPABASE_SERVICE_ROLE_KEY: 'fake-service-key' });
   try {
@@ -335,8 +421,62 @@ async function main() {
     const noView = await call(listRoute.GET, 'GET', `/api/v1/notifications?before=${encodeURIComponent(cursor ?? 'x')}`, {}, s.keys.olivia);
     const junk = await call(listRoute.GET, 'GET', '/api/v1/notifications?view=done&before=nonsense', {}, s.keys.olivia);
     check('REST: before with a filter, without a view, or not a cursor is a plain 400', mixed.status === 400 && noView.status === 400 && junk.status === 400, [mixed.status, noView.status, junk.status]);
-    const all = await call(listRoute.GET, 'GET', '/api/v1/notifications', {}, s.keys.olivia);
-    check('REST: without a view the list answers as before (page meta, no cursor)', all.status === 200 && all.body?.meta?.total === 6 && !('next_cursor' in all.body.meta), all.body?.meta);
+    const everything = await call(listRoute.GET, 'GET', '/api/v1/notifications', {}, s.keys.olivia);
+    check('REST: without a view the list answers as before (page meta, no cursor)', everything.status === 200 && everything.body?.meta?.total === 6 && !('next_cursor' in everything.body.meta), everything.body?.meta);
+
+    // Groups over REST, for Mia.
+    const groupsRoute = await import('../src/app/api/v1/notifications/groups/route');
+    const readRoute = await import('../src/app/api/v1/notifications/mark-all-read/route');
+    const doneRoute = await import('../src/app/api/v1/notifications/done/route');
+    const agentsGroups = await call(groupsRoute.GET, 'GET', '/api/v1/notifications/groups?from=agents', {}, s.keys.mia);
+    const brandGroups = await call(groupsRoute.GET, 'GET', `/api/v1/notifications/groups?project_id=${p2}`, {}, s.keys.mia);
+    const unfiltered = await call(groupsRoute.GET, 'GET', '/api/v1/notifications/groups', {}, s.keys.mia);
+    check('REST: groups filter to agents or projects, with total; unfiltered as before plus total',
+      agentsGroups.status === 200 && agentsGroups.body.data.total === 2 && agentsGroups.body.data.groups.length === 2
+        && brandGroups.body.data.total === 1 && unfiltered.body.data.total === 4 && unfiltered.body.data.groups[0].latest.actor?.name === 'Quill', { agentsGroups: agentsGroups.body, brandGroups: brandGroups.body });
+    const badFrom = await call(groupsRoute.GET, 'GET', '/api/v1/notifications/groups?from=robots', {}, s.keys.mia);
+    const badProject = await call(groupsRoute.GET, 'GET', '/api/v1/notifications/groups?project_id=nope', {}, s.keys.mia);
+    check('REST: a filter that is not one is a plain 400', badFrom.status === 400 && badProject.status === 400, [badFrom.status, badProject.status]);
+    const g1Key = `task:${g1}`;
+    const groupRows = await call(listRoute.GET, 'GET', `/api/v1/notifications?group_key=${encodeURIComponent(g1Key)}&limit=2`, {}, s.keys.mia);
+    const groupRest = await call(listRoute.GET, 'GET', `/api/v1/notifications?group_key=${encodeURIComponent(g1Key)}&limit=2&before=${encodeURIComponent(groupRows.body?.meta?.next_cursor ?? '')}`, {}, s.keys.mia);
+    check('REST: group_key lists one group\'s rows, keyset paged', groupRows.status === 200 && groupRows.body.data.length === 2 && groupRest.body?.data?.length === 1
+      && groupRest.body.meta.next_cursor === null, { groupRows: groupRows.body, groupRest: groupRest.body });
+    const badKey = await call(listRoute.GET, 'GET', '/api/v1/notifications?group_key=notification:nope', {}, s.keys.mia);
+    check('REST: a group_key that is not one is a 400', badKey.status === 400, badKey.body);
+    const readGroup = await call(readRoute.POST, 'POST', '/api/v1/notifications/mark-all-read', {}, s.keys.mia, { group_key: g1Key });
+    const unreadAfter = await s.q<{ n: number }>("SELECT count(*)::int AS n FROM pm.team_member_notifications WHERE user_id = $1 AND NOT is_read AND done_at IS NULL", [s.mia]);
+    check('REST: mark-all-read with group_key reads only that group', readGroup.status === 200 && readGroup.body.data.marked_read === 1 && unreadAfter[0].n === 4, { readGroup: readGroup.body, unreadAfter });
+    const readAll = await call(readRoute.POST, 'POST', '/api/v1/notifications/mark-all-read', {}, s.keys.olivia);
+    check('REST: mark-all-read with no body works as before', readAll.status === 200 && typeof readAll.body?.data?.marked_read === 'number', readAll.body);
+    const doneGroup = await call(doneRoute.POST, 'POST', '/api/v1/notifications/done', {}, s.keys.mia, { group_key: g1Key });
+    const afterDone = await call(groupsRoute.GET, 'GET', '/api/v1/notifications/groups', {}, s.keys.mia);
+    check('REST: done with group_key finishes the whole group, and it leaves the groups', doneGroup.status === 200 && doneGroup.body.data.updated === 3
+      && afterDone.body.data.total === 3 && !afterDone.body.data.groups.some((g: Loose) => g.group_key === g1Key), { doneGroup: doneGroup.body, afterDone: afterDone.body?.data?.total });
+    const mcp = (name: string) => tools.find((t) => t.name === name)!;
+    check('MCP: list_notification_groups filters, list_notifications takes group_key, read and done take group_key',
+      mcp('list_notification_groups').input.safeParse({ from_agents: true, project_ids: [p2] }).success && mcp('list_notifications').input.safeParse({ group_key: g1Key }).success
+        && mcp('mark_all_notifications_read').input.safeParse({ group_key: g1Key }).success && mcp('mark_notifications_done').input.safeParse({ group_key: g1Key }).success
+        && !mcp('mark_notifications_done').input.safeParse({ group_key: g1Key, ids: [uid(1)] }).success);
+
+    // A blocked comment's own notice is a receipt while the block waits: the bell counts it once.
+    const t5 = await s.task('Pricing page copy', [s.pat], s.sam);
+    await comment(t5, s.quill, 'Which plan names: Starter or Basic?', { blocked: true });
+    const notice = async (member: string) => s.q("SELECT pm.upsert_notification($1, 'New comment on \"Pricing page copy\"', 'Quill: Which plan names', '/projects/x', 'task', $2, 'task_comments', NULL, $3)", [member, t5, s.quill]);
+    await notice(s.pat);
+    const patFeed = async () => (await s.q<{ entity_id: string }>("SELECT entity_id FROM pm.notification_feed($1, 'updates', 100)", [s.pat])).map((r) => r.entity_id);
+    const patCounts = async () => (await s.q<{ unread: number; view: number; groups: number; open: number }>(`SELECT pm.notification_unread_count($1) AS unread, pm.notification_view_count($1, 'unread') AS view,
+      (SELECT count(*)::int FROM pm.notification_groups($1, 100) g WHERE g.entity_id = $2) AS groups,
+      (SELECT count(*)::int FROM pm.notification_update_groups($1, 100) g WHERE g.entity_id = $2) AS open`, [s.pat, t5]))[0];
+    const waiting = await patCounts();
+    check('one count: while the block waits on Pat, its comment notice is a receipt (not in Updates, groups or the unread count)',
+      !(await patFeed()).includes(t5) && waiting.unread === 0 && waiting.view === 0 && waiting.groups === 0 && waiting.open === 0 && (await seen(LOGINS.pat)).length > 0, waiting);
+    await notice(s.mia);
+    await s.q('DELETE FROM pm.agent_owners WHERE agent_id = $1 AND member_id = $2', [s.quill, s.mia]);
+    check('one count: someone the block does not wait on keeps the notice as an update', (await s.q("SELECT 1 FROM pm.notification_feed($1, 'updates', 100) WHERE entity_id = $2", [s.mia, t5])).length === 1);
+    await comment(t5, s.pat, 'Starter.', {});
+    const answered = await patCounts();
+    check('one count: once answered, the notice is an update again', (await patFeed()).includes(t5) && answered.unread === 1 && answered.groups === 1, answered);
   } finally {
     await server.close();
     await db.close();

@@ -1,9 +1,8 @@
 'use client';
 
 import { useCallback, useMemo, useState, type SetStateAction } from 'react';
-import Link from 'next/link';
 import {
-  Activity, Ban, CircleCheck, Clock, Coins, Cpu, DollarSign, GitMerge, MessageCircleQuestion, RotateCcw,
+  Activity, Ban, BarChart3, CircleCheck, Clock, Coins, Cpu, DollarSign, GitMerge, MessageCircleQuestion, RotateCcw,
   SlidersHorizontal, Timer, TrendingUp, TriangleAlert, type LucideIcon,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -19,63 +18,59 @@ import { toDateKey } from '@/lib/finance/vesting';
 import { toLocalDateKey } from '@/lib/date-utils';
 import { formatMoney, formatNumber } from '@/lib/format';
 import { appLocale, startOfWeek } from '@/lib/region';
-import { DEFAULT_PRESET, resolveRange, type RangePreset } from '@/lib/agent-range';
+import { DEFAULT_PRESET, PRESET_OPTIONS, resolveRange, type RangePreset } from '@/lib/agent-range';
+import { NO_RUN_FILTERS } from '@/lib/agents-tab';
+import { demoRunFeedPage } from '@/lib/demo-agents-home';
 import { computePipelineLatency } from '@/lib/agent-analytics';
 import { computeTelemetryAnalytics } from '@/lib/agent-telemetry-analytics';
 import { useAgentAnalyticsEvents, useTaskReopens } from '@/lib/use-agent-analytics-events';
 import { useAnalyticsReads } from '@/lib/agent-analytics-reads';
 import {
-  METRIC_FORMAT, MIXED_LABEL, SUBSCRIPTION_LABEL, arrangeTiles, buildAgentAnalytics, costLabel, dailyByAgent, groupOf, marginOf, median, profitCaveat,
-  rangeDays, resolveSelectedMetric, runOutcomeLine, runsFromTurns, scopeNotes, topAgents, UNPRICED_LABEL,
-  type BreakdownLabels, type Dimension, type MetricKey,
+  METRIC_FORMAT, MIXED_LABEL, SUBSCRIPTION_LABEL, analyticsRunRows, arrangeTiles, buildAgentAnalytics, changeMetrics, costLabel, dailyByAgent, groupOf,
+  marginOf, median, metricValue, periodChange, previousRange, profitCaveat, rangeDays, resolveSelectedMetric, runOutcomeLine, runRowFromFeed,
+  runsListHref, scopeNotes, UNPRICED_LABEL, type BreakdownLabels, type Dimension, type MetricKey,
 } from '@/lib/agent-analytics-model';
-import { StatStrip, type StatTone } from '@/components/ui/StatStrip';
-import { SectionHeader } from '@/components/ui/SectionHeader';
+import { StatStrip } from '@/components/ui/StatStrip';
 import { Button } from '@/components/ui/Button';
+import { CardHeader } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Card, CardSkeleton, fmtCount, fmtDuration, fmtPct } from '@/components/agent/analytics/shared';
 import { AnalyticsFilters } from '@/components/agent/analytics/AnalyticsFilters';
-import { AnalyticsChart, formatMetric, type ChartBar, type ChartSeries } from '@/components/agent/analytics/AnalyticsChart';
+import { AnalyticsChart, formatMetric, type ChartPoint } from '@/components/agent/analytics/AnalyticsChart';
 import { AnalyticsBreakdown } from '@/components/agent/analytics/AnalyticsBreakdown';
 import { QualityCard } from '@/components/agent/analytics/QualityCard';
 import { profileTimeZone } from '@/lib/time-zone';
 
 /**
- * The Agents page's Analytics tab: how the agents work, at a glance. Tiles
- * with data lead (the picked one drives the chart), a breakdown by agent,
- * project, model, role and label, then delivery quality. Money shows only
- * where agents bill. Every number comes from agent-analytics-model; runs and
- * questions arrive summed by the server, so no range is cut short.
+ * The Agents page's Analytics tab: how the agents work, at a glance. One
+ * Overview card: its header holds the filters (agents and projects, date
+ * range) and its actions; a stat strip of the figures with data, each with
+ * change against the last period where that can be measured, picks the one
+ * brand line charted below it (DESIGN.md Rules 16 and 17). Then a breakdown
+ * by agent, project, model, role and label, and delivery quality. Work
+ * leads; money shows only where agents bill. Every number comes from
+ * agent-analytics-model, and Runs counts what Agents > Runs lists.
  *
  * An install adds its own cards below the breakdown through
  * agentAnalyticsCards (src/custom/index.ts); core renders none of its own
  * fleet-specific ones.
  */
 
-const TILE_META: Record<MetricKey, { label: string; icon: LucideIcon }> = {
-  revenue: { label: 'Revenue', icon: DollarSign },
-  profit: { label: 'Profit', icon: TrendingUp },
-  runs: { label: 'Runs', icon: Activity },
-  busy: { label: 'Busy time', icon: Timer },
-  tasks: { label: 'Tasks done', icon: CircleCheck },
-  prs: { label: 'PRs merged', icon: GitMerge },
-  tokens: { label: 'Tokens', icon: Cpu },
-  cost: { label: 'Model cost', icon: Coins },
-  questions: { label: 'Questions asked', icon: MessageCircleQuestion },
-  incidents: { label: 'Incidents', icon: TriangleAlert },
-  reopened: { label: 'Reopened', icon: RotateCcw },
-  blocked: { label: 'Blocked', icon: Ban },
+/** Each stat's name in plain words, its icon, and the unit a count's chart axis shows. */
+const TILE_META: Record<MetricKey, { label: string; icon: LucideIcon; unit: string }> = {
+  revenue: { label: 'Revenue', icon: DollarSign, unit: '' },
+  profit: { label: 'Profit', icon: TrendingUp, unit: '' },
+  runs: { label: 'Runs', icon: Activity, unit: 'runs' },
+  busy: { label: 'Time working', icon: Timer, unit: '' },
+  tasks: { label: 'Tasks done', icon: CircleCheck, unit: 'tasks' },
+  prs: { label: 'PRs merged', icon: GitMerge, unit: 'PRs' },
+  tokens: { label: 'AI usage', icon: Cpu, unit: '' },
+  cost: { label: 'AI cost', icon: Coins, unit: '' },
+  questions: { label: 'Questions asked', icon: MessageCircleQuestion, unit: 'questions' },
+  incidents: { label: 'Incidents', icon: TriangleAlert, unit: 'incidents' },
+  reopened: { label: 'Reopened', icon: RotateCcw, unit: 'tasks' },
+  blocked: { label: 'Blocked', icon: Ban, unit: 'times' },
 };
-
-// One hue per charted agent, from the vivid chart family; the rest share a gray.
-const SERIES = [
-  { bar: 'bg-sky-400', dot: 'bg-sky-400' },
-  { bar: 'bg-violet-500', dot: 'bg-violet-500' },
-  { bar: 'bg-amber-400', dot: 'bg-amber-400' },
-  { bar: 'bg-emerald-500', dot: 'bg-emerald-500' },
-  { bar: 'bg-rose-400', dot: 'bg-rose-400' },
-  { bar: 'bg-teal-500', dot: 'bg-teal-500' },
-];
-const OTHERS = { id: '__others', name: 'Other agents', bar: 'bg-zinc-500', dot: 'bg-zinc-500' };
 
 const NO_FLEET: never[] = [];
 
@@ -169,14 +164,18 @@ export function AgentAnalytics() {
   const reopenQuery = useTaskReopens({ enabled: !isDemoMode });
   const activities = isDemoMode ? recentActivity : events.rows;
   const measuring = events.loading || reads.loading;
-  // The run feed is the runs. Only where it does not exist (not migrated, or
-  // demo) are runs taken from turns, by its own rule. A failed read shows no
-  // run figures at all rather than short ones.
+  // The run feed is the runs, so Runs here is what Agents > Runs lists: the
+  // database's feed, or the demo's own. Only where no feed exists (not
+  // migrated) are runs taken from turns, by its own rule. A failed read shows
+  // no run figures at all rather than short ones.
   const runsAvailable = !reads.runsFailed;
-  const runs = useMemo(() => {
-    if (reads.runsFailed || reads.runStats) return [];
-    return reads.runs && !reads.runs.unavailable ? reads.runs.rows : runsFromTurns(activities);
-  }, [reads.runsFailed, reads.runStats, reads.runs, activities]);
+  const demoFeed = useMemo(() => (isDemoMode ? demoRunFeedPage(NO_RUN_FILTERS, null, 10_000).runs.map(runRowFromFeed) : null), [isDemoMode]);
+  const runs = useMemo(() => analyticsRunRows({
+    runsFailed: reads.runsFailed,
+    serverSummed: !!reads.runStats,
+    feedRows: demoFeed ?? (reads.runs && !reads.runs.unavailable ? reads.runs.rows : null),
+    activities,
+  }), [reads.runsFailed, reads.runStats, reads.runs, demoFeed, activities]);
   const truncated = events.truncated || !!reads.runs?.truncated || !!reads.questions?.truncated;
 
   const billingModuleOn = isModuleEnabled(access, 'billing');
@@ -205,6 +204,34 @@ export function AgentAnalytics() {
     selectedProjectIds,
     selectedLabels,
   }), [range, timezone, now, agents, projects, runs, activities, reads.questions, reads.runStats, reads.questionStats, reads.providerPlans, tasks, isDemoMode, reopenQuery.rows, timeEntries, billingModuleOn, canReadRevenue, runsAvailable, selectedAgentIds, selectedProjectIds, selectedLabels]);
+  // The last period, for change: only what the server sums (or the demo's
+  // feed) measures as fully as this range; the event window does not reach back.
+  const lastRange = useMemo(() => previousRange(range), [range]);
+  const compare = preset !== 'all';
+  const lastReads = useAnalyticsReads(lastRange, { enabled: !isDemoMode && compare, timezone, projectIds: projectFilterIds });
+  const comparable = useMemo(() => (compare ? changeMetrics({
+    runStats: !!reads.runStats && !!lastReads.runStats,
+    spend: !!reads.runStats?.spend && !!lastReads.runStats?.spend,
+    questionStats: !!reads.questionStats && !!lastReads.questionStats,
+    feedRows: !!demoFeed,
+  }) : []), [compare, reads.runStats, lastReads.runStats, reads.questionStats, lastReads.questionStats, demoFeed]);
+  const lastModel = useMemo(() => (comparable.length === 0 ? null : buildAgentAnalytics({
+    range: lastRange, timezone, now, agents, projects,
+    runs: demoFeed ?? [],
+    activities: [],
+    questions: [],
+    runStats: lastReads.runStats,
+    questionStats: lastReads.questionStats,
+    tasks: [],
+    reopens: [],
+    timeEntries: [],
+    billingModuleOn,
+    canReadRevenue,
+    runsAvailable,
+    selectedAgentIds,
+    selectedProjectIds,
+    selectedLabels,
+  })), [comparable.length, lastRange, timezone, now, agents, projects, demoFeed, lastReads.runStats, lastReads.questionStats, billingModuleOn, canReadRevenue, runsAvailable, selectedAgentIds, selectedProjectIds, selectedLabels]);
   const caveat = profitCaveat(model.excludedNoProject, formatMoney);
   // Project rows exclude usage with no project too: under a filter it was
   // dropped; unfiltered it sits on the No project row.
@@ -215,7 +242,8 @@ export function AgentAnalytics() {
 
   const s = model.totals.sums;
   const arranged = arrangeTiles(model.tiles, { expanded });
-  const selected = resolveSelectedMetric(arranged.shown, picked);
+  const withData = model.tiles.filter((t) => t.hasData).map((t) => t.key);
+  const selected = resolveSelectedMetric(arranged.shown, picked, withData);
   const days = useMemo(() => rangeDays(range), [range]);
 
   // ── Tiles ─────────────────────────────────────────────────
@@ -223,11 +251,12 @@ export function AgentAnalytics() {
   const subscriptionLine = model.subscription
     ? `${SUBSCRIPTION_LABEL} ${formatMoney(model.subscription.monthlyUsd)}/month, about ${formatMoney(model.subscription.estimateUsd)} here (estimate)`
     : null;
-  const tileView = (key: MetricKey): { value: string | null; empty?: string; context?: string; tone: StatTone } => {
+  // Money and counts stay plain ink (Rule 16): color is only for change with a meaning.
+  const tileView = (key: MetricKey): { value: string | null; empty?: string; context?: string } => {
     const cost = costLabel(s);
     switch (key) {
       case 'revenue': return {
-        value: formatMoney(s.revenue), tone: 'success',
+        value: formatMoney(s.revenue),
         context: [
           `${formatNumber(s.billableHours, { maximumFractionDigits: 1 })} hrs approved`,
           s.pendingRevenue > 0.005 ? `${formatMoney(s.pendingRevenue)} pending` : null,
@@ -239,7 +268,7 @@ export function AgentAnalytics() {
         const margin = marginOf(s);
         const unpriced = cost.kind === 'partial' || cost.kind === 'unpriced';
         return {
-          value: formatMoney(profit), tone: profit < 0 ? 'danger' : 'success',
+          value: formatMoney(profit),
           context: [
             margin !== null ? `${fmtPct(margin)} margin` : 'Revenue minus model cost',
             caveat,
@@ -247,48 +276,48 @@ export function AgentAnalytics() {
           ].filter(Boolean).join(' · '),
         };
       }
-      case 'runs': return { value: formatNumber(s.run), tone: 'default', context: runOutcomeLine(s) };
-      case 'busy': return { value: s.busyMs > 0 ? fmtDuration(s.busyMs) : '0', tone: 'info', context: 'Time on runs, overlaps once' };
-      case 'tasks': return { value: formatNumber(s.taskDone), tone: 'default', context: scope.tasks ?? 'Completed by agents' };
+      case 'runs': return { value: formatNumber(s.run), context: runOutcomeLine(s) };
+      case 'busy': return { value: s.busyMs > 0 ? fmtDuration(s.busyMs) : '0', context: 'Time spent on runs, overlaps counted once' };
+      case 'tasks': return { value: formatNumber(s.taskDone), context: scope.tasks ?? 'Completed by agents' };
       case 'prs': return {
-        value: formatNumber(s.prMerged), tone: 'default',
+        value: formatNumber(s.prMerged),
         context: [`${formatNumber(s.prOpened)} opened`, `${formatNumber(s.review)} reviews`].join(' · '),
       };
       case 'tokens': return {
-        value: fmtCount(s.tokensIn + s.tokensOut), tone: 'default',
+        value: fmtCount(s.tokensIn + s.tokensOut),
         context: [
-          `${fmtCount(s.tokensIn)} in · ${fmtCount(s.tokensOut)} out${s.tokensCached > 0 ? ` · ${fmtCount(s.tokensCached)} cached` : ''}`,
+          `tokens: ${fmtCount(s.tokensIn)} sent, ${fmtCount(s.tokensOut)} back${s.tokensCached > 0 ? `, ${fmtCount(s.tokensCached)} cached` : ''}`,
           s.runsNoTokens > 0 ? `Runs that report no tokens: ${formatNumber(s.runsNoTokens)}` : null,
         ].filter(Boolean).join(' · '),
       };
       case 'cost': {
         const withPlan = (context: string) => [context, subscriptionLine].filter(Boolean).join(' · ');
-        if (cost.kind === 'unpriced') return { value: null, empty: 'Unpriced', tone: 'default', context: withPlan(UNPRICED_LABEL) };
-        if (cost.kind === 'none') return { value: null, empty: 'None', tone: 'default', context: withPlan('No usage in range') };
+        if (cost.kind === 'unpriced') return { value: null, empty: 'Unpriced', context: withPlan(UNPRICED_LABEL) };
+        if (cost.kind === 'none') return { value: null, empty: 'None', context: withPlan('No usage in range') };
         return {
-          value: formatMoney(cost.usd), tone: 'warning',
+          value: formatMoney(cost.usd),
           context: withPlan(cost.kind === 'partial' ? 'Plus unpriced usage' : cost.kind === 'mixed' ? `Hourly sums, ${MIXED_LABEL}` : 'Priced by the provider'),
         };
       }
       case 'questions': {
         const answer = median(model.totals.samples.answerMs);
         return {
-          value: formatNumber(s.question + s.approval), tone: 'default',
+          value: formatNumber(s.question + s.approval),
           context: [
-            s.approval > 0 ? `${formatNumber(s.approval)} approvals` : null,
+            s.approval > 0 ? `${formatNumber(s.approval)} ${s.approval === 1 ? 'approval' : 'approvals'}` : null,
             answer !== null ? `answered in ${fmtDuration(answer)}` : null,
             scope.questions,
           ].filter(Boolean).join(' · '),
         };
       }
-      case 'incidents': return { value: formatNumber(s.incident), tone: s.incident > 0 ? 'danger' : 'default', context: 'Repeats counted once' };
+      case 'incidents': return { value: formatNumber(s.incident), context: 'Repeats counted once' };
       case 'reopened': return {
-        value: formatNumber(s.reopen), tone: s.reopen > 0 ? 'warning' : 'default',
+        value: formatNumber(s.reopen),
         context: s.taskDone > 0 ? `${fmtPct(s.reopen / s.taskDone)} of tasks done` : 'Tasks moved out of done',
       };
       case 'blocked': {
         const resume = median(model.totals.samples.resumeMs);
-        return { value: formatNumber(s.blocked), tone: s.blocked > 0 ? 'warning' : 'default', context: resume !== null ? `resumed in ${fmtDuration(resume)}` : 'Repeats counted once' };
+        return { value: formatNumber(s.blocked), context: resume !== null ? `resumed in ${fmtDuration(resume)}` : 'Repeats counted once' };
       }
     }
   };
@@ -299,32 +328,31 @@ export function AgentAnalytics() {
     return out;
   }, [arranged.shown, model.facts, days]);
 
-  // ── Chart ─────────────────────────────────────────────────
-  const chart = useMemo(() => {
-    if (!selected) return null;
-    const gran: Granularity = days.length <= 90 ? 'day' : days.length <= 365 ? 'week' : 'month';
-    const top = topAgents(model.facts, selected, SERIES.length);
-    const ids = new Set(top.ids);
-    const nameOf = (id: string) => roster.find((m) => m.id === id)?.name ?? 'Unknown agent';
-    const series: ChartSeries[] = top.ids.map((id, i) => ({ id, name: nameOf(id), ...SERIES[i] }));
-    if (top.others) series.push(OTHERS);
+  // ── Chart: the picked stat as one brand line, per day, week or month ──
+  const gran: Granularity = days.length <= 90 ? 'day' : days.length <= 365 ? 'week' : 'month';
+  const points = useMemo<ChartPoint[]>(() => {
+    if (!selected) return [];
     const order: string[] = [];
-    const buckets = new Map<string, ChartBar>();
+    const buckets = new Map<string, ChartPoint>();
     for (const point of dailyByAgent(model.facts, selected, days)) {
       const key = bucketOf(point.dateKey, gran);
-      let bar = buckets.get(key);
-      if (!bar) {
-        bar = { startKey: key, label: dayLabel(key, gran, todayKey), title: dayLabel(key, gran, todayKey, true), values: new Map() };
-        buckets.set(key, bar);
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = { label: dayLabel(key, gran, todayKey), title: dayLabel(key, gran, todayKey, true), value: 0 };
+        buckets.set(key, bucket);
         order.push(key);
       }
-      for (const [agentId, value] of point.perAgent) {
-        const id = ids.has(agentId) ? agentId : OTHERS.id;
-        bar.values.set(id, (bar.values.get(id) ?? 0) + value);
-      }
+      bucket.value += point.total;
     }
-    return { gran, series, bars: order.map((k) => buckets.get(k)!) };
-  }, [selected, days, model.facts, roster, todayKey]);
+    return order.map((k) => buckets.get(k)!);
+  }, [selected, days, gran, model.facts, todayKey]);
+  const rangeWords = preset === 'custom' || preset === 'all'
+    ? `${dayLabel(range.startKey, 'day', '', true)} to ${dayLabel(range.endKey, 'day', '', true)}`
+    : (PRESET_OPTIONS.find((o) => o.value === preset)?.label ?? '').toLowerCase();
+  const chartTitle = selected ? `${TILE_META[selected].label} per ${gran}, ${rangeWords}` : '';
+  const chartEmpty = selected === 'cost' && costLabel(s).kind === 'unpriced'
+    ? 'The provider sent no price for this usage (often a subscription). Pick AI usage to see it.'
+    : `${selected ? TILE_META[selected].label : 'Figures'} for each ${gran} show here once your agents have some in this range`;
 
   // ── Breakdown ─────────────────────────────────────────────
   const labels = useMemo<BreakdownLabels>(() => ({
@@ -360,116 +388,115 @@ export function AgentAnalytics() {
     .map((p) => ({ id: p.id, name: p.name, color: p.color })), [projects]);
   const filterAgents = useMemo(() => roster.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null })), [roster]);
   const filtered = selectedAgentIds.size > 0 || selectedProjectIds.size > 0 || selectedLabels.size > 0;
-  const runsHref = useMemo(() => {
-    const params = new URLSearchParams({ tab: 'company', view: 'runs', from: range.startKey, to: range.endKey });
-    if (selectedAgentIds.size === 1) params.set('agent', [...selectedAgentIds][0]);
-    if (selectedProjectIds.size === 1) params.set('project', [...selectedProjectIds][0]);
-    return `/ai?${params.toString()}`;
-  }, [range.startKey, range.endKey, selectedAgentIds, selectedProjectIds]);
+  // The same runs in Agents > Runs, when it can list exactly this selection.
+  const runsHref = useMemo(() => runsListHref(range, { agentIds: selectedAgentIds, projectIds: selectedProjectIds, labels: selectedLabels }),
+    [range, selectedAgentIds, selectedProjectIds, selectedLabels]);
+  const clearFilters = () => { setSelectedAgentIds(new Set()); setSelectedProjectIds(new Set()); setSelectedLabels(new Set()); };
+  const changeOf = (key: MetricKey) => {
+    if (!lastModel || !comparable.includes(key)) return undefined;
+    const change = periodChange(key, metricValue(key, s), metricValue(key, lastModel.totals.sums));
+    return change ? { ...change, against: undefined } : undefined;
+  };
+  const noData = !measuring && arranged.shown.length === 0;
+  const notes = [
+    focusedLabel && (
+      <div key="label" role="status" className="flex flex-wrap items-center justify-between gap-3 text-xs text-zinc-400">
+        <p>Only what came from events labelled <span className="font-mono text-zinc-200">{focusedLabel}</span>. Runs, tasks, questions and time carry no labels, so they leave while a label is picked.</p>
+        <Button variant="ghost" size="sm" onClick={() => setSelectedLabels(new Set())}>Show everything</Button>
+      </div>
+    ),
+    !measuring && truncated && (
+      <p key="cut" role="status" className="text-xs text-amber-300">
+        This range holds more agent records than one read can take, so figures under-report. Narrow the date range for complete numbers.
+      </p>
+    ),
+    !measuring && (events.failed || reads.runsFailed || reads.questionsFailed) && (
+      <div key="failed" role="status" className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-red-300">
+          {reads.runsFailed
+            ? 'Runs could not be read, so runs, time working, AI usage, cost and incidents are left out.'
+            : 'Part of this report could not be read, so some figures are missing.'}
+        </p>
+        <Button variant="secondary" size="sm" onClick={reads.reload}>Try again</Button>
+      </div>
+    ),
+  ].filter(Boolean);
 
   return (
-    <div className="space-y-4 lg:space-y-6">
-      <AnalyticsFilters
-        range={range} preset={preset} onPreset={setPreset}
-        customStart={customStart} customEnd={customEnd} onCustomStart={setCustomStart} onCustomEnd={setCustomEnd}
-        earliestDateKey={earliestDateKey} todayKey={todayKey}
-        projects={filterProjects} selectedProjectIds={selectedProjectIds} onProjects={setSelectedProjectIds}
-        agents={filterAgents} selectedAgentIds={selectedAgentIds} onAgents={setSelectedAgentIds}
-        actions={!measuring && arranged.shown.length > 0 ? (
-          <>
-            {/* The same runs in the Runs list: this range, and the one agent or project picked. */}
-            {runsAvailable && s.run > 0 && (
-              <Link href={runsHref} className="rounded px-2 py-1 text-xs font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-                See these runs
-              </Link>
-            )}
-            {(arranged.more > 0 || expanded) && (
-              <Button variant="ghost" size="sm" icon={<SlidersHorizontal size={14} aria-hidden="true" />} aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
-                {expanded ? 'Fewer stats' : `More stats (${arranged.more})`}
-              </Button>
-            )}
-          </>
-        ) : undefined}
-      />
-
-      {focusedLabel && (
-        <div role="status" className="glass-card rounded-xl px-5 py-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-zinc-300">
-            Only what came from events labelled <span className="font-mono text-white">{focusedLabel}</span>. Runs, tasks, questions and time carry no labels, so they leave while a label is picked.
-          </p>
-          <Button variant="secondary" size="sm" onClick={() => setSelectedLabels(new Set())}>Show everything</Button>
-        </div>
-      )}
-
-      {!measuring && truncated && (
-        <p role="status" className="glass-card rounded-xl px-5 py-3 text-xs text-amber-300">
-          This range holds more agent records than one read can take, so figures under-report. Narrow the date range for complete numbers.
-        </p>
-      )}
-      {!measuring && (events.failed || reads.runsFailed || reads.questionsFailed) && (
-        <div role="status" className="glass-card rounded-xl px-5 py-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-red-300">
-            {reads.runsFailed
-              ? 'Runs could not be read, so runs, busy time, tokens, cost and incidents are left out.'
-              : 'Part of this report could not be read, so some figures are missing.'}
-          </p>
-          <Button variant="secondary" size="sm" onClick={reads.reload}>Try again</Button>
-        </div>
-      )}
-
-      {/* ── Headline tiles: the ones with data; the picked one drives the chart ── */}
-      {measuring || arranged.shown.length > 0 ? (
-        <div>
-          <StatStrip
-            label="Headline numbers. Pick one to chart it."
-            loading={measuring}
-            stats={(measuring ? model.tiles.slice(0, 6).map((t) => t.key) : arranged.shown).map((key) => {
-              const view = tileView(key);
-              const spark = sparks.get(key);
-              return {
-                id: key,
-                label: TILE_META[key].label,
-                icon: TILE_META[key].icon,
-                value: view.value,
-                empty: view.empty,
-                context: view.context,
-                tone: view.tone,
-                spark: view.value !== null && spark?.some((v) => v !== 0) ? spark : undefined,
-                selected: selected === key,
-                onSelect: () => setPicked(key),
-              };
-            })}
-          />
-        </div>
-      ) : (
-        <div className="glass-card rounded-xl px-6 py-10 text-center">
-          <p className="text-sm font-medium text-zinc-300">No agent activity in this range</p>
-          <p className="text-xs text-zinc-500 mt-1">
-            {filtered ? 'Try a wider date range, or clear the project and agent filters.' : 'Figures show here once your agents run, finish tasks or report usage.'}
-          </p>
-          {arranged.more > 0 && (
-            <Button variant="ghost" size="sm" className="mt-3" onClick={() => setExpanded(true)}>Show every stat</Button>
+    <div className="flex flex-col gap-6">
+      <section className="glass-card rounded-xl" aria-labelledby="analytics-overview">
+        <CardHeader
+          id="analytics-overview"
+          icon={<BarChart3 />}
+          title="Overview"
+          action={(
+            <>
+              {runsAvailable && runsHref && s.run > 0 && !measuring && (
+                <Button variant="ghost" size="sm" href={runsHref}>See these runs</Button>
+              )}
+              {!measuring && (arranged.more > 0 || expanded) && (
+                <Button variant="ghost" size="sm" icon={<SlidersHorizontal size={14} aria-hidden="true" />} aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
+                  {expanded ? 'Fewer stats' : `More stats (${arranged.more})`}
+                </Button>
+              )}
+              <AnalyticsFilters
+                preset={preset} onPreset={setPreset}
+                customStart={customStart} customEnd={customEnd} onCustomStart={setCustomStart} onCustomEnd={setCustomEnd}
+                earliestDateKey={earliestDateKey} todayKey={todayKey}
+                projects={filterProjects} selectedProjectIds={selectedProjectIds} onProjects={setSelectedProjectIds}
+                agents={filterAgents} selectedAgentIds={selectedAgentIds} onAgents={setSelectedAgentIds}
+              />
+            </>
+          )}
+        />
+        <div className="flex min-w-0 flex-col gap-4 px-4 pb-4 lg:px-5 lg:pb-5">
+          {notes}
+          {noData ? (
+            filtered ? (
+              <EmptyState variant="filtered" title="No agent work for these filters"
+                description="Try a wider date range, or clear the agent and project filters." onClearFilters={clearFilters} />
+            ) : (
+              <EmptyState title="No agent work in this range"
+                description="Runs, tasks done and AI usage show here once your agents work. Try a wider date range." />
+            )
+          ) : (
+            <>
+              <StatStrip
+                bare
+                label="Headline numbers. Pick one to chart it."
+                loading={measuring}
+                stats={(measuring ? model.tiles.slice(0, 6).map((t) => t.key) : arranged.shown).map((key) => {
+                  const view = tileView(key);
+                  const spark = sparks.get(key);
+                  return {
+                    id: key,
+                    label: TILE_META[key].label,
+                    icon: TILE_META[key].icon,
+                    value: view.value,
+                    empty: view.empty,
+                    context: view.context,
+                    change: changeOf(key),
+                    spark: view.value !== null && spark?.some((v) => v !== 0) ? spark : undefined,
+                    selected: selected === key,
+                    onSelect: () => setPicked(key),
+                  };
+                })}
+              />
+              {(measuring || selected) && (
+                <AnalyticsChart
+                  title={measuring ? 'Loading' : chartTitle}
+                  note={selected === 'profit' ? caveat : null}
+                  points={points}
+                  format={selected ? METRIC_FORMAT[selected] : 'count'}
+                  unit={selected ? TILE_META[selected].unit : ''}
+                  loading={measuring}
+                  empty={chartEmpty}
+                />
+              )}
+            </>
           )}
         </div>
-      )}
-
-      {(measuring || (selected && chart)) && (
-        <AnalyticsChart
-          title={selected ? `${chart?.gran === 'month' ? 'Monthly' : chart?.gran === 'week' ? 'Weekly' : 'Daily'} ${TILE_META[selected].label.toLowerCase()}` : 'Daily runs'}
-          aside="Stacked by agent"
-          note={selected === 'profit' ? caveat : null}
-          bars={chart?.bars ?? []}
-          series={chart?.series ?? []}
-          format={selected ? METRIC_FORMAT[selected] : 'count'}
-          loading={measuring}
-          empty={{
-            title: selected === 'cost' && costLabel(s).kind === 'unpriced' ? 'All usage is unpriced' : `No ${selected ? TILE_META[selected].label.toLowerCase() : 'activity'} in this range`,
-            detail: selected === 'cost' && costLabel(s).kind === 'unpriced'
-              ? 'The provider sent no price for this usage (often a subscription). Pick Tokens to chart it.'
-              : 'Try a wider date range, or clear the project and agent filters.',
-          }}
-        />
-      )}
+      </section>
 
       <AnalyticsBreakdown
         facts={model.facts}
@@ -489,7 +516,7 @@ export function AgentAnalytics() {
       />
 
       {customCards.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {customCards.map(({ key, title, size, component: Body }) => (
             <div key={key} aria-label={title} role="region" className={`${size === 'half' ? '' : 'lg:col-span-2'} min-w-0`}>
               <Body
@@ -510,15 +537,13 @@ export function AgentAnalytics() {
       )}
 
       {!measuring && hasDelivery && quality && (
-        <section className="pt-2">
-          <SectionHeader label="Delivery quality" />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" role="region" aria-label="Delivery quality">
             <QualityCard quality={quality} measuring={reopenQuery.loading} />
             <Card icon={Clock} title="Where work waits">
               {latency.length === 0 ? <CardSkeleton rows={3} /> : (
                 <div className="divide-y divide-white/[0.06]">
                   {latency.map((stage) => (
-                    <div key={stage.key} className="px-5 py-3 flex items-center justify-between gap-3">
+                    <div key={stage.key} className="px-4 lg:px-5 py-3 flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-sm text-zinc-300 truncate">{stage.label}</p>
                         <p className="text-[11px] text-zinc-500">
@@ -542,8 +567,7 @@ export function AgentAnalytics() {
                 </div>
               )}
             </Card>
-          </div>
-        </section>
+        </div>
       )}
     </div>
   );

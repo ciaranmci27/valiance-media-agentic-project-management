@@ -24,6 +24,7 @@ export function SaveBar({
   message = 'Unsaved changes',
   disabled = false,
   placement = 'screen',
+  className = '',
 }: {
   dirty: boolean;
   saving?: boolean;
@@ -39,6 +40,8 @@ export function SaveBar({
   /** Save stays off while the form has errors. */
   disabled?: boolean;
   placement?: 'panel' | 'screen';
+  /** Placement tweaks only: a Settings card pulls the bar out to its own edges (`SettingsSaveBar`). */
+  className?: string;
 }) {
   // Kept mounted while saving, so the bar does not vanish under the busy Save.
   if (!dirty && !saving) return null;
@@ -48,7 +51,7 @@ export function SaveBar({
       aria-label="Unsaved changes"
       className={`flex flex-shrink-0 items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3 animate-slideInUp ${
         placement === 'screen' ? 'sticky bottom-0 z-20 bg-surface-raised/95 shadow-overlay rounded-b-xl' : ''
-      }`}
+      } ${className}`}
     >
       <p className="min-w-0 truncate text-xs text-zinc-400" aria-live="polite">{message}</p>
       <div className="flex flex-shrink-0 items-center gap-2">

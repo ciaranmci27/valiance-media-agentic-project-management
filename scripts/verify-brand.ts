@@ -20,13 +20,18 @@ import {
   BRAND_SHADES,
   DEFAULT_BRAND,
   EMPTY_BRAND_SETTINGS,
+  LOGO_KINDS,
   cleanShades,
   generateShades,
+  logoKindFor,
+  logoKindShape,
+  logoKindTheme,
   resolveBrand,
   type BrandSettings,
 } from '../src/lib/brand';
 import { rowToSettings, type WorkspaceBrandRow } from '../src/lib/brand/resolve';
-import { BRAND_LIMITS, parseBrandInput, sniffImage } from '../src/lib/brand/validate';
+import { BRAND_LIMITS, imageSize, parseBrandInput, sniffImage, squareCrop } from '../src/lib/brand/validate';
+import { logoLuminance, logoShapeProblem, logoToneHint } from '../src/components/settings/workspace/logo-checks';
 
 const MIGRATION_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', '20261121001500_workspace_brand.sql'), 'utf8');
 const SIDEBAR_SQL = readFileSync(join(__dirname, '..', 'supabase', 'migrations', '20261121063000_sidebar_projects_style.sql'), 'utf8');
@@ -228,15 +233,80 @@ async function activeProjectsMigration() {
   }
 }
 
+/** Settings cleanup (SE1): four logo slots on the old three columns plus one, their fallbacks and guards. */
+function logoSlots() {
+  const base = { ...EMPTY_BRAND_SETTINGS, logoLightUrl: 'https://cdn.example/brand/light-1.png', faviconUrl: 'https://cdn.example/brand/favicon-1.png' };
+  check('slots: four kinds, the old three kept by name', JSON.stringify(LOGO_KINDS) === JSON.stringify(['light', 'dark', 'favicon', 'square_dark']), LOGO_KINDS);
+  check('slots: light and dark are horizontal, favicon and square_dark square', logoKindShape('light') === 'horizontal' && logoKindShape('dark') === 'horizontal'
+    && logoKindShape('favicon') === 'square' && logoKindShape('square_dark') === 'square');
+  check('slots: shape and theme name the slot back', LOGO_KINDS.every((kind) => logoKindFor(logoKindShape(kind), logoKindTheme(kind)) === kind));
+  check('resolve: no square dark logo falls back to the square light one', resolveBrand(base).logos.squareDark === base.faviconUrl, resolveBrand(base).logos);
+  const both = resolveBrand({ ...base, squareDarkUrl: 'https://cdn.example/brand/square_dark-1.png' });
+  check('resolve: an uploaded square dark logo is used for dark', both.logos.squareDark === 'https://cdn.example/brand/square_dark-1.png' && both.logos.favicon === base.faviconUrl, both.logos);
+  check('resolve: nothing uploaded leaves every slot empty', JSON.stringify(resolveBrand(EMPTY_BRAND_SETTINGS).logos) === JSON.stringify({ light: null, dark: null, favicon: null, squareDark: null }));
+  const oldRow = { name: null, tagline: null, description: null, brand_color: null, brand_shades: null, accent_color: null, logo_light_path: 'light-1.png', logo_dark_path: null, favicon_path: 'favicon-1.png', invert_logo_in_sidebar: false, show_name_under_logo: false } as WorkspaceBrandRow;
+  const oldSettings = rowToSettings(oldRow, 'https://db.example');
+  check('row: a database before the migration reads no square dark logo, the others as before', oldSettings.squareDarkUrl === null
+    && oldSettings.faviconUrl === 'https://db.example/storage/v1/object/public/pm-brand/favicon-1.png'
+    && oldSettings.logoLightUrl === 'https://db.example/storage/v1/object/public/pm-brand/light-1.png', oldSettings);
+  check('row: a stored square dark logo reads back', rowToSettings({ ...oldRow, logo_square_dark_path: 'square_dark-2.png' }, 'https://db.example').squareDarkUrl === 'https://db.example/storage/v1/object/public/pm-brand/square_dark-2.png');
+
+  const ico = new Uint8Array([0, 0, 1, 0, 1, 0]);
+  check('sniff: ICO is accepted for the dark square logo too', sniffImage(ico, 'square_dark')?.ext === 'ico');
+
+  // A 400 by 100 PNG header, and a JPEG whose frame header says 120 wide, 80 tall after an APP0 segment.
+  const png = new Uint8Array(24);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 1, 0x90, 0, 0, 0, 100]);
+  check('size: a PNG header gives width and height', JSON.stringify(imageSize(png)) === JSON.stringify({ width: 400, height: 100 }), imageSize(png));
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0, 0xff, 0xc0, 0, 17, 8, 0, 80, 0, 120, 3, 0, 0, 0, 0]);
+  check('size: a JPEG frame header gives width and height', JSON.stringify(imageSize(jpeg)) === JSON.stringify({ width: 120, height: 80 }), imageSize(jpeg));
+  check('size: anything else has none', imageSize(new TextEncoder().encode('<svg></svg>')) === null && imageSize(new Uint8Array([0xff, 0xd8])) === null);
+  check('crop: a wide logo fills the square\'s height from its left edge', JSON.stringify(squareCrop({ width: 400, height: 100 }, 64)) === JSON.stringify({ width: 256, height: 64, left: 0 }));
+  check('crop: a narrow logo is fitted and centered', JSON.stringify(squareCrop({ width: 50, height: 100 }, 64)) === JSON.stringify({ width: 32, height: 64, left: 16 }));
+
+  check('guard: a square image on a horizontal slot belongs in Square', logoShapeProblem('horizontal', { width: 512, height: 512 })?.belongs === 'square');
+  check('guard: a wide image on a square slot belongs in Horizontal', logoShapeProblem('square', { width: 800, height: 200 })?.belongs === 'horizontal');
+  check('guard: a wide image fits a horizontal slot, a square one a square slot', logoShapeProblem('horizontal', { width: 800, height: 200 }) === null && logoShapeProblem('square', { width: 500, height: 480 }) === null);
+  check('guard: a size it cannot read is let through', logoShapeProblem('square', null) === null && logoShapeProblem('horizontal', { width: 0, height: 0 }) === null);
+
+  const pixels = (rgba: number[], count: number) => Array.from({ length: count }, () => rgba).flat();
+  const whiteOnClear = logoLuminance([...pixels([255, 255, 255, 255], 10), ...pixels([0, 0, 0, 0], 10)]);
+  const blackOnClear = logoLuminance([...pixels([0, 0, 0, 255], 10), ...pixels([0, 0, 0, 0], 10)]);
+  const whiteBox = logoLuminance(pixels([255, 255, 255, 255], 20));
+  check('tone: a white mark on a clear background reads light and see-through', whiteOnClear?.luminance === 1 && whiteOnClear.transparent, whiteOnClear);
+  check('tone: a fully clear image has no tone', logoLuminance(pixels([255, 255, 255, 0], 4)) === null);
+  check('hint: a light see-through logo warns on the light theme only', !!logoToneHint('light', whiteOnClear) && logoToneHint('dark', whiteOnClear) === null);
+  check('hint: a dark see-through logo warns on the dark theme only', !!logoToneHint('dark', blackOnClear) && logoToneHint('light', blackOnClear) === null);
+  check('hint: a logo with its own background never warns', logoToneHint('light', whiteBox) === null);
+}
+
+async function squareDarkMigration() {
+  const migration = readFileSync(join(__dirname, '..', 'supabase', 'migrations', '20261127003100_settings_cleanup.sql'), 'utf8');
+  const db = await createFullSchemaDatabase();
+  await db.exec('ALTER TABLE pm.workspace_brand DROP COLUMN logo_square_dark_path');
+  await db.exec("UPDATE pm.workspace_brand SET favicon_path = 'favicon-1.png'");
+  await db.exec(migration);
+  await db.exec(migration);
+  const row = (await db.query<{ favicon_path: string | null; logo_square_dark_path: string | null }>('SELECT favicon_path, logo_square_dark_path FROM pm.workspace_brand')).rows[0];
+  check('migration: the square dark column is added empty, twice over, and the square logo stays', row?.favicon_path === 'favicon-1.png' && row.logo_square_dark_path === null, row);
+  const fresh = await createFullSchemaDatabase();
+  const column = await fresh.query("SELECT 1 FROM information_schema.columns WHERE table_schema = 'pm' AND table_name = 'workspace_brand' AND column_name = 'logo_square_dark_path'");
+  check('schema: a fresh install has the square dark column', column.rows.length === 1);
+  await fresh.close();
+  await db.close();
+}
+
 async function main() {
   shades();
   resolving();
   parsing();
   cleaning();
   sniffing();
+  logoSlots();
   await upgrade();
   await database();
   await activeProjectsMigration();
+  await squareDarkMigration();
 
   console.log(`${passed} checks passed`);
   if (failures.length) {

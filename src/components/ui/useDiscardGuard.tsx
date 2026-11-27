@@ -33,7 +33,6 @@ export function useDiscardGuard(dirty: boolean, onClose: () => void, message = '
       title="Discard changes?"
       message={message}
       confirmLabel="Discard"
-      doubleConfirm={false}
     />
   );
 

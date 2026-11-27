@@ -181,6 +181,8 @@ export const AI_SECTION_HREFS: Readonly<Record<string, string>> = {
   'connect-ai': aiHomeHref('assistant', {}, 'connect-ai'),
   'chat-accounts': aiHomeHref('assistant', {}, 'chat-accounts'),
   'linked-accounts': aiHomeHref('assistant', {}, 'chat-accounts'),
+  // Your own API keys (they used to be under Settings > Developers).
+  'my-keys': aiHomeHref('assistant', {}, 'my-keys'),
 };
 
 // ── Needs you: what agents are waiting on a person for ──────────────────

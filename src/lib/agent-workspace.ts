@@ -106,6 +106,8 @@ export interface AgentDetail {
   limits?: AgentLimits | null;
   usage?: AgentUsage | null;
   health: unknown;
+  /** Its workers when it runs several on one key: live ones, and how many work now. */
+  live_instances?: { count: number; working: number } | null;
   current_run: AgentRunSummary | null;
   projects: ProjectAgentAssignment[];
   /** Every assignment the viewer reaches; projects holds the first 100. */

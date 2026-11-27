@@ -146,7 +146,7 @@ export const INBOX_TOOLS: PmTool[] = [
   routeTool({
     name: 'request_reply_draft',
     lead: 'Ask the agent to draft a reply to a conversation.',
-    detail: `Against its newest email, with instructions on what to say (optional). One request waits per conversation: asking again while one waits answers that one. 409 when the inbox has no agent or its assistant has Draft replies off. You copy the draft into your own mail: nothing is sent. ${PERSON_ONLY}`,
+    detail: `Against its newest email, with instructions on what to say (optional). One request waits per conversation: asking again while one waits answers that one. On a personal inbox with no agent of its own, your assistant writes it. 409 when nobody can (no agent or assistant, or Sort my inbox off), or the writer has Draft replies off. You copy the draft into your own mail: nothing is sent. ${PERSON_ONLY}`,
     input: z.object({ thread_id: threadId, instructions: z.string().trim().max(2000).optional(), idempotency_key: idempotencyKeyInput }).strict(),
     permission: 'inbound_email.triage',
     peopleOnly: true,

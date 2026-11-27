@@ -222,7 +222,6 @@ export function PersonalInboxesSection() {
         message={`Mail forwarded from ${offTarget?.address ?? 'it'} is dropped while it is off, not queued. Mail already in it stays. It can be turned back on any time.`}
         confirmLabel="Turn off"
         variant="danger"
-        doubleConfirm={false}
       />
     </section>
   );

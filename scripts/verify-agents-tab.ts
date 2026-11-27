@@ -6,10 +6,11 @@
  *
  *   npm run -s test:agents-tab
  */
+import { demoRunFeedPage } from '@/lib/demo-agents-home';
 import { computeNeedsYou } from '@/lib/autonomy';
 import {
   agentBacklog, agentPausedNow, agentRulesInWords, agentsTabFrom, backlogLine, buildAgentNeedsYou, canSeeRunTrace, currentRunByAgent, needsForAgent,
-  formatRunDuration, runDurationMs, runFeedQuery, runPill, runTokens, toRunSummary, NO_RUN_FILTERS, RUN_STATUS_LABELS, RUNS_PAGE_SIZE,
+  formatRunDuration, runDurationMs, runFeedQuery, runCursorFilter, runCursorOf, mergeRunPages, runPill, runTokens, toRunSummary, NO_RUN_FILTERS, RUN_STATUS_LABELS, RUNS_PAGE_SIZE,
 } from '@/lib/agents-tab';
 import { INFO_ANSWER_MARKER, pendingSuggestionsInReach, suggestionsInReach } from '@/lib/suggestion-reach';
 import { AGENT_RUN_STALE_AFTER_SECONDS, RUN_FILTER_STATUSES, runDisplayStatus, type AgentRunSummary } from '@/lib/agent-runs';
@@ -236,26 +237,46 @@ check('an unknown tab opens Needs you', agentsTabFrom('reports') === 'needs-you'
 
 // ── Run feed query ────────────────────────────────────────────────────
 {
-  const all = runFeedQuery(NO_RUN_FILTERS, 0);
-  check('no filters: no equalities, the first page', all.eq.length === 0 && all.from === 0 && all.to === RUNS_PAGE_SIZE - 1, all);
-  const filtered = runFeedQuery({ agentId: BUILDER, status: 'failed', projectId: PROJECT_ID }, 2);
+  const all = runFeedQuery(NO_RUN_FILTERS, null);
+  check('no filters: no equalities, the first page from the top', all.eq.length === 0 && all.after === null && all.limit === RUNS_PAGE_SIZE, all);
+  const CURSOR = { at: '2026-11-20T10:00:00.123456+00:00', id: 'a1b2c3d4-0000-4000-8000-000000000001' };
+  const filtered = runFeedQuery({ agentId: BUILDER, status: 'failed', projectId: PROJECT_ID }, CURSOR);
   check('filters become equalities on the view; status matches display_status (what the pill shows)',
     JSON.stringify(filtered.eq) === JSON.stringify([['agent_id', BUILDER], ['display_status', 'failed'], ['project_id', PROJECT_ID]]), filtered.eq);
   check('status filter: a turn outcome (blocked, no work) can be filtered on; other cannot',
-    runFeedQuery({ ...NO_RUN_FILTERS, status: 'blocked' }, 0).eq[0]?.[1] === 'blocked' && runFeedQuery({ ...NO_RUN_FILTERS, status: 'no_work' }, 0).eq[0]?.[1] === 'no_work'
-    && runFeedQuery({ ...NO_RUN_FILTERS, status: 'other' }, 0).eq.length === 0);
-  const ranged = runFeedQuery({ ...NO_RUN_FILTERS, from: '2026-11-01', to: '2026-11-26' }, 0);
-  check('date range: from and to become local-midnight bounds, the end day included',
-    ranged.started.gte === new Date(2026, 10, 1).toISOString() && ranged.started.lt === new Date(2026, 10, 27).toISOString() && ranged.key !== all.key, ranged.started);
-  check('date range: a bad day is dropped', Object.keys(runFeedQuery({ ...NO_RUN_FILTERS, from: '2026-13-45', to: 'soon' }, 0).started).length === 0);
-  check('page 3 reads rows 50 to 74', filtered.from === 2 * RUNS_PAGE_SIZE && filtered.to === 3 * RUNS_PAGE_SIZE - 1, filtered);
+    runFeedQuery({ ...NO_RUN_FILTERS, status: 'blocked' }, null).eq[0]?.[1] === 'blocked' && runFeedQuery({ ...NO_RUN_FILTERS, status: 'no_work' }, null).eq[0]?.[1] === 'no_work'
+    && runFeedQuery({ ...NO_RUN_FILTERS, status: 'other' }, null).eq.length === 0);
+  const ranged = runFeedQuery({ ...NO_RUN_FILTERS, from: '2026-11-01', to: '2026-11-26' }, null, RUNS_PAGE_SIZE, 'Pacific/Honolulu');
+  check('date range: from and to become midnight in the profile zone, the end day included',
+    ranged.started.gte === '2026-11-01T10:00:00.000Z' && ranged.started.lt === '2026-11-27T10:00:00.000Z' && ranged.key !== all.key, ranged.started);
+  check('date range: another zone is another cache key',
+    ranged.key !== runFeedQuery({ ...NO_RUN_FILTERS, from: '2026-11-01', to: '2026-11-26' }, null, RUNS_PAGE_SIZE, 'Europe/London').key);
+  check('date range: a bad day is dropped', Object.keys(runFeedQuery({ ...NO_RUN_FILTERS, from: '2026-13-45', to: 'soon' }, null).started).length === 0);
+  check('a later page starts after the last row shown (keyset)', filtered.after?.at === CURSOR.at && filtered.after?.id === CURSOR.id, filtered.after);
+  check('the cursor filter takes older rows, and the same time with a lower id',
+    runCursorFilter(CURSOR) === `sort_at.lt."${CURSOR.at}",and(sort_at.eq."${CURSOR.at}",id.lt."${CURSOR.id}")`, runCursorFilter(CURSOR));
+  check('a cursor that could break the filter is dropped, never sent',
+    runCursorOf({ at: '2026-11-20T10:00:00Z),id.gt.(x', id: 'x' }) === null && runCursorOf({ at: CURSOR.at, id: 'a,b' }) === null && runCursorOf(CURSOR) === CURSOR);
   check('each filter set and page has its own cache key', new Set([
-    all.key, filtered.key, runFeedQuery({ ...NO_RUN_FILTERS, agentId: BUILDER }, 0).key, runFeedQuery(NO_RUN_FILTERS, 1).key,
+    all.key, filtered.key, runFeedQuery({ ...NO_RUN_FILTERS, agentId: BUILDER }, null).key, runFeedQuery(NO_RUN_FILTERS, CURSOR).key,
   ]).size === 4);
-  check('the same filters share one key', runFeedQuery({ agentId: BUILDER, status: null, projectId: null }, 0).key === runFeedQuery({ ...NO_RUN_FILTERS, agentId: BUILDER }, 0).key);
-  const bad = runFeedQuery({ agentId: "x' or 1=1", status: 'exploded' as never, projectId: 'not-a-uuid' }, -4);
-  check('a bad id, status or page is dropped, never sent', bad.eq.length === 0 && bad.from === 0, bad);
-  check('a smaller page size (the roster) changes the range and key', runFeedQuery(NO_RUN_FILTERS, 0, 8).to === 7 && runFeedQuery(NO_RUN_FILTERS, 0, 8).key !== all.key);
+  check('the same filters share one key', runFeedQuery({ agentId: BUILDER, status: null, projectId: null }, null).key === runFeedQuery({ ...NO_RUN_FILTERS, agentId: BUILDER }, null).key);
+  const bad = runFeedQuery({ agentId: "x' or 1=1", status: 'exploded' as never, projectId: 'not-a-uuid' }, { at: 'soon', id: '1' });
+  check('a bad id, status or cursor is dropped, never sent', bad.eq.length === 0 && bad.after === null, bad);
+  check('a smaller page size (the roster) changes the limit and key', runFeedQuery(NO_RUN_FILTERS, null, 8).limit === 8 && runFeedQuery(NO_RUN_FILTERS, null, 8).key !== all.key);
+
+  // Show more over keyset pages (the demo feed): every run once, newest first, the total from the first page.
+  {
+    const first = demoRunFeedPage(NO_RUN_FILTERS, null, 4);
+    const pages = [first];
+    while (pages[pages.length - 1].next && pages.length < 20) pages.push(demoRunFeedPage(NO_RUN_FILTERS, pages[pages.length - 1].next, 4));
+    const shown = pages.reduce<AgentRunSummary[]>((rows, page) => mergeRunPages(rows, page.runs), []);
+    const everything = demoRunFeedPage(NO_RUN_FILTERS, null, 1000).runs;
+    check('Show more reaches every run once, in order', shown.length === everything.length && shown.every((run, i) => run.id === everything[i].id), shown.map((r) => r.id));
+    check('the total comes from the first page; later pages say none', first.total === everything.length && pages.slice(1).every((page) => page.total === null));
+    check('the last page says there is no more', pages[pages.length - 1].next === null && pages.length === Math.ceil(everything.length / 4), pages.length);
+    check('a run that moved into the first page shows once', mergeRunPages(everything.slice(0, 2), everything.slice(1, 3)).length === 3);
+  }
 
   // The display status: one value for the filter and the pill.
   const turn = (outcome: string | null) => ({ source: 'turn' as const, status: 'succeeded' as const, outcome });

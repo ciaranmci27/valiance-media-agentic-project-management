@@ -22,7 +22,7 @@ export const DEFAULT_BRAND: Brand = {
     },
     accent: '#3A5959',
   },
-  logos: { light: null, dark: null, favicon: null },
+  logos: { light: null, dark: null, favicon: null, squareDark: null },
   invertLogoInSidebar: false,
   showNameUnderLogo: false,
   sidebarProjects: 'list',

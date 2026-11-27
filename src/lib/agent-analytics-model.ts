@@ -5,7 +5,7 @@ import { normalizePullRequestUrl } from '@/lib/agent-analytics';
 import { dateKeyOf, sweep } from '@/lib/agent-telemetry-analytics';
 import { isOpenEventType, isTelemetryEvent } from '@/lib/agent-events';
 import { runDurationMs, runPill } from '@/lib/agents-tab';
-import type { AgentRunStatus } from '@/lib/agent-runs';
+import type { AgentRunStatus, AgentRunSummary } from '@/lib/agent-runs';
 
 /**
  * The Agents page's Analytics tab, as one pure read model
@@ -263,8 +263,9 @@ export function metricValue(key: MetricKey, s: Sums): number {
 /** Whether the window holds anything for a metric. Money is decided by moneyVisibility, not here. */
 export function metricHasData(key: MetricKey, s: Sums): boolean {
   switch (key) {
-    case 'revenue':
-    case 'profit': return true;
+    // Money shows by moneyVisibility, but a $0 range is no data: it never opens the chart.
+    case 'revenue': return s.revenue > 0 || s.pendingRevenue > 0;
+    case 'profit': return s.revenue > 0 || s.costUsd > 0;
     case 'prs': return s.prOpened + s.prMerged + s.review > 0;
     // Cost is never hidden where tokens exist: unpriced tokens still show it.
     case 'cost': return s.costUsd > 0 || s.tokensIn + s.tokensOut + s.tokensCached > 0;
@@ -302,10 +303,59 @@ export function arrangeTiles(tiles: TileState[], options: { expanded: boolean; c
   return { shown, more: tiles.length - shown.length };
 }
 
-/** The tile that drives the chart: the one picked while it shows, else the first shown. */
-export function resolveSelectedMetric(shown: MetricKey[], selected: MetricKey | null): MetricKey | null {
+/**
+ * The tile that drives the chart: the one picked while it shows, else the
+ * first shown with data (never an empty $0 chart), else the first shown.
+ * `withData` lists the tiles that hold anything; left out, every shown tile counts.
+ */
+export function resolveSelectedMetric(shown: MetricKey[], selected: MetricKey | null, withData?: readonly MetricKey[]): MetricKey | null {
   if (selected && shown.includes(selected)) return selected;
-  return shown[0] ?? null;
+  return shown.find((key) => !withData || withData.includes(key)) ?? shown[0] ?? null;
+}
+
+// ── Change against the last period ──────────────────────────────────────────
+
+/** The same number of days just before the range: what "change" compares with. */
+export function previousRange(range: DateRange): DateRange {
+  const days = rangeDays(range).length;
+  const [y, m, d] = range.startKey.split('-').map(Number);
+  const key = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const start = Date.UTC(y, m - 1, d);
+  return { startKey: key(start - days * 86_400_000), endKey: key(start - 86_400_000) };
+}
+
+/**
+ * The tiles whose last period can be measured as completely as this one: the
+ * server's run and question sums cover any range, the event window does not.
+ * Tokens and cost only with the server's spend; in the demo only what the
+ * run feed holds.
+ */
+export function changeMetrics(source: { runStats: boolean; spend: boolean; questionStats: boolean; feedRows: boolean }): MetricKey[] {
+  const out: MetricKey[] = [];
+  if (source.runStats || source.feedRows) out.push('runs', 'busy');
+  if (source.runStats && source.spend) out.push('tokens', 'cost');
+  if (source.questionStats) out.push('questions');
+  return out;
+}
+
+/** Up or down is good or bad only where it has a clear meaning: spend going up is bad. */
+const CHANGE_GOOD: Partial<Record<MetricKey, 'up' | 'down'>> = { cost: 'down', incidents: 'down', reopened: 'down', blocked: 'down' };
+
+export interface PeriodChange {
+  /** "12%". */
+  value: string;
+  direction: 'up' | 'down' | 'flat';
+  good?: 'up' | 'down';
+}
+
+/** This period against the last, as a share; null when the last period had none (no share to give). */
+export function periodChange(key: MetricKey, current: number, previous: number): PeriodChange | null {
+  if (previous === 0) return null;
+  const good = CHANGE_GOOD[key];
+  const share = (current - previous) / Math.abs(previous);
+  const pct = Math.round(Math.abs(share) * 100);
+  if (pct === 0) return { value: '0%', direction: 'flat' };
+  return { value: `${pct}%`, direction: share > 0 ? 'up' : 'down', good };
 }
 
 // ── Inputs ──────────────────────────────────────────────────────────────────
@@ -579,6 +629,52 @@ export function runsFromTurns(activities: AgentActivity[]): RunRow[] {
     });
   }
   return out;
+}
+
+/** One row of the run feed (what Agents > Runs lists) as analytics reads it. */
+export function runRowFromFeed(row: Pick<AgentRunSummary, 'id' | 'source' | 'agent_id' | 'project_id' | 'status' | 'outcome' | 'title' | 'model' | 'started_at' | 'finished_at' | 'duration_ms' | 'tokens_in' | 'tokens_out' | 'cost_usd'>): RunRow {
+  return {
+    id: row.id,
+    source: row.source,
+    agentId: row.agent_id,
+    projectId: row.project_id,
+    status: row.status,
+    outcome: row.outcome,
+    title: row.title,
+    model: row.model,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    durationMs: row.duration_ms,
+    tokensIn: row.tokens_in,
+    tokensOut: row.tokens_out,
+    costUsd: row.cost_usd,
+  };
+}
+
+/**
+ * The runs analytics counts, so its Runs figure is the Runs list's count for
+ * the same range and filters: none when the read failed or the server summed
+ * them already; the run feed's rows when there are some (the database's, or
+ * the demo's own feed); turns only where no feed exists, by the feed's rule.
+ */
+export function analyticsRunRows(input: { runsFailed: boolean; serverSummed: boolean; feedRows: RunRow[] | null; activities: AgentActivity[] }): RunRow[] {
+  if (input.runsFailed || input.serverSummed) return [];
+  return input.feedRows ?? runsFromTurns(input.activities);
+}
+
+/**
+ * Agents > Runs for exactly what the report shows, or null when the Runs list
+ * cannot filter to it (more than one agent or project, or a label picked), so
+ * a link never promises runs it would not list.
+ */
+export function runsListHref(range: DateRange, selection: { agentIds: ReadonlySet<string>; projectIds: ReadonlySet<string>; labels: ReadonlySet<string> }): string | null {
+  if (selection.agentIds.size > 1 || selection.projectIds.size > 1 || selection.labels.size > 0) return null;
+  const params = new URLSearchParams({ tab: 'company', view: 'runs', from: range.startKey, to: range.endKey });
+  const [agent] = selection.agentIds;
+  const [project] = selection.projectIds;
+  if (agent) params.set('agent', agent);
+  if (project) params.set('project', project);
+  return `/ai?${params.toString()}`;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

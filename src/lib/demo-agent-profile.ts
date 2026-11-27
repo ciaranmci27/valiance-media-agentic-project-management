@@ -154,7 +154,7 @@ export function demoAgentDetail(agentId: string): AgentDetail | null {
 }
 
 /** States demo data does not reach, for a development server's ?sample=. */
-export const AGENT_SAMPLES = ['paused', 'suspended', 'over-budget', 'workspace-paused', 'personal'] as const;
+export const AGENT_SAMPLES = ['paused', 'suspended', 'over-budget', 'workspace-paused', 'personal', 'pool'] as const;
 export type AgentSample = (typeof AGENT_SAMPLES)[number];
 
 export function agentSampleOf(value: string | null | undefined): AgentSample | null {
@@ -167,6 +167,8 @@ export function applyAgentSample(detail: AgentDetail, sample: AgentSample | null
       return { ...detail, agent: { ...detail.agent, paused_at: iso(0, 3) } };
     case 'suspended':
       return { ...detail, agent: { ...detail.agent, status: 'suspended' } };
+    case 'pool':
+      return { ...detail, live_instances: { count: 3, working: 3 } };
     case 'over-budget':
       return detail.usage && detail.limits?.budget_usd
         ? { ...detail, usage: { ...detail.usage, spent_usd: detail.limits.budget_usd + 2.4 } }

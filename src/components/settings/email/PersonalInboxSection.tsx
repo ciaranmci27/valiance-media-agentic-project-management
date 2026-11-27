@@ -315,7 +315,6 @@ export function PersonalInboxSection() {
         message={`Mail you forward from ${offTarget?.address ?? 'your address'} is dropped while it is off, not queued. Mail already here stays. You can turn it back on any time.`}
         confirmLabel="Turn off"
         variant="danger"
-        doubleConfirm={false}
       />
       <ConfirmDialog
         isOpen={!!removeTarget}
@@ -327,7 +326,6 @@ export function PersonalInboxSection() {
         message="It holds no mail yet, so nothing is lost. Stop forwarding to its relay address at your mail host too."
         confirmLabel="Remove"
         variant="danger"
-        doubleConfirm={false}
       />
     </section>
   );

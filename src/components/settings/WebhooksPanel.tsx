@@ -614,7 +614,6 @@ export function WebhooksPanel() {
         message={deleteTarget ? deleteMessage(deleteTarget) : ''}
         confirmLabel="Delete"
         variant="danger"
-        doubleConfirm={false}
       />
 
       <ConfirmDialog
@@ -625,7 +624,6 @@ export function WebhooksPanel() {
         message={pauseTarget ? `While paused, events are not sent or kept. Anything that happens until you turn it back on will never reach ${pauseTarget.url}.` : ''}
         confirmLabel="Pause"
         variant="danger"
-        doubleConfirm={false}
       />
 
       <ConfirmDialog
@@ -636,7 +634,6 @@ export function WebhooksPanel() {
         message="The old secret stops at once: every delivery from now on is signed with the new one, so put it into your receiver straight away. The endpoint keeps its filters and delivery history."
         confirmLabel="Make a new secret"
         variant="danger"
-        doubleConfirm={false}
       />
 
       <Modal isOpen={!!newSecret} onClose={() => {}} title={newSecret ? `New secret for ${newSecret.endpoint.name}` : 'New signing secret'} size="md">

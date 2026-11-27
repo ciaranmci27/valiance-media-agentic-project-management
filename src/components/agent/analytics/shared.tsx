@@ -3,6 +3,7 @@
 import { useId, useState } from 'react';
 import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { CardHeader } from '@/components/ui/Card';
 import { StatStrip, type Stat as StripStat } from '@/components/ui/StatStrip';
 import { formatNumber } from '@/lib/format';
 import { appLocale } from '@/lib/region';
@@ -54,7 +55,11 @@ export function fmtDay(ms: number): string {
   return new Date(ms).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric' });
 }
 
-/** A card in the page's glass language, with its title row. */
+/**
+ * A card in the page's glass language: the calm card header (CardHeader,
+ * DESIGN.md Rules 2 and 17) with the card's own actions on the right, over a
+ * body that lays out its own rows.
+ */
 export function Card({
   icon: Icon,
   title,
@@ -70,14 +75,8 @@ export function Card({
 }) {
   return (
     <section className={`glass-card rounded-xl overflow-hidden flex flex-col ${className}`} aria-label={title}>
-      <div className="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between gap-3 flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <Icon size={16} className="text-zinc-500 flex-shrink-0" aria-hidden="true" />
-          {/* h3: cards sit under the page's section headings (h2). */}
-          <h3 className="text-sm font-semibold text-white truncate">{title}</h3>
-        </div>
-        {aside}
-      </div>
+      {/* h3: cards sit under the page's own headings. */}
+      <CardHeader as="h3" icon={<Icon />} title={title} action={aside} className="flex-shrink-0" />
       {children}
     </section>
   );
@@ -102,7 +101,7 @@ export function Missing({ children }: { children: React.ReactNode }) {
 /** A sub-heading inside a card. */
 export function Label({ children }: { children: React.ReactNode }) {
   // A div, not a p: a definition's tooltip trigger is a div.
-  return <div className="text-[10px] uppercase tracking-wider font-semibold text-zinc-500 mb-2">{children}</div>;
+  return <div className="text-xs font-medium text-zinc-400 mb-2">{children}</div>;
 }
 
 /** A label with a definition on hover and focus. */

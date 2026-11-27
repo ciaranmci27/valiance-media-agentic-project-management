@@ -223,12 +223,12 @@ export default async function ApiDocsPage() {
               <p className="text-sm text-zinc-600 mb-4">
                 Include your API key in the{' '}
                 <code className="px-1.5 py-0.5 bg-zinc-100 rounded text-xs font-mono">x-api-key</code>{' '}
-                header of every request. Keys can be generated in{' '}
+                header of every request. Make your own keys in{' '}
                 <a
-                  href="/settings/developers#api-keys"
+                  href="/ai?tab=assistant#my-keys"
                   className="text-brand-600 hover:text-brand-700 underline underline-offset-2"
                 >
-                  Settings
+                  AI &gt; Your assistant
                 </a>
                 , where a key&apos;s name and scopes can also be edited. The key itself stays the same, and the
                 new scopes apply from its next request.

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
-  AlertTriangle, ArrowLeft, ChevronRight, KeyRound, LogOut, PauseCircle, PlayCircle, Plus, RefreshCw, UserCheck, Users, UserX,
+  AlertTriangle, ArrowLeft, ChevronRight, FileText, IdCard, ListChecks, LogOut, PauseCircle, PlayCircle, Plug, Plus, RefreshCw, StickyNote, UserCheck, Users, UserX,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { createClient } from '@/lib/supabase/client';
@@ -27,7 +27,7 @@ import {
 } from '@/lib/agents-ui';
 import {
   activeKeys, agentHolds, dropsViewer, escalateDefaultLabel, ownerPickerOptions,
-  ownersEditorStart, ownersSaveBody, periodWords, profileFormOf, sameProfileForm, savedProfileForm, startProfileForm, syncProfileForm,
+  ownersEditorStart, ownersSaveBody, periodWords, profileFormOf, agentSubtitle, instancesLine, profileTabOf, PROFILE_TABS, type ProfileTab, sameProfileForm, savedProfileForm, startProfileForm, syncProfileForm,
   trimmedProfileForm, type AgentHold, type ProfileForm,
 } from '@/lib/agent-profile';
 import { agentSampleOf, applyAgentSample, sampleAgentsPause } from '@/lib/demo-agent-profile';
@@ -36,6 +36,9 @@ import {
 } from '@/lib/agent-workspace';
 import { useTaskUrlParam } from '@/lib/use-task-url';
 import { Button } from '@/components/ui/Button';
+import { Header } from '@/components/layout/Header';
+import { SaveBar } from '@/components/ui/SaveBar';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
@@ -55,7 +58,8 @@ import { useAgentNeedsYou, NeedsYouView } from '@/components/agent/NeedsYouView'
 import { AssignmentList, saveAssignment, useTakeOffProject } from '@/components/agent/AssignmentList';
 import { RulesFields } from '@/components/agent/PowersFields';
 import { SettingsForm } from '@/components/agent/SettingsForm';
-import { DEMO_NOTICE, LimitsPanel, useAgentPause } from '@/components/agent/profile/LimitsPanel';
+import { DEMO_NOTICE, LimitsPanel, limitsBody, limitsDraftOf, sameLimits, useAgentPause } from '@/components/agent/profile/LimitsPanel';
+import { Card } from '@/components/ui/Card';
 import { ConnectSnippets, downloadText } from '@/components/agent/ConnectPanel';
 import { ActivityTimeline } from '@/components/agent/ActivityTimeline';
 import { RunFeed } from '@/components/agent/runs/RunFeed';
@@ -90,10 +94,9 @@ import { agentAccessRead } from '@/lib/agent-access-reads';
  * say they are not saved.
  */
 
-const TABS = ['overview', 'runs', 'projects', 'access', 'notes', 'rules', 'connect', 'activity'] as const;
-type Tab = (typeof TABS)[number];
+type Tab = ProfileTab;
 const TAB_LABELS: Record<Tab, string> = {
-  overview: 'Overview', runs: 'Runs', projects: 'Projects', access: 'Access', notes: 'Agent notes', rules: 'Rules', connect: 'Connect', activity: 'Activity',
+  overview: 'Overview', runs: 'Runs', projects: 'Projects', rules: 'Rules', access: 'Access',
 };
 
 /** In demo mode a write says it is not saved; answers whether it was stopped. */
@@ -140,12 +143,26 @@ export function AgentProfile({ agentId }: { agentId: string }) {
   const canManage = isDemoMode ? !!data : (data?.can_manage ?? (isOwnerOfIt || hasPermission(access, 'team.manage')));
   const person = data?.agent.delegate_of ? data.person ?? null : null;
   const suspended = (data?.agent.status ?? member?.status) === 'suspended';
-  // Agent notes are for who manages it (the server's rule); runs and activity
-  // are row-secured to agents.manage. Tabs a viewer cannot use are left out.
-  const shownTabs = TABS.filter((key) => (key !== 'notes' || (canManage && !isDemoMode)) && ((key !== 'runs' && key !== 'activity') || manageAgents));
+  // Runs (and the activity on Overview) are row-secured to agents.manage: a
+  // viewer without it does not get the tab. Agent notes, on Rules, are for
+  // who manages it (the server's rule).
+  const shownTabs = PROFILE_TABS.filter((key) => key !== 'runs' || manageAgents);
 
+  // Old links named tabs that are now parts of others (Activity, Agent notes, Connect): they land on that part.
   const requested = searchParams.get('tab');
-  const active: Tab = (shownTabs as readonly string[]).includes(requested ?? '') ? requested as Tab : 'overview';
+  const wanted = profileTabOf(requested);
+  const active: Tab = (shownTabs as readonly string[]).includes(wanted.tab) ? wanted.tab : 'overview';
+  useEffect(() => {
+    if (!wanted.anchor || requested === active) return;
+    const next = new URLSearchParams(searchParams.toString());
+    if (active === 'overview') next.delete('tab');
+    else next.set('tab', active);
+    const q = next.toString();
+    window.history.replaceState(null, '', q ? `${pathname}?${q}` : pathname);
+    const anchor = wanted.anchor;
+    const timer = window.setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: 'start' }), 300);
+    return () => window.clearTimeout(timer);
+  }, [wanted.anchor, requested, active, pathname, searchParams]);
   const [visited, setVisited] = useState<Set<Tab>>(() => new Set([active]));
   if (!visited.has(active)) setVisited(new Set(visited).add(active));
   const setTab = useCallback((tab: Tab) => {
@@ -224,9 +241,10 @@ export function AgentProfile({ agentId }: { agentId: string }) {
     label: TAB_LABELS[key],
     ...(key === 'overview' && agentNeeds.total ? { badge: { count: agentNeeds.total, label: `${agentNeeds.total} waiting on you` } } : {}),
     ...(key === 'projects' && data ? { count: projectTotal } : {}),
-    ...(key === 'connect' ? { warm: () => void loadRead(agentContextRead(agentId, isDemoMode)).catch(() => undefined) } : {}),
-    ...(key === 'access' ? { warm: () => void loadRead(agentAccessRead(agentId, isDemoMode)).catch(() => undefined) } : {}),
-    ...(key === 'activity' ? { warm: () => void loadRead(agentActivityRead(agentId, isDemoMode)).catch(() => undefined) } : {}),
+    ...(key === 'access' ? { warm: () => {
+      void loadRead(agentAccessRead(agentId, isDemoMode)).catch(() => undefined);
+      void loadRead(agentContextRead(agentId, isDemoMode)).catch(() => undefined);
+    } } : {}),
   }));
   const panel = (key: Tab, children: ReactNode) => (key === active || visited.has(key)) && (
     <div role="tabpanel" id={projectPanelId(key)} aria-labelledby={projectTabId(key)} hidden={key !== active} className="pt-6">
@@ -243,79 +261,88 @@ export function AgentProfile({ agentId }: { agentId: string }) {
     window.setTimeout(() => document.getElementById('rp-limits')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
   };
 
+  const subtitle = agentSubtitle({ title: data?.agent.title ?? member?.title, templateLabel, role: role ? roleLabel(role) : null });
+  const workers = suspended || held ? null : instancesLine(data?.live_instances);
+  const back = manageAgents ? (
+    // The agents home is for agents.manage; an owner without it came from elsewhere.
+    <Link
+      href="/ai?tab=company"
+      onClick={(e) => { if (rulesDirty) { e.preventDefault(); guard.requestClose(); } }}
+      className="inline-flex items-center gap-1 rounded text-zinc-400 transition-colors hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+    >
+      <ArrowLeft size={14} aria-hidden="true" />All agents
+    </Link>
+  ) : undefined;
+  // The Pause slot is held at its exact size until the profile says who may use it, so nothing moves under the cursor.
+  const actions = suspended ? undefined : !data ? (detail.loading ? <PauseButtonSkeleton /> : undefined) : canManage ? (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {pause.notice && <UndoLine onUndo={() => void pause.undo()} busy={pause.busy}>Paused {pause.notice}.</UndoLine>}
+      <PauseButton paused={pause.paused} busy={pause.busy} onToggle={() => void pause.toggle()} />
+    </div>
+  ) : undefined;
+
   return (
     <div className="animate-fadeIn min-h-screen">
-      <div className="px-4 pt-5 lg:px-8 lg:pt-7">
-        {/* The agents home is for agents.manage; an owner without it came from elsewhere. */}
-        {manageAgents && (
-          <Link
-            href="/ai?tab=company"
-            onClick={(e) => { if (rulesDirty) { e.preventDefault(); guard.requestClose(); } }}
-            className="mb-5 inline-flex items-center gap-1.5 rounded-lg py-1 text-sm text-zinc-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
-            <ArrowLeft size={14} aria-hidden="true" />All agents
-          </Link>
-        )}
+      <Header title={name} wrapTitle subtitle={back} actions={actions} />
 
-        {/* Header: the agent, live. */}
-        <header className="flex flex-col gap-5 sm:flex-row sm:items-start">
-          <AgentAvatar id={agentId} name={name} src={data?.agent.avatar_url ?? member?.avatar ?? null} presence={presence} label={sentence} size="xl" />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <h1 className="truncate text-2xl font-bold tracking-tight text-white lg:text-[28px]">{name}</h1>
-              {presence && <PresencePill presence={presence} />}
+      <div className="p-4 lg:p-6">
+        {/* The agent, live: who it is, what it is doing, what holds it back, who owns it. */}
+        <section aria-label={`${name} now`} className="glass-card rounded-xl p-4 lg:p-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <AgentAvatar id={agentId} name={name} src={data?.agent.avatar_url ?? member?.avatar ?? null} presence={presence} label={sentence} size="xl" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                {presence && <PresencePill presence={presence} />}
+                <p className="min-w-0 text-sm text-zinc-300">{subtitle}</p>
+              </div>
+              {data ? (
+                <p className="mt-1 text-xs text-zinc-500">
+                  {projectsLine(projectTotal, false, data.projects_total ?? data.projects.length)}
+                </p>
+              ) : detail.loading ? (
+                <Skeleton label="Loading its projects" className="mt-1 flex h-4 items-center"><Bone className="h-3 w-40" /></Skeleton>
+              ) : null}
+              {person && (
+                <p className="mt-1 text-xs text-zinc-400">
+                  Works for <span className="font-medium text-zinc-200">{person.name || 'one person'}</span>. Their keys are made in their AI, under Your assistant.
+                </p>
+              )}
+              <p className="mt-3 text-sm text-zinc-200">
+                {sentence}
+                {workers && <span className="text-zinc-400"> · {workers}</span>}
+              </p>
+              {live?.statusNote && !held && !suspended && <p className="mt-1 text-sm text-zinc-400"><span className="sr-only">Status note: </span>{live.statusNote}</p>}
+              {holds.length > 0 && (
+                <HoldsList
+                  holds={holds}
+                  name={name}
+                  canReactivate={canReactivate}
+                  onReactivate={() => void reactivate()}
+                  canResumeAll={agentsPause.canSwitch && !sampleWorkspacePause}
+                  onResumeAll={agentsPause.resume}
+                  resumeBusy={agentsPause.busy}
+                  canEditLimits={isDemoMode || isWorkspaceOwner}
+                  onOpenLimits={openLimits}
+                />
+              )}
+              {currentRun && !suspended && (manageAgents ? (
+                <button
+                  type="button"
+                  onClick={() => setOpenRunId(currentRun.id)}
+                  className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-emerald-500/[0.1] px-3 py-1.5 text-left text-sm text-zinc-100 transition-colors hover:bg-emerald-500/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  <CurrentRunLine run={currentRun} />
+                </button>
+              ) : (
+                // Its plan and notes are row-secured to agents.manage: the line shows, the detail does not open.
+                <p className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-emerald-500/[0.1] px-3 py-1.5 text-sm text-zinc-100">
+                  <CurrentRunLine run={currentRun} />
+                </p>
+              ))}
+              {live?.backlog && !suspended && <p className="mt-2 text-sm text-amber-300">{backlogLine(live.backlog)}: ready work assigned to {name} is not picked up.</p>}
             </div>
-            <p className="mt-1 text-sm text-zinc-500">
-              {[role ? roleLabel(role) : null, templateLabel, data?.agent.title ?? member?.title].filter(Boolean).join(' · ') || 'No role yet'}
-            </p>
-            {data ? (
-              <p className="mt-1 text-xs text-zinc-500">
-                {projectsLine(projectTotal, false, data.projects_total ?? data.projects.length)}
-              </p>
-            ) : detail.loading ? (
-              <Skeleton label="Loading its projects" className="mt-1 flex h-4 items-center"><Bone className="h-3 w-40" /></Skeleton>
-            ) : null}
-            {person && (
-              <p className="mt-1 text-xs text-zinc-400">
-                Works for <span className="font-medium text-zinc-200">{person.name || 'one person'}</span>. Their keys are made in their AI, under Your assistant.
-              </p>
-            )}
-            <p className="mt-3 text-[15px] text-zinc-200">{sentence}</p>
-            {live?.statusNote && !held && !suspended && <p className="mt-1 text-sm text-zinc-400"><span className="sr-only">Status note: </span>{live.statusNote}</p>}
-            {holds.length > 0 && (
-              <HoldsList
-                holds={holds}
-                name={name}
-                canReactivate={canReactivate}
-                onReactivate={() => void reactivate()}
-                canResumeAll={agentsPause.canSwitch && !sampleWorkspacePause}
-                onResumeAll={agentsPause.resume}
-                resumeBusy={agentsPause.busy}
-                canEditLimits={isDemoMode || isWorkspaceOwner}
-                onOpenLimits={openLimits}
-              />
-            )}
-            {currentRun && !suspended && (manageAgents ? (
-              <button
-                type="button"
-                onClick={() => setOpenRunId(currentRun.id)}
-                className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-emerald-500/[0.1] px-3 py-1.5 text-left text-sm text-zinc-100 transition-colors hover:bg-emerald-500/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-              >
-                <CurrentRunLine run={currentRun} />
-              </button>
-            ) : (
-              // Its plan and notes are row-secured to agents.manage: the line shows, the detail does not open.
-              <p className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-emerald-500/[0.1] px-3 py-1.5 text-sm text-zinc-100">
-                <CurrentRunLine run={currentRun} />
-              </p>
-            ))}
-            {live?.backlog && !suspended && <p className="mt-2 text-sm text-amber-300">{backlogLine(live.backlog)}: ready work assigned to {name} is not picked up.</p>}
           </div>
-          <div className="flex flex-shrink-0 flex-col gap-3 sm:items-end">
-            {/* The Pause slot is held while the profile loads, so Change never sits where Pause lands (nothing moves under the cursor). */}
-            {canManage && !suspended && (data ? (
-              <PauseButton paused={pause.paused} busy={pause.busy} onToggle={() => void pause.toggle()} />
-            ) : detail.loading ? <PauseButtonSkeleton /> : null)}
+          <div className="mt-4 border-t border-white/[0.06] pt-4">
             <OwnersRow
               agentId={agentId}
               agentName={name}
@@ -327,33 +354,37 @@ export function AgentProfile({ agentId }: { agentId: string }) {
               viewerGroups={myGroups}
               viewerKeepsAccess={isWorkspaceOwner || hasPermission(access, 'team.manage')}
             />
-            {pause.notice && (
-              <UndoLine onUndo={() => void pause.undo()} busy={pause.busy}>Paused {pause.notice}.</UndoLine>
-            )}
           </div>
-        </header>
+        </section>
 
-        <div className="mt-8">
+        <div className="mt-6">
           <ProjectTabs label={`${name} sections`} tabs={tabs} active={active} onChange={setTab} />
         </div>
-      </div>
 
-      <div className="px-4 pb-16 lg:px-8">
         {panel('overview', (
-          <div className={`grid gap-10 ${manageAgents ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : 'max-w-3xl'}`}>
-            <section aria-labelledby="ov-needs" className="min-w-0">
-              <h2 id="ov-needs" className="mb-3 text-[15px] font-semibold text-white">Needs you</h2>
-              <NeedsYouView needs={agentNeeds} onOpenTask={openTask} compact />
-            </section>
-            {manageAgents && <section aria-labelledby="ov-runs" className="min-w-0">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 id="ov-runs" className="text-[15px] font-semibold text-white">Recent runs</h2>
-                <button type="button" onClick={() => setTab('runs')} className="inline-flex items-center gap-0.5 rounded text-xs font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-                  All runs<ChevronRight size={13} aria-hidden="true" />
-                </button>
-              </div>
-              <RecentRuns agentId={agentId} agentName={name} onOpenTask={openTask} />
-            </section>}
+          <div className="space-y-6">
+            <div className={`grid gap-6 ${manageAgents ? 'lg:grid-cols-2' : ''}`}>
+              <section aria-labelledby="ov-needs" className="min-w-0">
+                <h2 id="ov-needs" className="mb-3 text-sm font-semibold text-white">Needs you</h2>
+                <NeedsYouView needs={agentNeeds} onOpenTask={openTask} compact />
+              </section>
+              {manageAgents && <section aria-labelledby="ov-runs" className="min-w-0">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 id="ov-runs" className="text-sm font-semibold text-white">Recent runs</h2>
+                  <button type="button" onClick={() => setTab('runs')} className="inline-flex items-center gap-0.5 rounded text-xs font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                    All runs<ChevronRight size={13} aria-hidden="true" />
+                  </button>
+                </div>
+                <RecentRuns agentId={agentId} agentName={name} onOpenTask={openTask} />
+              </section>}
+            </div>
+            {/* What it did lately (row-secured to agents.manage, like its runs). */}
+            {manageAgents && (
+              <section aria-labelledby="ov-activity" className="min-w-0 scroll-mt-6">
+                <h2 id="ov-activity" className="mb-3 text-sm font-semibold text-white">Activity</h2>
+                <AgentActivity agentId={agentId} />
+              </section>
+            )}
           </div>
         ))}
 
@@ -371,43 +402,39 @@ export function AgentProfile({ agentId }: { agentId: string }) {
           />
         ))}
 
-        {canManage && !isDemoMode && panel('notes', (
-          <div className="max-w-3xl">
-            <p className="mb-4 text-sm text-zinc-400">What {name} should always keep in mind, beyond its projects. Its newest 5 pinned notes go into its context every time (the first 500 characters of each); it finds the rest by search and can add notes of its own.</p>
-            <ContextBrief scope={{ scope_type: 'agent', scope_id: agentId }} label="agent notes" emptyText={`Nothing here yet. Add what ${name} should know about how you work.`} />
-          </div>
-        ))}
-
         {panel('rules', detail.loading ? <LoadingRows /> : !data ? <Failed onRetry={detail.reload} what="its rules" /> : (
-          <RulesAndPowers detail={data} canManage={canManage} canEditLimits={isDemoMode || isWorkspaceOwner} onDirtyChange={setRulesDirty} />
-        ))}
-
-        {panel('access', detail.loading ? <LoadingRows /> : !data ? <Failed onRetry={detail.reload} what="who can use it" /> : (
-          <AccessTab
+          <RulesAndPowers
             detail={data}
-            keyPowers={keyPowers}
-            suspended={suspended}
-            managedBy={(
-              <OwnersRow
-                agentId={agentId}
-                agentName={name}
-                owners={owners}
-                ownerGroups={ownerGroups}
-                canManage={canEditOwners}
-                ready={!!data}
-                viewerId={teamMemberId ?? null}
-                viewerGroups={myGroups}
-                viewerKeepsAccess={isWorkspaceOwner || hasPermission(access, 'team.manage')}
-              />
-            )}
+            canManage={canManage}
+            canEditLimits={isDemoMode || isWorkspaceOwner}
+            onDirtyChange={setRulesDirty}
+            notes={canManage && !isDemoMode}
           />
         ))}
 
-        {panel('connect', detail.loading ? <LoadingRows /> : !data ? <Failed onRetry={detail.reload} what="how to connect it" /> : (
-          <ConnectTab detail={data} onOpenAccess={() => setTab('access')} />
+        {panel('access', detail.loading ? <LoadingRows /> : !data ? <Failed onRetry={detail.reload} what="who can use it" /> : (
+          <div className="space-y-6">
+            <AccessTab
+              detail={data}
+              keyPowers={keyPowers}
+              suspended={suspended}
+              managedBy={(
+                <OwnersRow
+                  agentId={agentId}
+                  agentName={name}
+                  owners={owners}
+                  ownerGroups={ownerGroups}
+                  canManage={canEditOwners}
+                  ready={!!data}
+                  viewerId={teamMemberId ?? null}
+                  viewerGroups={myGroups}
+                  viewerKeepsAccess={isWorkspaceOwner || hasPermission(access, 'team.manage')}
+                />
+              )}
+            />
+            <ConnectTab detail={data} />
+          </div>
         ))}
-
-        {manageAgents && panel('activity', <AgentActivityTab agentId={agentId} />)}
       </div>
 
       <RunDetailModal
@@ -570,18 +597,18 @@ function usePauseControl(agentId: string, agentName: string, pausedAt: string | 
 
 function PauseButton({ paused, busy, onToggle }: { paused: boolean; busy: boolean; onToggle: () => void }) {
   return paused ? (
-    <Button variant="secondary" size="sm" className="self-start sm:self-end" icon={<PlayCircle size={14} aria-hidden="true" />} onClick={onToggle} disabled={busy}>Resume</Button>
+    <Button variant="secondary" icon={<PlayCircle size={16} aria-hidden="true" />} onClick={onToggle} disabled={busy}>Resume</Button>
   ) : (
-    <Button variant="secondary" size="sm" className="self-start sm:self-end" icon={<PauseCircle size={14} aria-hidden="true" />} onClick={onToggle} disabled={busy}>Pause</Button>
+    <Button variant="secondary" icon={<PauseCircle size={16} aria-hidden="true" />} onClick={onToggle} disabled={busy}>Pause</Button>
   );
 }
 
 /** The Pause button's exact footprint while the profile loads: the real button, unseen, under a bone. */
 function PauseButtonSkeleton() {
   return (
-    <Skeleton label="Loading actions" className="relative self-start sm:self-end">
+    <Skeleton label="Loading actions" className="relative">
       <span aria-hidden="true" className="invisible block">
-        <Button variant="secondary" size="sm" icon={<PauseCircle size={14} aria-hidden="true" />} tabIndex={-1}>Pause</Button>
+        <Button variant="secondary" icon={<PauseCircle size={16} aria-hidden="true" />} tabIndex={-1}>Pause</Button>
       </span>
       <Bone className="absolute inset-0 rounded-lg" />
     </Skeleton>
@@ -684,7 +711,7 @@ function OwnersRow({ agentId, agentName, owners, ownerGroups, canManage, ready, 
 function RecentRuns({ agentId, agentName, onOpenTask }: { agentId: string; agentName: string; onOpenTask: (id: string) => void }) {
   const { isDemoMode } = useDemo();
   const { tasks, projects } = useApp();
-  const recent = useRead(agentRunFeedRead({ ...NO_RUN_FILTERS, agentId }, 0, isDemoMode, 8));
+  const recent = useRead(agentRunFeedRead({ ...NO_RUN_FILTERS, agentId }, null, isDemoMode, 8));
   const [openId, setOpenId] = useState<string | null>(null);
   const runs = (recent.data?.runs ?? []).map((r) => ({ ...r, agent_name: agentName }));
   const open = openId ? runs.find((r) => r.id === openId) ?? null : null;
@@ -718,9 +745,9 @@ function RecentRuns({ agentId, agentName, onOpenTask }: { agentId: string; agent
 
 /** The run feed, held to this agent: status and project filters, server paged. */
 function AgentRuns({ agentId, onOpenTask }: { agentId: string; onOpenTask: (id: string) => void }) {
-  const [state, setState] = useState<{ filters: RunFeedFilters; page: number }>({ filters: { ...NO_RUN_FILTERS, agentId }, page: 0 });
-  const onChange = useCallback((filters: RunFeedFilters, page: number) => setState({ filters: { ...filters, agentId }, page }), [agentId]);
-  return <RunFeed filters={state.filters} page={state.page} onChange={onChange} onOpenTask={onOpenTask} lockAgent />;
+  const [filters, setFilters] = useState<RunFeedFilters>({ ...NO_RUN_FILTERS, agentId });
+  const onChange = useCallback((next: RunFeedFilters) => setFilters({ ...next, agentId }), [agentId]);
+  return <RunFeed filters={filters} onChange={onChange} onOpenTask={onOpenTask} lockAgent />;
 }
 
 /** A setup the template's defaults cannot fill: its settings, opened in place to finish. */
@@ -791,7 +818,7 @@ function AgentProjects({ detail, canEdit, suspended, templateLabel, templateLabe
 
   const pendingPanel = pending && (
     <section aria-labelledby="ap-pending" className="animate-slideDown rounded-2xl bg-white/[0.03] p-4 ring-1 ring-inset ring-white/[0.08] sm:p-5">
-      <h2 id="ap-pending" className="text-[15px] font-semibold text-white">Set up on {pending.projectName}</h2>
+      <h2 id="ap-pending" className="text-sm font-semibold text-white">Set up on {pending.projectName}</h2>
       <p className="mt-0.5 text-xs text-zinc-500">{templateLabel ?? 'Its template'} needs these filled in before it can start there.</p>
       <div className="mt-4">
         <SettingsForm schema={schema} values={pending.settings} onChange={(settings) => setPending({ ...pending, settings })} errors={pending.errors} disabled={!!busy} idPrefix="pending-setup" />
@@ -806,7 +833,7 @@ function AgentProjects({ detail, canEdit, suspended, templateLabel, templateLabe
   if (onProjects.length === 0 && detail.projects.length === 0 && !adding && !pending) {
     return (
       <div className="max-w-4xl rounded-2xl bg-white/[0.02] px-6 py-12 text-center ring-1 ring-inset ring-white/[0.06]">
-        <p className="text-[15px] font-semibold text-white">
+        <p className="text-sm font-semibold text-white">
           {hiddenCount > 0 ? `On ${hiddenCount} ${hiddenCount === 1 ? 'project' : 'projects'} you cannot open` : 'Not on any project yet'}
         </p>
         <p className="mt-1.5 text-sm text-zinc-400">
@@ -845,7 +872,7 @@ function AgentProjects({ detail, canEdit, suspended, templateLabel, templateLabe
 
       <section aria-labelledby="ap-setup">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 id="ap-setup" className="text-[15px] font-semibold text-white">Set up</h2>
+          <h2 id="ap-setup" className="text-sm font-semibold text-white">Set up</h2>
           {canEdit && !adding && available.length > 0 && (
             <Button variant="secondary" icon={<Plus size={15} aria-hidden="true" />} onClick={() => setAdding(true)}>Add to another project</Button>
           )}
@@ -866,7 +893,7 @@ function AgentProjects({ detail, canEdit, suspended, templateLabel, templateLabe
 
       {notSetUp.length > 0 && (
         <section aria-labelledby="ap-access">
-          <h2 id="ap-access" className="text-[15px] font-semibold text-white">On these projects, not set up</h2>
+          <h2 id="ap-access" className="text-sm font-semibold text-white">On these projects, not set up</h2>
           <p className="mb-3 mt-0.5 text-xs text-zinc-500">It can open and work these. Set one up to give it settings and instructions there.</p>
           <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-2xl bg-white/[0.02] ring-1 ring-inset ring-white/[0.06]">
             {notSetUpShown.map((p) => (
@@ -899,12 +926,21 @@ function AgentProjects({ detail, canEdit, suspended, templateLabel, templateLabe
   );
 }
 
-function RulesAndPowers({ detail, canManage, canEditLimits, onDirtyChange }: {
+/**
+ * Rules: who it is (identity), how it works (rules), how hard it may run
+ * (limits) and what it should always keep in mind (agent notes, for who
+ * manages it). Identity, rules and limits are one form with one save bar
+ * (DESIGN.md Rule 8): one save sends whatever changed. Agent notes save as
+ * each note does.
+ */
+function RulesAndPowers({ detail, canManage, canEditLimits, onDirtyChange, notes }: {
   detail: AgentDetail;
   canManage: boolean;
   canEditLimits: boolean;
   /** Told whether anything on this tab is unsaved, for the page's one leave guard. */
   onDirtyChange: (dirty: boolean) => void;
+  /** Shows its agent notes (who manages it, outside the demo). */
+  notes: boolean;
 }) {
   const { team } = useApp();
   const { isDemoMode } = useDemo();
@@ -919,9 +955,17 @@ function RulesAndPowers({ detail, canManage, canEditLimits, onDirtyChange }: {
   const set = (patch: Partial<ProfileForm>) => setForm((f) => ({ ...f, draft: { ...f.draft, ...patch } }));
   const groups = useRead(isDemoMode ? null : allGroupsRead(isDemoMode)).data ?? [];
   const [busy, setBusy] = useState(false);
-  const [limitsDirty, setLimitsDirty] = useState(false);
-  const dirty = !sameProfileForm(draft, saved);
-  useEffect(() => { onDirtyChange(dirty || limitsDirty); }, [dirty, limitsDirty, onDirtyChange]);
+  const showLimits = detail.usage !== undefined;
+  const savedLimits = useMemo(() => limitsDraftOf(detail.limits), [detail.limits]);
+  const [limits, setLimits] = useState(() => ({ draft: savedLimits, over: savedLimits }));
+  // New saved limits replace an untouched draft; edits stay.
+  if (!sameLimits(limits.over, savedLimits)) {
+    setLimits(sameLimits(limits.draft, limits.over) ? { draft: savedLimits, over: savedLimits } : { draft: limits.draft, over: savedLimits });
+  }
+  const profileDirty = !sameProfileForm(draft, saved);
+  const limitsDirty = showLimits && canEditLimits && !sameLimits(limits.draft, savedLimits);
+  const dirty = profileDirty || limitsDirty;
+  useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
 
   // Who it may escalate to: active people, and a suspended one already chosen (marked, since its owners answer instead).
@@ -935,21 +979,29 @@ function RulesAndPowers({ detail, canManage, canEditLimits, onDirtyChange }: {
   const roleProblem = roleError(draft.role);
   const suggestions = roleSuggestions(draft.role, roles.data ?? []);
   const personal = detail.agent.delegate_of ? detail.person ?? null : null;
+  const blocked = profileDirty && (!draft.name.trim() || !!roleProblem);
 
+  const discard = () => {
+    setForm(startProfileForm(saved));
+    setLimits({ draft: savedLimits, over: savedLimits });
+  };
   const save = async () => {
-    if (!draft.name.trim() || roleProblem) return;
+    if (blocked) return;
     if (demoStops(isDemoMode)) return;
     setBusy(true);
     const submitted = trimmedProfileForm(draft);
     try {
       await patchAgent(agent.id, {
-        name: submitted.name,
-        title: submitted.title || null,
-        description: submitted.description || null,
-        agent_role: submitted.role || null,
-        rules: rulesRequestFrom(submitted.rules, detail.rules),
+        ...(profileDirty ? {
+          name: submitted.name,
+          title: submitted.title || null,
+          description: submitted.description || null,
+          agent_role: submitted.role || null,
+          rules: rulesRequestFrom(submitted.rules, detail.rules),
+        } : {}),
+        ...(limitsDirty ? { limits: limitsBody(limits.draft) } : {}),
       });
-      setForm((f) => savedProfileForm(f, submitted));
+      if (profileDirty) setForm((f) => savedProfileForm(f, submitted));
       toast('success', 'Saved');
     } catch (error) {
       toast('error', error instanceof Error ? error.message : 'Could not save');
@@ -957,75 +1009,81 @@ function RulesAndPowers({ detail, canManage, canEditLimits, onDirtyChange }: {
       setBusy(false);
     }
   };
-  const unsaved = <span className="rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-300">Unsaved</span>;
 
   return (
-    <div className="grid max-w-5xl gap-10 lg:grid-cols-2">
-      <section aria-labelledby="rp-identity" className="min-w-0 space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 id="rp-identity" className="text-[15px] font-semibold text-white">Identity</h2>
-          {dirty && unsaved}
-        </div>
-        {canManage && <AgentPicture agentId={agent.id} name={agent.name} saved={agent.avatar_url} />}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TextInput label="Name" value={draft.name} onChange={(name) => set({ name })} disabled={!canManage} error={!draft.name.trim() ? 'Give it a name.' : undefined} maxLength={80} />
-          <TextInput label="Title" value={draft.title} onChange={(title) => set({ title })} disabled={!canManage} maxLength={80} />
-        </div>
-        <div>
-          <TextInput label="Role" description="For people, to find and group agents" value={draft.role} onChange={(role) => set({ role })} disabled={!canManage} error={roleProblem ?? undefined} placeholder="builder" maxLength={40} />
-          {canManage && suggestions.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {suggestions.map((r) => (
-                <button key={r} type="button" onClick={() => set({ role: r })} className="rounded-full bg-white/[0.04] px-2.5 py-1 text-xs text-zinc-300 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">{roleLabel(r)}</button>
-              ))}
+    <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card title="Identity" icon={<IdCard />} id="rp-identity">
+          <div className="space-y-4">
+            {canManage && <AgentPicture agentId={agent.id} name={agent.name} saved={agent.avatar_url} />}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <TextInput label="Name" value={draft.name} onChange={(name) => set({ name })} disabled={!canManage} error={!draft.name.trim() ? 'Give it a name.' : undefined} maxLength={80} placeholder="Nova" />
+              <TextInput label="Title" value={draft.title} onChange={(title) => set({ title })} disabled={!canManage} maxLength={80} placeholder="Head of support" />
             </div>
-          )}
-        </div>
-        <Textarea label="Personality and purpose" value={draft.description} onChange={(description) => set({ description })} rows={4} maxLength={2000} disabled={!canManage} />
-      </section>
-      <section aria-labelledby="rp-rules" className="min-w-0 space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 id="rp-rules" className="text-[15px] font-semibold text-white">Rules</h2>
-          {dirty && unsaved}
-        </div>
-        <RulesFields
-          value={draft.rules}
-          onChange={(rules) => set({ rules })}
-          people={people}
-          groups={groups}
-          disabled={!canManage}
-          escalateDefaultLabel={defaultLabel}
-          escalation={personal ? `${personal.name || 'Its person'}. A personal agent always asks the person it works for.` : undefined}
-        />
-        <p className="text-xs text-zinc-500">
-          {personal
+            <div>
+              <TextInput label="Role" description="For people, to find and group agents" value={draft.role} onChange={(role) => set({ role })} disabled={!canManage} error={roleProblem ?? undefined} placeholder="builder" maxLength={40} />
+              {canManage && suggestions.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {suggestions.map((r) => (
+                    <button key={r} type="button" onClick={() => set({ role: r })} className="rounded-full bg-white/[0.04] px-2.5 py-1 text-xs text-zinc-300 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">{roleLabel(r)}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <Textarea label="Personality and purpose" value={draft.description} onChange={(description) => set({ description })} rows={4} maxLength={2000} disabled={!canManage} placeholder="What it is for and how it should sound" />
+          </div>
+        </Card>
+        <Card
+          title="How it works"
+          icon={<ListChecks />}
+          id="rp-rules"
+          description={personal
             ? `What it may do follows ${personal.name || 'its person'}: they make its key on Your assistant.`
             : 'What it may do, its keys and who can use it are on Access.'}
-        </p>
-      </section>
-      {canManage && (
-        <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-4 sm:flex-row sm:items-center lg:col-span-2">
-          <p className="min-w-0 flex-1 text-xs">
-            {synced.conflict
-              ? <span className="text-amber-300">Someone else saved changes here since you started. Save keeps yours; Discard shows theirs.</span>
-              : dirty ? <span className="text-amber-300">Identity and rules not saved yet</span> : null}
-          </p>
-          <div className="flex items-center justify-end gap-2">
-            {dirty && <Button variant="ghost" onClick={() => setForm(startProfileForm(saved))}>Discard</Button>}
-            <Button onClick={save} disabled={!dirty || busy || !draft.name.trim() || !!roleProblem}>{busy ? 'Saving' : 'Save changes'}</Button>
-          </div>
-        </div>
-      )}
-      {detail.usage !== undefined && (
+        >
+          <RulesFields
+            value={draft.rules}
+            onChange={(rules) => set({ rules })}
+            people={people}
+            groups={groups}
+            disabled={!canManage}
+            escalateDefaultLabel={defaultLabel}
+            escalation={personal ? `${personal.name || 'Its person'}. A personal agent always asks the person it works for.` : undefined}
+          />
+        </Card>
+      </div>
+      {showLimits && (
         <LimitsPanel
-          key={JSON.stringify(detail.limits ?? null)}
-          agentId={agent.id}
           agentName={agent.name}
           limits={detail.limits}
           usage={detail.usage}
           pausedAt={agent.paused_at ?? null}
           canEditLimits={canEditLimits}
-          onDirtyChange={setLimitsDirty}
+          draft={limits.draft}
+          onDraft={(next) => setLimits((l) => ({ ...l, draft: next(l.draft) }))}
+        />
+      )}
+      {notes && (
+        <Card
+          title="Agent notes"
+          icon={<StickyNote />}
+          id="rp-notes"
+          className="scroll-mt-6"
+          description={`What ${agent.name} should always keep in mind, beyond its projects. Its newest 5 pinned notes go into its context every time (the first 500 characters of each); it finds the rest by search and can add notes of its own.`}
+        >
+          <ContextBrief scope={{ scope_type: 'agent', scope_id: agent.id }} label="agent notes" emptyText={`Nothing here yet. Add what ${agent.name} should know about how you work.`} />
+        </Card>
+      )}
+      {canManage && (
+        <SaveBar
+          dirty={dirty}
+          saving={busy}
+          onDiscard={discard}
+          onSave={() => void save()}
+          disabled={blocked}
+          message={synced.conflict
+            ? 'Someone else saved here since you started. Save keeps yours; Discard shows theirs.'
+            : blocked ? 'Give it a name and a valid role to save' : 'Unsaved changes'}
         />
       )}
     </div>
@@ -1082,46 +1140,43 @@ function AgentPicture({ agentId, name, saved }: { agentId: string; name: string;
 }
 
 /**
- * Connect: how its host reaches this workspace (the snippets) and what it
- * reads (AGENTS.md). Its keys live on Access, beside what it may do.
+ * Connect, on Access under its keys: how its host reaches this workspace
+ * (the snippets) and what it reads (AGENTS.md).
  */
-function ConnectTab({ detail, onOpenAccess }: { detail: AgentDetail; onOpenAccess: () => void }) {
+function ConnectTab({ detail }: { detail: AgentDetail }) {
   const { isDemoMode } = useDemo();
   const context = useRead(agentContextRead(detail.agent.id, isDemoMode));
   const [now] = useState(() => Date.now());
   const name = detail.agent.name;
   const hasWorkingKey = activeKeys(detail.keys ?? [], now).length > 0;
   return (
-    <div className="grid max-w-5xl gap-10 lg:grid-cols-2">
-      <section aria-labelledby="cn-host" className="min-w-0 space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 id="cn-host" className="text-sm font-semibold text-white">Connect its host</h2>
-          {detail.keys !== undefined && !detail.agent.delegate_of && (
-            <Button size="sm" variant="secondary" icon={<KeyRound size={13} aria-hidden="true" />} onClick={onOpenAccess}>{hasWorkingKey ? 'Its keys' : 'Make a key'}</Button>
+    <div className="page-read flex flex-col gap-6">
+      <Card title="Connect its host" icon={<Plug />} id="cn-host" className="scroll-mt-6">
+        <div className="space-y-4">
+          {!hasWorkingKey && detail.keys !== undefined && (
+            <p className="rounded-xl bg-white/[0.03] px-4 py-3 text-sm text-zinc-300">{name} needs a key first. Make one under Keys above, then paste a snippet below.</p>
           )}
+          <ConnectSnippets agentName={name} onDownloadBrief={context.data ? () => downloadText('AGENTS.md', context.data!) : undefined} />
         </div>
-        {!hasWorkingKey && detail.keys !== undefined && (
-          <p className="rounded-xl bg-white/[0.03] px-4 py-3 text-sm text-zinc-300">{name} needs a key first. Make one on Access, then paste a snippet below.</p>
+      </Card>
+      <Card title="What it reads" icon={<FileText />} id="cn-pack" description="Its rules, projects, settings, instructions and each project's pinned brief, as it receives them (AGENTS.md).">
+        {context.loading ? <LoadingRows /> : context.failed ? <Failed onRetry={context.reload} what="what it reads" /> : context.data ? (
+          <pre className="max-h-[560px] overflow-auto whitespace-pre-wrap break-words rounded-xl bg-white/[0.03] p-4 font-mono text-xs leading-relaxed text-zinc-200 ring-1 ring-inset ring-white/[0.06]">{context.data}</pre>
+        ) : (
+          <EmptyState compact title="Nothing for it to read yet" description="It fills in as you set its rules and put it on projects." />
         )}
-        <ConnectSnippets agentName={name} onDownloadBrief={context.data ? () => downloadText('AGENTS.md', context.data!) : undefined} />
-      </section>
-      <section aria-labelledby="cn-pack" className="min-w-0">
-        <h2 id="cn-pack" className="text-sm font-semibold text-white">What it reads: AGENTS.md</h2>
-        <p className="mt-1 text-xs text-zinc-500">Its rules, projects, settings, instructions and each project&apos;s pinned brief, as it receives them.</p>
-        {context.loading ? <div className="mt-3"><LoadingRows /></div> : context.failed ? <Failed onRetry={context.reload} what="the context pack" /> : (
-          <pre className="mt-3 max-h-[560px] overflow-auto whitespace-pre-wrap break-words rounded-2xl bg-black/25 p-4 font-mono text-xs leading-relaxed text-zinc-200 ring-1 ring-inset ring-white/[0.06]">{context.data || 'Empty.'}</pre>
-        )}
-      </section>
+      </Card>
     </div>
   );
 }
 
-function AgentActivityTab({ agentId }: { agentId: string }) {
+/** What it did lately, on Overview. */
+function AgentActivity({ agentId }: { agentId: string }) {
   const { isDemoMode } = useDemo();
   const activity = useRead(agentActivityRead(agentId, isDemoMode));
   return (
-    <div className="max-w-3xl">
-      <ActivityTimeline agentEntries={activity.data ?? []} loading={activity.loading} failed={activity.failed} frame="none" />
+    <div className="glass-card rounded-xl p-4 lg:p-5">
+      <ActivityTimeline agentEntries={activity.data ?? []} loading={activity.loading} failed={activity.failed} frame="none" visible={10} />
     </div>
   );
 }

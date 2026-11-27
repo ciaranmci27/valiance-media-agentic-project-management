@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { ChevronLeft } from 'lucide-react';
+import { Header } from '@/components/layout/Header';
 import {
   DEFAULT_SETTINGS_HREF,
   SETTINGS_GROUPS,
+  SETTINGS_HOME_HREF,
   settingsGroupForPath,
   useSettingsAccess,
 } from '@/components/settings/settings-groups';
@@ -14,8 +17,9 @@ import { useOwnerUpdateSignal } from '@/components/settings/updates/use-owner-up
 import { UpdateIndicator } from '@/components/settings/updates/UpdateIndicator';
 
 /**
- * The Settings area around each group's page: the menu (a sticky list beside
- * the page from lg up, an underline strip above it on phones), the gate that
+ * The Settings area around each group's page: the page's own name in the
+ * Header, the menu (a sticky list beside the page from lg up; on phones the
+ * page fills the screen with a link back to the list at /settings), the gate that
  * sends someone away from a group they cannot see, and the hash scroll that
  * keeps old /settings#<section> links landing on their section.
  */
@@ -29,51 +33,12 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
   // Owners: the same update mark as the sidebar's, beside Updates.
   const updateSignal = useOwnerUpdateSignal();
 
-  // Phones: the strip scrolls sideways, so the open group is scrolled into
-  // view (at once on first paint, smoothly after) and a fade marks each edge
-  // that has more tabs past it.
-  const stripRef = useRef<HTMLUListElement>(null);
-  const firstScroll = useRef(true);
-  const [edges, setEdges] = useState({ start: false, end: false });
-  useLayoutEffect(() => {
-    const strip = stripRef.current;
-    const tab = strip?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (!strip || !tab) return;
-    const left = tab.offsetLeft - (strip.clientWidth - tab.offsetWidth) / 2;
-    const smooth = !firstScroll.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    strip.scrollTo({ left: Math.max(0, left), behavior: smooth ? 'smooth' : 'auto' });
-    firstScroll.current = false;
-  }, [current?.key, groups.length]);
-  useEffect(() => {
-    const strip = stripRef.current;
-    if (!strip) return;
-    const measure = () => {
-      const start = strip.scrollLeft > 1;
-      const end = strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1;
-      setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
-    };
-    measure();
-    strip.addEventListener('scroll', measure, { passive: true });
-    const observer = new ResizeObserver(measure);
-    observer.observe(strip);
-    return () => {
-      strip.removeEventListener('scroll', measure);
-      observer.disconnect();
-    };
-  }, [groups.length]);
-  const fade = edges.start && edges.end
-    ? '[mask-image:linear-gradient(to_right,transparent,#000_2rem,#000_calc(100%-2rem),transparent)]'
-    : edges.start
-      ? '[mask-image:linear-gradient(to_right,transparent,#000_2rem)]'
-      : edges.end
-        ? '[mask-image:linear-gradient(to_left,transparent,#000_2rem)]'
-        : '';
-
   // A group with nothing left to show for this person (a direct link, or demo
-  // mode switched on) falls back to Account instead of an empty page.
+  // mode switched on) falls back to its own fallback (Developers: your own
+  // keys) or Account, instead of an empty page.
   useEffect(() => {
-    if (hidden) router.replace(DEFAULT_SETTINGS_HREF);
-  }, [hidden, router]);
+    if (hidden) router.replace(current?.fallbackHref ?? DEFAULT_SETTINGS_HREF);
+  }, [hidden, current?.fallbackHref, router]);
 
   // A link to a section (/settings/email#email-inboxes) lands before the
   // sections above it finish loading. Keep the target in view while the page
@@ -97,32 +62,19 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   return (
+    <>
+    <Header title={current?.label ?? 'Settings'} />
     <div className="p-4 lg:p-6 max-w-3xl lg:max-w-6xl mx-auto lg:grid lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-8 lg:items-start">
-      {/* Phones: the underline strip the project tabs use, scrolling sideways. */}
-      <nav aria-label="Settings" className="lg:hidden mb-6 border-b border-white/[0.08]">
-        <ul ref={stripRef} className={`flex items-end gap-1 -mb-px pb-px overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-none ${fade}`}>
-          {groups.map((group) => {
-            const active = current?.key === group.key;
-            return (
-              <li key={group.key} className="flex-shrink-0">
-                <Link
-                  href={group.href}
-                  aria-current={active ? 'page' : undefined}
-                  className={`relative flex items-center gap-1.5 whitespace-nowrap px-3 pt-2 pb-2.5 text-sm font-medium rounded-t-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
-                    active ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {group.label}
-                  {group.key === 'updates' && updateSignal && <UpdateIndicator signal={updateSignal} size={14} />}
-                  <span
-                    aria-hidden="true"
-                    className={`absolute inset-x-2 -bottom-px h-0.5 rounded-full transition-colors ${active ? 'bg-brand-400' : 'bg-transparent'}`}
-                  />
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+      {/* Phones: the page is the whole screen, with a way back to the list of Settings pages (/settings).
+          A sub-page (Email's) has its own way back to its group instead. */}
+      <nav aria-label="Settings" className={`lg:hidden mb-4 ${current && pathname !== current.href ? 'hidden' : ''}`}>
+        <Link
+          href={SETTINGS_HOME_HREF}
+          className="inline-flex items-center gap-1 rounded-md py-0.5 pr-1 text-sm text-zinc-400 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+        >
+          <ChevronLeft size={16} aria-hidden="true" />
+          Settings
+        </Link>
       </nav>
 
       {/* Desktop: the sidebar's own nav rows, kept in view while the page scrolls. */}
@@ -157,5 +109,6 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
 
       <div className="min-w-0 space-y-6">{hidden ? null : children}</div>
     </div>
+    </>
   );
 }

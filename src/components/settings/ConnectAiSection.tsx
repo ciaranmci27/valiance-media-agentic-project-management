@@ -7,6 +7,7 @@ import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHead
 import { NewApiKeyDialog } from '@/components/settings/NewApiKeyDialog';
 import { CopyButton } from '@/components/agent/ConnectPanel';
 import { Button } from '@/components/ui/Button';
+import { Tabs, tabId, tabPanelId } from '@/components/ui/Tabs';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import { useAuth } from '@/lib/auth-context';
@@ -26,7 +27,7 @@ const timeOf = (iso: string) => formatTime(iso);
 const connectedOn = (iso: string) => new Date(iso).toLocaleDateString(appLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
 
 /**
- * Settings > Account > Connect AI: use Claude, ChatGPT, Cursor, Claude Code
+ * AI > Your assistant > Connect AI: use Claude, ChatGPT, Cursor, Claude Code
  * or Codex with your own work. One address to paste, two or three steps per
  * tool, the tool signs in as you (OAuth) and you choose Allow. Below, the
  * apps connected now, each with Disconnect. A tool that cannot sign in gets
@@ -90,7 +91,7 @@ export function ConnectAiSection({ canMakeKeys }: { canMakeKeys: boolean }) {
           : view.scopes.length === 0 ? 'no_access' : null;
 
   return (
-    <section id="connect-ai" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-6" aria-labelledby="connect-ai-heading">
+    <section id="connect-ai" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-5" aria-labelledby="connect-ai-heading">
       <SettingsSectionHeader
         icon={Sparkles}
         headingId="connect-ai-heading"
@@ -110,7 +111,7 @@ export function ConnectAiSection({ canMakeKeys }: { canMakeKeys: boolean }) {
       ) : view ? (
         <div className="space-y-6">
           {blocked && (
-            <p role="status" className="rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-amber-100">
+            <p role="status" className="rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-zinc-200">
               {blocked === 'not_ready' && (isOwner
                 ? <>Connect AI needs this workspace&apos;s latest database update. <Link href="/settings/updates" className={LINK}>Open Updates</Link></>
                 : 'Connect AI is not ready in this workspace yet. Ask an Owner to apply the latest update.')}
@@ -118,8 +119,8 @@ export function ConnectAiSection({ canMakeKeys }: { canMakeKeys: boolean }) {
                 ? <>Connecting AI tools is turned off for this workspace. <Link href="/settings/security#connect-ai-setting" className={LINK}>Turn it on in Security</Link></>
                 : 'Connecting AI tools is turned off for this workspace. Ask an Owner to turn it on.')}
               {blocked === 'api_off' && (isOwner
-                ? <>API access is turned off for this workspace, so AI tools cannot connect. <Link href="/settings/security#api-access" className={LINK}>Turn on API access in Security</Link></>
-                : 'API access is turned off for this workspace, so AI tools cannot connect. Ask an Owner to turn it on in Settings > Security.')}
+                ? <>Keys, agents and AI tools are turned off for this workspace, so AI tools cannot connect. <Link href="/settings/security#api-access" className={LINK}>Turn them on in Security</Link></>
+                : 'Keys, agents and AI tools are turned off for this workspace, so AI tools cannot connect. Ask an Owner to turn them on in Settings > Security.')}
               {blocked === 'no_access' && 'You have no access to share with an AI tool yet. Ask an Owner to give you some in Team > Roles & permissions, on the API tab.'}
             </p>
           )}
@@ -137,25 +138,15 @@ export function ConnectAiSection({ canMakeKeys }: { canMakeKeys: boolean }) {
               </div>
 
               {guide && (
-                <div className="overflow-hidden rounded-2xl bg-white/[0.025] ring-1 ring-inset ring-white/[0.06]">
-                  <div role="tablist" aria-label="Your AI tool" className="flex overflow-x-auto border-b border-white/[0.06] px-2 scrollbar-none">
-                    {guides.map((g) => (
-                      <button
-                        key={g.id}
-                        id={`connect-tab-${g.id}`}
-                        type="button"
-                        role="tab"
-                        aria-selected={guide.id === g.id}
-                        aria-controls="connect-tab-panel"
-                        onClick={() => setTool(g.id)}
-                        className={`relative whitespace-nowrap px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${guide.id === g.id ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
-                      >
-                        {g.label}
-                        <span aria-hidden="true" className={`absolute inset-x-2 bottom-0 h-0.5 rounded-full ${guide.id === g.id ? 'bg-brand-400' : 'bg-transparent'}`} />
-                      </button>
-                    ))}
-                  </div>
-                  <div id="connect-tab-panel" role="tabpanel" aria-labelledby={`connect-tab-${guide.id}`} className="p-4">
+                <div>
+                  <Tabs
+                    label="Your AI tool"
+                    idPrefix="connect"
+                    tabs={guides.map((g) => ({ key: g.id, label: g.label }))}
+                    active={guide.id}
+                    onChange={setTool}
+                  />
+                  <div id={tabPanelId('connect', guide.id)} role="tabpanel" aria-labelledby={tabId('connect', guide.id)} className="pt-4">
                     <ol className="space-y-3">
                       {guide.steps.map((step, index) => (
                         <li key={step} className="flex gap-3 text-sm text-zinc-200">
@@ -171,7 +162,7 @@ export function ConnectAiSection({ canMakeKeys }: { canMakeKeys: boolean }) {
                 </div>
               )}
 
-              <div className="rounded-lg bg-white/[0.03] px-3.5 py-3">
+              <div>
                 <p className="text-xs font-medium text-zinc-400">What a connected tool can do</p>
                 <p className="mt-1 text-sm text-zinc-300">{connectAbilities(view.scopes).join('. ')}. Never settings, people, agents or keys.</p>
               </div>
@@ -252,7 +243,6 @@ export function ConnectAiSection({ canMakeKeys }: { canMakeKeys: boolean }) {
         title={`Disconnect ${removing?.client_name ?? 'this app'}?`}
         message={removing ? `${removing.client_name} stops working with your projects and tasks right away. To use it again, connect it again from the tool.` : ''}
         confirmLabel="Disconnect"
-        doubleConfirm={false}
       />
       {canMakeKeys && <NewApiKeyDialog isOpen={keyOpen} onClose={() => setKeyOpen(false)} preset={preset} />}
     </section>

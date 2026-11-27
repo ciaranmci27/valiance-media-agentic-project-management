@@ -14,7 +14,7 @@ import { logAudit } from '@/lib/api/audit';
 import { z } from 'zod';
 import { NextResponse } from 'next/server';
 import { RECEIPT_CATEGORIES, agentNoticeCategory, decodeCursor, encodeCursor, type NotificationFeedView, type NotificationView } from '@/lib/notifications';
-import { missingFoundation, notificationFeed, notificationsNotReady, upsertNotification } from '@/lib/api/notifications';
+import { missingFoundation, notificationFeed, notificationGroupRows, notificationsNotReady, upsertNotification } from '@/lib/api/notifications';
 import { isRelativeAppPath } from '@/lib/security/safe-url';
 
 export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
@@ -29,6 +29,15 @@ export const GET = withApi(async ({ supabase, searchParams, teamMemberId }) => {
   if (!['all', 'updates', 'unread', 'done'].includes(view)) throw badRequest('view must be all, updates, unread or done');
   const category = searchParams.get('category');
   if (category !== null && !/^[a-z][a-z0-9_]{0,59}$/.test(category)) throw badRequest('category must be a category key such as task_comments');
+
+  // One group's rows (group_key from list_notification_groups), keyset paged.
+  const groupKey = searchParams.get('group_key');
+  if (groupKey !== null) {
+    if (isRead !== null || entityType || category || (view !== 'all' && view !== 'updates')) throw badRequest('group_key cannot be combined with is_read, entity_type, category or a view other than updates');
+    const limit = Math.min(100, Math.max(1, Number(searchParams.get('limit')) || 25));
+    const rows = await notificationGroupRows(supabase, teamMemberId, groupKey, { limit, before: searchParams.get('before') });
+    return NextResponse.json({ success: true, data: rows.items, meta: { limit, next_cursor: rows.next_cursor } });
+  }
 
   // Keyset paging (before: the previous page's meta.next_cursor), as the app
   // pages Updates: the same rows pm.notification_feed lists, snoozed left out.

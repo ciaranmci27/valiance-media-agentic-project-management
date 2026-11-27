@@ -20,7 +20,7 @@ Who an agent is, what it may do, and how every action is traced back to a key an
 
 Make a key:
 
-- In the app: Settings > Developers > API keys, or the agent's profile.
+- In the app: your own keys in AI > Your assistant, under Your keys; an agent's on its profile. Owners and whoever manages every key see everyone's in Settings > Developers.
 - From a chat: `create_api_key` (MCP).
 - Over REST: `POST /api/v1/api-keys`.
 

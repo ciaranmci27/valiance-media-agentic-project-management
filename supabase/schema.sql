@@ -35299,3 +35299,748 @@ $$;
 
 REVOKE ALL ON FUNCTION pm.notification_view_count(uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION pm.notification_view_count(uuid, text) TO service_role;
+
+-- ============================================================
+-- FOLLOW-UPS FOR AGENTS (20261127002900_agents_followups.sql)
+-- ============================================================
+-- Follow-ups for agents (2.0.54): an announce comment counts as a send, and
+-- the watchdog's alarm speaks plainly and reaches whoever a question was
+-- asked of. Additive and safe to run twice; the previous release's code
+-- works with it.
+
+-- ---------------------------------------------------------------------------
+-- One send from an agent, counted on its own
+-- ---------------------------------------------------------------------------
+-- A write that also reaches people (a task comment posted with notify) was
+-- counted as a write by pm.agent_write_gate already; this counts it in the
+-- send bucket too (send_rate_per_minute), across all the agent's keys.
+-- Answers {"refused": null}, or send_rate_limited with its limit and
+-- reset_at. An agent without a send rate answers at once. Server only.
+CREATE OR REPLACE FUNCTION pm.agent_send_gate(p_agent_id uuid, p_window_seconds integer DEFAULT 60)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  v_limit integer;
+  v_now timestamptz := clock_timestamp();
+  v_window pm.agent_write_windows%ROWTYPE;
+BEGIN
+  IF auth.role() <> 'service_role' THEN RAISE EXCEPTION 'Service role required'; END IF;
+  IF p_window_seconds <= 0 THEN RAISE EXCEPTION 'Invalid window'; END IF;
+  SELECT l.send_rate_per_minute INTO v_limit FROM pm.agent_limits l WHERE l.agent_id = p_agent_id;
+  IF v_limit IS NULL THEN RETURN jsonb_build_object('refused', null); END IF;
+  INSERT INTO pm.agent_write_windows (agent_id, bucket, window_start, request_count)
+  VALUES (p_agent_id, 'send', v_now, 1)
+  ON CONFLICT (agent_id, bucket) DO UPDATE
+  SET window_start = CASE WHEN agent_write_windows.window_start + make_interval(secs => p_window_seconds) <= v_now THEN v_now ELSE agent_write_windows.window_start END,
+      request_count = CASE WHEN agent_write_windows.window_start + make_interval(secs => p_window_seconds) <= v_now THEN 1 ELSE agent_write_windows.request_count + 1 END
+  RETURNING * INTO v_window;
+  IF v_window.request_count > v_limit THEN
+    RETURN jsonb_build_object(
+      'refused', 'send_rate_limited',
+      'limit', v_limit,
+      'reset_at', v_window.window_start + make_interval(secs => p_window_seconds));
+  END IF;
+  RETURN jsonb_build_object('refused', null);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.agent_send_gate(uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.agent_send_gate(uuid, integer) TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- The watchdog: plain words, and an expired ask reaches whoever was asked
+-- ---------------------------------------------------------------------------
+-- As before (every 5 minutes, each change made once), with three changes:
+-- "<Agent> stopped responding. Its last check-in was 2 hours ago."; when it
+-- comes back, a stopped-responding notice already read moves to done; and an
+-- expired question or approval also tells the person it was asked of (or
+-- the people of the group), once, as "<Asker>'s question to you expired
+-- without an answer". Answers asked_told beside the rest.
+CREATE OR REPLACE FUNCTION pm.run_watchdog()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+DECLARE
+  r record;
+  v_person uuid;
+  v_people uuid[];
+  v_claims uuid[];
+  v_stale integer;
+  v_tell boolean;
+  v_text text;
+  v_title text;
+  v_link text;
+  v_workspace_paused boolean;
+  v_offline integer := 0;
+  v_online integer := 0;
+  v_runs integer := 0;
+  v_questions integer := 0;
+  v_told integer := 0;
+  v_asked integer := 0;
+  v_webhooks integer := 0;
+BEGIN
+  -- One watchdog at a time; a run that overlaps the last one waits for the next.
+  IF NOT pg_try_advisory_xact_lock(hashtext('pm.run_watchdog')) THEN
+    RETURN jsonb_build_object('skipped', true);
+  END IF;
+
+  -- Agents that stopped responding, and agents that came back.
+  IF pm.module_enabled('agents') THEN
+    SELECT coalesce(bool_or(s.agents_paused_at IS NOT NULL), false) INTO v_workspace_paused FROM pm.business_settings s;
+
+    FOR r IN
+      SELECT a.id, a.name, h.reported_at, h.expected_interval_seconds AS interval_seconds
+      FROM pm.agent_health h
+      JOIN pm.team_members a ON a.id = h.member_id
+      WHERE a.role = 'agent'
+        AND a.delegate_of IS NULL
+        AND coalesce(a.status, 'active') = 'active'
+        AND a.agent_paused_at IS NULL
+        AND NOT v_workspace_paused
+        AND h.reported_at < now() - make_interval(secs => pm.heartbeat_stale_after_seconds(h.expected_interval_seconds))
+        AND NOT EXISTS (SELECT 1 FROM pm.watchdog_marks w WHERE w.kind = 'agent_offline' AND w.subject_id = a.id)
+      ORDER BY h.reported_at
+    LOOP
+      v_stale := pm.heartbeat_stale_after_seconds(r.interval_seconds);
+      -- Claims that ran out while it was silent: those tasks are free again.
+      SELECT coalesce(array_agg(t.id ORDER BY t.id), '{}') INTO v_claims
+      FROM pm.tasks t
+      WHERE t.claimed_by = r.id AND t.claim_expires_at <= now() AND t.claim_expires_at > r.reported_at
+        AND t.status <> 'done' AND t.deleted_at IS NULL;
+      -- An agent silent long before the watchdog first saw it is marked
+      -- without a bell: nobody needs news that old.
+      v_tell := now() - r.reported_at <= make_interval(secs => v_stale) + interval '1 day';
+      v_people := CASE WHEN v_tell THEN pm.agent_people_to_tell(r.id) ELSE '{}'::uuid[] END;
+
+      INSERT INTO pm.watchdog_marks (kind, subject_id, since, detail, notified_at)
+      VALUES ('agent_offline', r.id, r.reported_at, jsonb_build_object('released_task_ids', to_jsonb(v_claims)),
+        CASE WHEN cardinality(v_people) > 0 THEN now() END);
+
+      PERFORM pm.emit_webhook_event('agent.offline', 'agent', r.id, '{}'::uuid[], ARRAY[r.id], jsonb_build_object(
+        'agent', jsonb_build_object('id', r.id, 'name', r.name, 'reported_at', r.reported_at,
+          'expected_interval_seconds', r.interval_seconds, 'stale_after_seconds', v_stale),
+        'offline_since', r.reported_at,
+        'released_task_ids', to_jsonb(v_claims),
+        'project', NULL, 'project_id', NULL, 'task_id', NULL, 'actor_id', NULL));
+
+      v_text := r.name || ' stopped responding. Its last check-in was ' || pm.watchdog_ago(r.reported_at) || ' ago.'
+        || CASE cardinality(v_claims)
+             WHEN 0 THEN ''
+             WHEN 1 THEN ' Its claimed task went back to the queue.'
+             ELSE ' Its ' || cardinality(v_claims) || ' claimed tasks went back to the queue.'
+           END;
+      FOREACH v_person IN ARRAY v_people LOOP
+        PERFORM pm.upsert_notification(v_person, r.name || ' stopped responding', v_text, '/agent/' || r.id, 'member', r.id::text);
+      END LOOP;
+      v_offline := v_offline + 1;
+    END LOOP;
+
+    FOR r IN
+      SELECT w.subject_id AS id, w.since, w.notified_at, a.name, h.reported_at, h.expected_interval_seconds AS interval_seconds
+      FROM pm.watchdog_marks w
+      JOIN pm.team_members a ON a.id = w.subject_id
+      JOIN pm.agent_health h ON h.member_id = w.subject_id
+      WHERE w.kind = 'agent_offline'
+        AND h.reported_at >= now() - make_interval(secs => pm.heartbeat_stale_after_seconds(h.expected_interval_seconds))
+    LOOP
+      DELETE FROM pm.watchdog_marks WHERE kind = 'agent_offline' AND subject_id = r.id;
+      PERFORM pm.emit_webhook_event('agent.online', 'agent', r.id, '{}'::uuid[], ARRAY[r.id], jsonb_build_object(
+        'agent', jsonb_build_object('id', r.id, 'name', r.name, 'reported_at', r.reported_at,
+          'expected_interval_seconds', r.interval_seconds, 'stale_after_seconds', pm.heartbeat_stale_after_seconds(r.interval_seconds)),
+        'offline_since', r.since,
+        'project', NULL, 'project_id', NULL, 'task_id', NULL, 'actor_id', NULL));
+      IF r.notified_at IS NOT NULL THEN
+        FOREACH v_person IN ARRAY pm.agent_people_to_tell(r.id) LOOP
+          PERFORM pm.upsert_notification(v_person, r.name || ' is back', r.name || ' is responding again.', '/agent/' || r.id, 'member', r.id::text);
+        END LOOP;
+        -- The alarm is settled: one already read moves to done, so only "is back" stays.
+        UPDATE pm.team_member_notifications SET done_at = now()
+        WHERE entity_type = 'member' AND entity_id = r.id::text AND category = 'agent_offline'
+          AND done_at IS NULL AND cleared_at IS NULL;
+      END IF;
+      v_online := v_online + 1;
+    END LOOP;
+
+    -- An agent removed, or no longer reporting at all, has nothing to come back from.
+    DELETE FROM pm.watchdog_marks w
+    WHERE w.kind = 'agent_offline'
+      AND NOT EXISTS (
+        SELECT 1 FROM pm.team_members a JOIN pm.agent_health h ON h.member_id = a.id
+        WHERE a.id = w.subject_id AND a.role = 'agent' AND coalesce(a.status, 'active') = 'active'
+      );
+  END IF;
+
+  -- Open questions past their time: stored as expired (the same update a
+  -- read makes), which sends question.expired and clears the asked bells.
+  -- A run one of them held is running again, its clock restarted.
+  UPDATE pm.questions SET status = 'expired'
+  WHERE status = 'open' AND expires_at <= now();
+  GET DIAGNOSTICS v_questions = ROW_COUNT;
+
+  -- Runs with no update for two hours: stored as timed_out, which sends
+  -- run.finished. The run ends at its last update. A run waiting on a
+  -- person is skipped while a question naming it is open; waiting with
+  -- none, it gets seven days.
+  -- While the AI agents module is off, agents cannot report, so nothing times out.
+  IF pm.module_enabled('agents') THEN
+    UPDATE pm.agent_runs run
+    SET status = 'timed_out', finished_at = greatest(run.started_at, run.updated_at)
+    WHERE (run.status = 'running' AND run.updated_at < now() - interval '2 hours')
+       OR (run.status = 'waiting' AND run.updated_at < now() - interval '7 days'
+           AND NOT pm.agent_run_has_open_question(run.id));
+    GET DIAGNOSTICS v_runs = ROW_COUNT;
+  END IF;
+
+  -- Whoever asked hears once, however the expiry was stored, within a day.
+  FOR r IN
+    SELECT q.id, q.kind, q.question, q.asked_by, q.asked_to, q.asked_to_group, q.project_id, q.task_id,
+      asker.name AS asker_name, asker.role AS asker_role, coalesce(target.name, g.name) AS target_name
+    FROM pm.questions q
+    JOIN pm.team_members asker ON asker.id = q.asked_by
+    LEFT JOIN pm.team_members target ON target.id = q.asked_to
+    LEFT JOIN pm.groups g ON g.id = q.asked_to_group
+    WHERE q.status = 'expired' AND q.deleted_at IS NULL AND q.expires_at > now() - interval '1 day'
+      AND NOT EXISTS (SELECT 1 FROM pm.watchdog_marks w WHERE w.kind = 'question_expired' AND w.subject_id = q.id)
+    ORDER BY q.expires_at
+  LOOP
+    INSERT INTO pm.watchdog_marks (kind, subject_id, notified_at) VALUES ('question_expired', r.id, now());
+    IF r.asker_role = 'agent' THEN
+      v_people := pm.agent_people_to_tell(r.asked_by);
+      v_title := r.asker_name || '''s ';
+      v_link := '/agent/' || r.asked_by;
+    ELSE
+      SELECT coalesce(array_agg(m.id), '{}') INTO v_people FROM pm.team_members m
+      WHERE m.id = r.asked_by AND coalesce(m.status, 'active') = 'active';
+      v_title := 'Your ';
+      v_link := '/my-tasks';
+    END IF;
+    IF r.task_id IS NOT NULL AND r.project_id IS NOT NULL THEN
+      v_link := '/projects/' || r.project_id || '?task=' || r.task_id;
+    END IF;
+    v_title := v_title || CASE WHEN r.kind = 'approval' THEN 'approval request to ' ELSE 'question to ' END
+      || coalesce(nullif(btrim(r.target_name), ''), 'a teammate')
+      || CASE WHEN r.kind = 'approval' THEN ' expired without a decision' ELSE ' expired without an answer' END;
+    FOREACH v_person IN ARRAY v_people LOOP
+      -- Whoever was asked already knows.
+      CONTINUE WHEN v_person IS NOT DISTINCT FROM r.asked_to;
+      PERFORM pm.upsert_notification(v_person, v_title, left(r.question, 500), v_link, 'question', r.id::text);
+      v_told := v_told + 1;
+    END LOOP;
+    -- Whoever it was asked of (a person, or a group's people) hears once
+    -- too: the ask left their list when it expired.
+    v_title := coalesce(nullif(btrim(r.asker_name), ''), 'A teammate') || '''s '
+      || CASE WHEN r.kind = 'approval' THEN 'approval request to you expired without a decision' ELSE 'question to you expired without an answer' END;
+    FOR v_person IN
+      SELECT m.id FROM pm.team_members m
+      WHERE m.role <> 'agent' AND coalesce(m.status, 'active') = 'active' AND m.id <> r.asked_by
+        AND (m.id = r.asked_to
+          OR (r.asked_to_group IS NOT NULL AND m.id IN (SELECT gm.member_id FROM pm.group_members gm WHERE gm.group_id = r.asked_to_group)))
+      ORDER BY m.id
+    LOOP
+      PERFORM pm.upsert_notification(v_person, v_title, left(r.question, 500), v_link, 'question', r.id::text, 'question_expired', r.project_id, r.asked_by);
+      v_asked := v_asked + 1;
+    END LOOP;
+  END LOOP;
+  DELETE FROM pm.watchdog_marks WHERE kind = 'question_expired' AND since < now() - interval '2 days';
+
+  -- Webhook endpoints that keep failing: 5 attempts in a row, or failing for
+  -- a day. Told once; a success resets it (track_webhook_endpoint_health).
+  IF pm.module_enabled('webhooks') THEN
+    FOR r IN
+      SELECT w.subject_id AS id, w.detail, e.name
+      FROM pm.watchdog_marks w
+      JOIN pm.webhook_endpoints e ON e.id = w.subject_id
+      WHERE w.kind = 'webhook_failing' AND w.notified_at IS NULL AND e.is_active
+        AND (w.failures >= 5 OR w.since <= now() - interval '24 hours')
+    LOOP
+      UPDATE pm.watchdog_marks SET notified_at = now(), updated_at = now()
+      WHERE kind = 'webhook_failing' AND subject_id = r.id;
+      FOR v_person IN
+        SELECT m.id FROM pm.team_members m
+        WHERE m.role <> 'agent' AND coalesce(m.status, 'active') = 'active'
+          AND (m.role = 'owner' OR pm.member_has_permission(m.id, 'webhooks.manage', 'app'))
+        ORDER BY m.id
+      LOOP
+        PERFORM pm.upsert_notification(v_person, 'Webhook ' || r.name || ' keeps failing',
+          'Last error: ' || coalesce(r.detail ->> 'last_error', 'unknown'), '/settings/developers#webhooks', 'webhook', r.id::text);
+      END LOOP;
+      v_webhooks := v_webhooks + 1;
+    END LOOP;
+  END IF;
+  DELETE FROM pm.watchdog_marks w
+  WHERE w.kind = 'webhook_failing'
+    AND NOT EXISTS (SELECT 1 FROM pm.webhook_endpoints e WHERE e.id = w.subject_id);
+
+  RETURN jsonb_build_object(
+    'agents_offline', v_offline,
+    'agents_online', v_online,
+    'runs_timed_out', v_runs,
+    'questions_expired', v_questions,
+    'askers_told', v_told,
+    'asked_told', v_asked,
+    'webhooks_failing', v_webhooks
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION pm.run_watchdog() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.run_watchdog() TO service_role;
+
+-- ============================================================
+-- SETTINGS CLEANUP: SQUARE LOGO FOR THE DARK THEME (20261127003100_settings_cleanup.sql)
+-- ============================================================
+-- Settings cleanup: the brand's fourth logo slot. Settings > Workspace >
+-- Brand now has a horizontal and a square logo, each for the light and the
+-- dark theme. Three slots map onto the columns that were there (logo_light_path
+-- and logo_dark_path are the horizontal logo, favicon_path the square logo for
+-- the light theme); this adds the square logo for the dark theme.
+--
+-- Additive and safe to re-run: one nullable column, no data changes. NULL
+-- means "use the light theme's square logo", so the previous release's code,
+-- which never reads it, keeps working unchanged. The brand bucket already
+-- accepts the PNG, JPEG and ICO files a square logo may be.
+
+ALTER TABLE pm.workspace_brand ADD COLUMN IF NOT EXISTS logo_square_dark_path text;
+
+COMMENT ON COLUMN pm.workspace_brand.logo_square_dark_path IS
+  'Object path in the pm-brand bucket: the square logo for dark backgrounds (the tab icon in a dark browser). NULL uses favicon_path.';
+
+-- ============================================================
+-- NOTIFICATIONS GROUPS (20261127003300_notifications_groups.sql)
+-- ============================================================
+-- Notifications grouped and filtered, and one count for a blocked comment.
+--
+-- - pm.blocked_comments_for(member): the blocked comments that wait on a
+--   member (20261127002700's pm.my_blocked_comments, now for any member, on
+--   the server); pm.my_blocked_comments reads it for the signed-in one.
+-- - pm.notification_announces_block: a task's comment notice (or its
+--   agent's message) while a blocked comment on that task waits on the
+--   reader is a receipt of that Needs you item, as a question's notice is.
+--   pm.notification_feed, pm.notification_groups,
+--   pm.notification_unread_count and pm.notification_view_count are
+--   redefined to leave it out, so the bell counts the block once; once the
+--   block is answered the notice is an update again.
+-- - pm.notification_update_groups: a member's open Updates grouped by what
+--   they are about (a task, a project; a notice about nothing is its own
+--   group), the latest row of each with its counts, keyset paged, narrowed
+--   to notices from agents or to some projects. pm.notification_group_total
+--   counts those groups; pm.notification_group_rows lists one group's rows,
+--   newest first. pm.notification_group_key is the one way a row's group is
+--   named; pm.notification_open_updates is the rows they all start from.
+--   Server only.
+--
+-- Additive and safe to run twice: functions only, every one CREATE OR
+-- REPLACE with the same arguments and results. The previous release's code
+-- reads the same functions with the same answers, less the receipts.
+
+-- Blocked comments that wait on a member, newest first, at most 100. Same
+-- audience as pm.my_blocked_runs, plus whoever made the task. Server only:
+-- members read their own through pm.my_blocked_comments.
+CREATE OR REPLACE FUNCTION pm.blocked_comments_for(p_member_id uuid)
+RETURNS TABLE (
+  comment_id uuid, task_id uuid, task_title text, project_id uuid,
+  agent_id uuid, agent_name text, text text, created_at timestamptz
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  SELECT c.id, c.task_id, t.title, t.project_id, c.user_id, a.name, c.text, c.created_at
+  FROM pm.task_comments c
+  JOIN pm.tasks t ON t.id = c.task_id
+  JOIN pm.team_members a ON a.id = c.user_id AND a.role = 'agent'
+  WHERE c.blocked AND c.deleted_at IS NULL
+    AND t.deleted_at IS NULL AND t.status <> 'done'
+    AND t.status IS NOT DISTINCT FROM c.blocked_task_status
+    AND pm.module_enabled('agents')
+    AND p_member_id IS NOT NULL
+    AND EXISTS (SELECT 1 FROM pm.projects p WHERE p.id = t.project_id AND p.deleted_at IS NULL)
+    -- Answered (a person wrote after it) or the agent wrote again: over.
+    AND NOT EXISTS (
+      SELECT 1 FROM pm.task_comments l
+      JOIN pm.team_members w ON w.id = l.user_id
+      WHERE l.task_id = c.task_id AND l.deleted_at IS NULL
+        AND (l.created_at, l.id) > (c.created_at, c.id)
+        AND (w.role <> 'agent' OR l.user_id = c.user_id))
+    AND (pm.member_manages_agent(c.user_id, p_member_id)
+      OR t.created_by = p_member_id
+      OR EXISTS (SELECT 1 FROM pm.task_assignees ta WHERE ta.task_id = c.task_id AND ta.member_id = p_member_id))
+  ORDER BY c.created_at DESC
+  LIMIT 100
+$$;
+
+REVOKE ALL ON FUNCTION pm.blocked_comments_for(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.blocked_comments_for(uuid) TO service_role;
+
+-- The signed-in member's own: what Needs you lists.
+CREATE OR REPLACE FUNCTION pm.my_blocked_comments()
+RETURNS TABLE (
+  comment_id uuid, task_id uuid, task_title text, project_id uuid,
+  agent_id uuid, agent_name text, text text, created_at timestamptz
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  SELECT * FROM pm.blocked_comments_for(pm.current_team_member_id())
+$$;
+
+REVOKE ALL ON FUNCTION pm.my_blocked_comments() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.my_blocked_comments() TO authenticated, service_role;
+
+-- A notice that announces a blocked comment waiting on its reader: the
+-- comment notice (or the agent's own message) about that task, while the
+-- block is open. Needs you lists the block, so the notice is a receipt for
+-- as long: never shown in Updates, never counted. Once answered it is an
+-- update like any other.
+CREATE OR REPLACE FUNCTION pm.notification_announces_block(
+  p_member_id uuid, p_entity_type text, p_entity_id text, p_category text, p_actor_id uuid
+) RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  -- Looks at the one task the notice is about (the partial index below), with
+  -- the same rules as pm.blocked_comments_for, so a feed pays one indexed
+  -- probe per comment notice, never a scan of every comment.
+  SELECT CASE
+    WHEN p_entity_type IS DISTINCT FROM 'task' OR p_category NOT IN ('task_comments', 'agent_message') THEN false
+    WHEN p_member_id IS NULL OR p_entity_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN false
+    WHEN NOT pm.module_enabled('agents') THEN false
+    ELSE EXISTS (
+      SELECT 1
+      FROM pm.task_comments c
+      JOIN pm.tasks t ON t.id = c.task_id
+      JOIN pm.team_members a ON a.id = c.user_id AND a.role = 'agent'
+      WHERE c.task_id = p_entity_id::uuid
+        AND c.blocked AND c.deleted_at IS NULL
+        AND (p_actor_id IS NULL OR p_actor_id = c.user_id)
+        AND t.deleted_at IS NULL AND t.status <> 'done'
+        AND t.status IS NOT DISTINCT FROM c.blocked_task_status
+        AND EXISTS (SELECT 1 FROM pm.projects p WHERE p.id = t.project_id AND p.deleted_at IS NULL)
+        AND NOT EXISTS (
+          SELECT 1 FROM pm.task_comments l
+          JOIN pm.team_members w ON w.id = l.user_id
+          WHERE l.task_id = c.task_id AND l.deleted_at IS NULL
+            AND (l.created_at, l.id) > (c.created_at, c.id)
+            AND (w.role <> 'agent' OR l.user_id = c.user_id))
+        AND (pm.member_manages_agent(c.user_id, p_member_id)
+          OR t.created_by = p_member_id
+          OR EXISTS (SELECT 1 FROM pm.task_assignees ta WHERE ta.task_id = c.task_id AND ta.member_id = p_member_id)))
+  END
+$$;
+
+-- Open blocked comments by task: what the receipt check and Needs you read.
+CREATE INDEX IF NOT EXISTS idx_task_comments_blocked_open ON pm.task_comments (task_id) WHERE blocked AND deleted_at IS NULL;
+
+REVOKE ALL ON FUNCTION pm.notification_announces_block(uuid, text, text, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.notification_announces_block(uuid, text, text, text, uuid) TO service_role;
+
+-- How many Updates a member's view holds: the same rows pm.notification_feed
+-- lists (receipts, cleared and snoozed left out), without paging.
+CREATE OR REPLACE FUNCTION pm.notification_view_count(p_member_id uuid, p_view text DEFAULT 'updates')
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  SELECT count(*)::integer
+  FROM pm.team_member_notifications n
+  WHERE n.user_id = p_member_id
+    AND n.cleared_at IS NULL
+    AND NOT pm.notification_is_receipt(n.category)
+    AND NOT pm.notification_announces_block(n.user_id, n.entity_type, n.entity_id, n.category, n.actor_id)
+    AND CASE p_view
+      WHEN 'done' THEN n.done_at IS NOT NULL
+      WHEN 'unread' THEN n.done_at IS NULL AND NOT n.is_read
+      ELSE n.done_at IS NULL
+    END
+    AND NOT EXISTS (
+      SELECT 1 FROM pm.member_snoozes s
+      WHERE s.member_id = p_member_id AND s.item_kind = 'notification' AND s.item_id = n.id AND s.until > now()
+    )
+$$;
+
+REVOKE ALL ON FUNCTION pm.notification_view_count(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.notification_view_count(uuid, text) TO service_role;
+
+-- The group a notice belongs to: what it is about ("task:<id>"), or itself
+-- when it is about nothing.
+CREATE OR REPLACE FUNCTION pm.notification_group_key(p_entity_type text, p_entity_id text, p_id uuid)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = pm
+AS $$
+  SELECT CASE WHEN p_entity_type IS NOT NULL AND p_entity_id IS NOT NULL
+    THEN p_entity_type || ':' || p_entity_id ELSE 'notification:' || p_id::text END
+$$;
+
+REVOKE ALL ON FUNCTION pm.notification_group_key(text, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.notification_group_key(text, text, uuid) TO service_role;
+
+-- A member's open Updates (not done, receipts, cleared and snoozed left
+-- out), narrowed to notices from agents and to some projects when asked.
+CREATE OR REPLACE FUNCTION pm.notification_open_updates(
+  p_member_id uuid,
+  p_from_agents boolean DEFAULT false,
+  p_project_ids uuid[] DEFAULT NULL
+) RETURNS SETOF pm.team_member_notifications
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  SELECT n.*
+  FROM pm.team_member_notifications n
+  WHERE n.user_id = p_member_id
+    AND n.cleared_at IS NULL
+    AND n.done_at IS NULL
+    AND NOT pm.notification_is_receipt(n.category)
+    AND NOT pm.notification_announces_block(n.user_id, n.entity_type, n.entity_id, n.category, n.actor_id)
+    AND NOT EXISTS (
+      SELECT 1 FROM pm.member_snoozes s
+      WHERE s.member_id = p_member_id AND s.item_kind = 'notification' AND s.item_id = n.id AND s.until > now()
+    )
+    AND (NOT coalesce(p_from_agents, false)
+      OR EXISTS (SELECT 1 FROM pm.team_members a WHERE a.id = n.actor_id AND a.role = 'agent'))
+    AND (p_project_ids IS NULL OR cardinality(p_project_ids) = 0 OR n.project_id = ANY (p_project_ids))
+$$;
+
+REVOKE ALL ON FUNCTION pm.notification_open_updates(uuid, boolean, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.notification_open_updates(uuid, boolean, uuid[]) TO service_role;
+
+-- Updates grouped: the latest row of each group with how many it holds and
+-- how many are unread, newest group first, keyset paged on the latest
+-- row's (created_at, id).
+CREATE OR REPLACE FUNCTION pm.notification_update_groups(
+  p_member_id uuid,
+  p_limit integer DEFAULT 30,
+  p_before_at timestamptz DEFAULT NULL,
+  p_before_id uuid DEFAULT NULL,
+  p_from_agents boolean DEFAULT false,
+  p_project_ids uuid[] DEFAULT NULL
+) RETURNS TABLE (
+  id uuid,
+  title text,
+  message text,
+  link text,
+  is_read boolean,
+  entity_type text,
+  entity_id text,
+  category text,
+  project_id uuid,
+  actor_id uuid,
+  created_at timestamptz,
+  group_key text,
+  group_count integer,
+  unread_count integer
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  WITH ranked AS (
+    SELECT o.*,
+      pm.notification_group_key(o.entity_type, o.entity_id, o.id) AS gkey,
+      row_number() OVER (PARTITION BY pm.notification_group_key(o.entity_type, o.entity_id, o.id) ORDER BY o.created_at DESC, o.id DESC) AS rn,
+      count(*) OVER (PARTITION BY pm.notification_group_key(o.entity_type, o.entity_id, o.id)) AS cnt,
+      count(*) FILTER (WHERE NOT o.is_read) OVER (PARTITION BY pm.notification_group_key(o.entity_type, o.entity_id, o.id)) AS unread
+    FROM pm.notification_open_updates(p_member_id, p_from_agents, p_project_ids) o
+  )
+  SELECT r.id, r.title, r.message, r.link, r.is_read, r.entity_type, r.entity_id, r.category, r.project_id, r.actor_id,
+    r.created_at, r.gkey, r.cnt::integer, r.unread::integer
+  FROM ranked r
+  WHERE r.rn = 1
+    AND (p_before_at IS NULL OR (r.created_at, r.id) < (p_before_at, coalesce(p_before_id, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)))
+  ORDER BY r.created_at DESC, r.id DESC
+  LIMIT least(greatest(coalesce(p_limit, 30), 1), 100)
+$$;
+
+REVOKE ALL ON FUNCTION pm.notification_update_groups(uuid, integer, timestamptz, uuid, boolean, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.notification_update_groups(uuid, integer, timestamptz, uuid, boolean, uuid[]) TO service_role;
+
+-- How many groups those Updates make, with the same filters.
+CREATE OR REPLACE FUNCTION pm.notification_group_total(
+  p_member_id uuid,
+  p_from_agents boolean DEFAULT false,
+  p_project_ids uuid[] DEFAULT NULL
+) RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  SELECT count(DISTINCT pm.notification_group_key(o.entity_type, o.entity_id, o.id))::integer
+  FROM pm.notification_open_updates(p_member_id, p_from_agents, p_project_ids) o
+$$;
+
+REVOKE ALL ON FUNCTION pm.notification_group_total(uuid, boolean, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.notification_group_total(uuid, boolean, uuid[]) TO service_role;
+
+-- One group's open Updates, newest first, keyset paged on (created_at, id).
+CREATE OR REPLACE FUNCTION pm.notification_group_rows(
+  p_member_id uuid,
+  p_group_key text,
+  p_limit integer DEFAULT 30,
+  p_before_at timestamptz DEFAULT NULL,
+  p_before_id uuid DEFAULT NULL
+) RETURNS SETOF pm.team_member_notifications
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  SELECT o.*
+  FROM pm.notification_open_updates(p_member_id, false, NULL) o
+  WHERE pm.notification_group_key(o.entity_type, o.entity_id, o.id) = p_group_key
+    AND (p_before_at IS NULL OR (o.created_at, o.id) < (p_before_at, coalesce(p_before_id, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)))
+  ORDER BY o.created_at DESC, o.id DESC
+  LIMIT least(greatest(coalesce(p_limit, 30), 1), 100)
+$$;
+
+REVOKE ALL ON FUNCTION pm.notification_group_rows(uuid, text, integer, timestamptz, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.notification_group_rows(uuid, text, integer, timestamptz, uuid) TO service_role;
+
+-- The foundation's Updates feed, groups and unread count, as before, with a
+-- notice announcing an open blocked comment left out (it is a receipt while
+-- the block waits in Needs you).
+
+-- A member's Updates: view updates (not done), unread, or done (newest
+-- done first). Receipts, cleared and snoozed rows never show. Keyset paged
+-- on (created_at, id), or (done_at, id) for done.
+CREATE OR REPLACE FUNCTION pm.notification_feed(
+  p_member_id uuid,
+  p_view text DEFAULT 'updates',
+  p_limit integer DEFAULT 30,
+  p_before_at timestamptz DEFAULT NULL,
+  p_before_id uuid DEFAULT NULL
+) RETURNS SETOF pm.team_member_notifications
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  SELECT n.*
+  FROM pm.team_member_notifications n
+  WHERE n.user_id = p_member_id
+    AND n.cleared_at IS NULL
+    AND NOT pm.notification_is_receipt(n.category)
+    AND NOT pm.notification_announces_block(n.user_id, n.entity_type, n.entity_id, n.category, n.actor_id)
+    AND CASE p_view
+      WHEN 'done' THEN n.done_at IS NOT NULL
+      WHEN 'unread' THEN n.done_at IS NULL AND NOT n.is_read
+      ELSE n.done_at IS NULL
+    END
+    AND NOT EXISTS (
+      SELECT 1 FROM pm.member_snoozes s
+      WHERE s.member_id = p_member_id AND s.item_kind = 'notification' AND s.item_id = n.id AND s.until > now()
+    )
+    AND (
+      p_before_at IS NULL
+      OR (CASE WHEN p_view = 'done' THEN n.done_at ELSE n.created_at END, n.id) < (p_before_at, coalesce(p_before_id, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid))
+    )
+  ORDER BY CASE WHEN p_view = 'done' THEN n.done_at ELSE n.created_at END DESC, n.id DESC
+  LIMIT least(greatest(coalesce(p_limit, 30), 1), 100)
+$$;
+
+REVOKE ALL ON FUNCTION pm.notification_feed(uuid, text, integer, timestamptz, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.notification_feed(uuid, text, integer, timestamptz, uuid) TO service_role;
+
+-- The same Updates grouped by what they are about (entity type and id; a
+-- notice about nothing is its own group): the latest row of each group, how
+-- many it holds and how many are unread, newest group first, keyset paged
+-- on the latest row's (created_at, id).
+CREATE OR REPLACE FUNCTION pm.notification_groups(
+  p_member_id uuid,
+  p_limit integer DEFAULT 30,
+  p_before_at timestamptz DEFAULT NULL,
+  p_before_id uuid DEFAULT NULL
+) RETURNS TABLE (
+  id uuid,
+  title text,
+  message text,
+  link text,
+  is_read boolean,
+  entity_type text,
+  entity_id text,
+  category text,
+  project_id uuid,
+  actor_id uuid,
+  created_at timestamptz,
+  group_key text,
+  group_count integer,
+  unread_count integer
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  WITH open_rows AS (
+    SELECT n.*,
+      CASE WHEN n.entity_type IS NOT NULL AND n.entity_id IS NOT NULL
+        THEN n.entity_type || ':' || n.entity_id ELSE 'notification:' || n.id::text END AS gkey
+    FROM pm.team_member_notifications n
+    WHERE n.user_id = p_member_id
+      AND n.cleared_at IS NULL
+      AND n.done_at IS NULL
+      AND NOT pm.notification_is_receipt(n.category)
+      AND NOT pm.notification_announces_block(n.user_id, n.entity_type, n.entity_id, n.category, n.actor_id)
+      AND NOT EXISTS (
+        SELECT 1 FROM pm.member_snoozes s
+        WHERE s.member_id = p_member_id AND s.item_kind = 'notification' AND s.item_id = n.id AND s.until > now()
+      )
+  ), ranked AS (
+    SELECT o.*,
+      row_number() OVER (PARTITION BY o.gkey ORDER BY o.created_at DESC, o.id DESC) AS rn,
+      count(*) OVER (PARTITION BY o.gkey) AS cnt,
+      count(*) FILTER (WHERE NOT o.is_read) OVER (PARTITION BY o.gkey) AS unread
+    FROM open_rows o
+  )
+  SELECT r.id, r.title, r.message, r.link, r.is_read, r.entity_type, r.entity_id, r.category, r.project_id, r.actor_id,
+    r.created_at, r.gkey, r.cnt::integer, r.unread::integer
+  FROM ranked r
+  WHERE r.rn = 1
+    AND (p_before_at IS NULL OR (r.created_at, r.id) < (p_before_at, coalesce(p_before_id, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)))
+  ORDER BY r.created_at DESC, r.id DESC
+  LIMIT least(greatest(coalesce(p_limit, 30), 1), 100)
+$$;
+
+REVOKE ALL ON FUNCTION pm.notification_groups(uuid, integer, timestamptz, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.notification_groups(uuid, integer, timestamptz, uuid) TO service_role;
+
+-- How many of a member's Updates are unread: the Notifications count.
+CREATE OR REPLACE FUNCTION pm.notification_unread_count(p_member_id uuid)
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pm
+AS $$
+  SELECT count(*)::integer
+  FROM pm.team_member_notifications n
+  WHERE n.user_id = p_member_id
+    AND n.cleared_at IS NULL
+    AND n.done_at IS NULL
+    AND NOT n.is_read
+    AND NOT pm.notification_is_receipt(n.category)
+    AND NOT pm.notification_announces_block(n.user_id, n.entity_type, n.entity_id, n.category, n.actor_id)
+    AND NOT EXISTS (
+      SELECT 1 FROM pm.member_snoozes s
+      WHERE s.member_id = p_member_id AND s.item_kind = 'notification' AND s.item_id = n.id AND s.until > now()
+    )
+$$;
+
+REVOKE ALL ON FUNCTION pm.notification_unread_count(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION pm.notification_unread_count(uuid) TO service_role;

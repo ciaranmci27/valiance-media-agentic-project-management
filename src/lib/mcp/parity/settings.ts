@@ -43,7 +43,7 @@ export const SETTINGS_TOOLS: PmTool[] = [
   routeTool({
     name: 'remove_brand_logo',
     lead: "Remove the workspace's logo, dark logo or favicon.",
-    detail: `kind light, dark or favicon: the file goes and the default shows again. Uploading one is REST only (POST /api/v1/workspace/brand/logo, multipart). ${OWNER_ONLY} Answers as get_workspace_brand.`,
+    detail: `kind light or dark (horizontal logo), favicon or square_dark (square logo): the file goes and the default shows again. Uploading one is REST only (POST /api/v1/workspace/brand/logo, multipart). ${OWNER_ONLY} Answers as get_workspace_brand.`,
     input: z.object({ kind: z.enum(LOGO_KINDS) }).strict(),
     permission: 'settings.manage',
     method: 'DELETE',

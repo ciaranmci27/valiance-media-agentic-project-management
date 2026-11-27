@@ -421,6 +421,12 @@ export interface InboxThreadDetail {
   summary: string | null;
   /** The newest reply draft asked for on this thread. */
   reply_draft?: InboxReplyDraft | null;
+  /**
+   * Who writes a reply draft asked for here: the inbox's agent, or on a
+   * personal inbox its person's assistant; null when nobody does. Left out
+   * by the demo and older servers, where the inbox's handler decides.
+   */
+  reply_drafter?: { id: string; name: string } | null;
 }
 
 /** A reply the agent drafted on request: copied into a person's own mail, never sent. */

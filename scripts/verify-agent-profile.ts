@@ -12,8 +12,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   activeKeys, agentHolds, dropsViewer, endedKeys, escalateDefaultLabel, heldKeyScopes, keyState, newKeyPresetScopes, startingKeyScopes,
   ownerPickerOptions, ownersEditorStart, ownersSaveBody, profileFormOf, sameProfileForm, savedProfileForm, startProfileForm, syncProfileForm,
-  trimmedProfileForm, type ProfileForm,
+  trimmedProfileForm, type ProfileForm, agentSubtitle, instancesLine, profileTabOf, PROFILE_TABS,
 } from '@/lib/agent-profile';
+import { statusSentence } from '@/lib/agent-status';
 import { DEFAULT_AGENT_RULES, type AgentRulesDraft } from '@/lib/agent-rules';
 import { checkOwnerIds } from '@/lib/api/agent-owners';
 import { applyAgentSample, demoAgentDetail } from '@/lib/demo-agent-profile';
@@ -153,6 +154,27 @@ async function serverOwners() {
   const clash = syncProfileForm(editing, { ...theirs, title: 'Head reviewer' });
   check('with edits, a save elsewhere keeps them and flags it', clash.conflict && clash.draft.description === 'Checks every PR' && clash.base.title === 'Head reviewer');
   check('the role is compared as it is stored', sameProfileForm({ ...after, role: 'Reviewer ' }, after));
+}
+
+// ── Header words and tabs ─────────────────────────────────────────────
+{
+  check('title, template and role saying the same show once', agentSubtitle({ title: 'Builder', templateLabel: 'Builder', role: 'Builder' }) === 'Builder', agentSubtitle({ title: 'Builder', templateLabel: 'Builder', role: 'Builder' }));
+  check('the role shows only when it differs from the title', agentSubtitle({ title: 'Head reviewer', templateLabel: null, role: 'Reviewer' }) === 'Head reviewer · Reviewer');
+  check('case and spaces do not make a second word', agentSubtitle({ title: 'builder ', templateLabel: 'Builder', role: null }) === 'builder');
+  check('nothing set says so', agentSubtitle({ title: null, templateLabel: null, role: null }) === 'No role yet');
+  check('one worker or none says nothing', instancesLine({ count: 1, working: 1 }) === null && instancesLine({ count: 0, working: 0 }) === null && instancesLine(null) === null);
+  check('three working is "3 working now"', instancesLine({ count: 3, working: 3 }) === '3 working now', instancesLine({ count: 3, working: 3 }));
+  check('some idle are counted apart', instancesLine({ count: 3, working: 1 }) === '3 running, 1 working now', instancesLine({ count: 3, working: 1 }));
+  check('five tabs at most', PROFILE_TABS.length === 5, PROFILE_TABS);
+  check('an old Activity link lands on Overview', profileTabOf('activity').tab === 'overview' && profileTabOf('activity').anchor === 'ov-activity');
+  check('an old Agent notes link lands on Rules', profileTabOf('notes').tab === 'rules' && profileTabOf('notes').anchor === 'rp-notes');
+  check('an old Connect link lands on Access', profileTabOf('connect').tab === 'access' && profileTabOf('connect').anchor === 'cn-host');
+  check('a current tab stays', profileTabOf('runs').tab === 'runs' && profileTabOf('runs').anchor === null);
+  check('anything else is Overview', profileTabOf('nope').tab === 'overview' && profileTabOf(null).tab === 'overview');
+  const idleNow = statusSentence({ mood: 'idle', since: NOW - 5_000, sinceMeans: 'idle', telemetry: 'live' } as never, NOW);
+  check('a fresh idle never says a clock reading', !/under a minute|0s/.test(idleNow) && idleNow === 'Idle, active just now', idleNow);
+  const working = statusSentence({ mood: 'working', since: NOW - 16 * 60_000, sinceMeans: 'working', telemetry: 'live' } as never, NOW);
+  check('working keeps how long', working === 'Working for 16 min', working);
 }
 
 serverOwners().then(() => {

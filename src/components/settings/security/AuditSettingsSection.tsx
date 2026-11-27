@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { Archive } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
-import { Button } from '@/components/ui/Button';
+import { useDiscardGuard } from '@/components/ui/useDiscardGuard';
+import { SettingsSaveBar } from '@/components/settings/SettingsSaveBar';
 import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { toast } from '@/components/ui/Toast';
@@ -42,6 +43,13 @@ export function AuditSettingsSection() {
     ? AUDIT_RETENTION_CHOICES
     : [...AUDIT_RETENTION_CHOICES, { value: Number(retention), label: `${retention} days` }];
 
+  const discard = () => {
+    if (!settings) return;
+    setRetention(settings.retention_days === null ? FOREVER : String(settings.retention_days));
+    setKeys(settings.redact_keys.join(', '));
+  };
+  const guard = useDiscardGuard(dirty, discard);
+
   const confirm = useRetentionConfirm(AUDIT_RETENTION_RUN_UTC);
   const save = () => {
     if (!settings) return;
@@ -68,7 +76,7 @@ export function AuditSettingsSection() {
   };
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="audit-settings-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="audit-settings-heading">
       <SettingsSectionHeader
         icon={Archive}
         headingId="audit-settings-heading"
@@ -93,17 +101,16 @@ export function AuditSettingsSection() {
             value={keys}
             onChange={setKeys}
           />
-          <div className="flex justify-end gap-2 sm:col-span-2">
-            {dirty && (
-              <Button variant="ghost" onClick={() => { setRetention(settings.retention_days === null ? FOREVER : String(settings.retention_days)); setKeys(settings.redact_keys.join(', ')); }}>
-                Discard
-              </Button>
-            )}
-            <Button onClick={save} disabled={!dirty || busy || confirm.counting}>{busy ? 'Saving' : confirm.counting ? 'Checking' : 'Save'}</Button>
-          </div>
         </div>
       )}
       {confirm.dialog}
+      {guard.dialog}
+      <SettingsSaveBar
+        dirty={dirty}
+        saving={busy || confirm.counting}
+        onDiscard={discard}
+        onSave={save}
+      />
     </section>
   );
 }

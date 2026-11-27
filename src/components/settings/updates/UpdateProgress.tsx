@@ -10,7 +10,7 @@ import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHead
 import { OutcomeLine } from '@/components/settings/workspace/OutcomeLine';
 import { STEP_ORDER, STEP_TITLES, type RunProgress, type StepKey, type StepStatus } from './update-phase';
 import { UPDATING_DOCS_URL } from './updates-data';
-import { CheckButton, ExternalButton, ExternalLinkText, Mono, agoWords } from './parts';
+import { CheckButton, CopyCode, ExternalButton, ExternalLinkText, Mono, TechDetails, agoWords } from './parts';
 import { ConnectionBlocker } from './ConnectionBlocker';
 
 const STATUS_WORD: Record<StepStatus, string> = {
@@ -44,8 +44,8 @@ const SEGMENT: Record<StepStatus, string> = {
 function databaseConfirm(database: DatabaseUpdates | null): string {
   switch (database?.mode) {
     case 'automatic': return ' It also changes your database, which updates during the deploy.';
-    case 'manual': return ' It also changes your database: apply its changes with npm run db:migrate before it goes live.';
-    case 'not_set_up': return ' It also changes your database: apply its changes with npm run db:migrate before it goes live, or add SUPABASE_DB_URL to let deploys do it.';
+    case 'manual':
+    case 'not_set_up': return ' It also changes your database: whoever runs your server applies those changes before it goes live (Settings > Updates, Database updates, says how).';
     default: return ' It also changes your database.';
   }
 }
@@ -145,13 +145,15 @@ function CheckList({ checks }: { checks: UpdateCheck[] }) {
           {check.state === 'pass' && <CircleCheck size={15} className="mt-0.5 flex-shrink-0 text-emerald-300" aria-hidden="true" />}
           {check.state === 'fail' && <CircleX size={15} className="mt-0.5 flex-shrink-0 text-red-300" aria-hidden="true" />}
           {check.state === 'running' && <Loader2 size={15} className="mt-0.5 flex-shrink-0 animate-spin text-brand-300 [animation-duration:1.6s] motion-reduce:animate-none" aria-hidden="true" />}
-          <span className="min-w-0">
+          <div className="min-w-0 flex-1">
             <span className="text-zinc-100">{check.name}</span>
             <span className="sr-only">: {check.state === 'pass' ? 'passed' : check.state === 'fail' ? 'failed' : 'running'}</span>
             {check.state === 'fail' && check.detail && (
-              <span className="mt-0.5 block break-words font-mono text-xs text-zinc-400">{check.detail}</span>
+              <TechDetails summary="What the check said">
+                <span className="block break-words font-mono text-[11px] text-zinc-400">{check.detail}</span>
+              </TechDetails>
             )}
-          </span>
+          </div>
         </li>
       ))}
     </ul>
@@ -161,18 +163,21 @@ function CheckList({ checks }: { checks: UpdateCheck[] }) {
 /** The update's database note, by how deploys treat the database. */
 function DatabaseNote({ database, preview }: { database: DatabaseUpdates | null; preview: boolean }) {
   return (
-    <p className="flex items-start gap-2 rounded-lg bg-white/[0.04] px-3 py-2 text-xs text-zinc-200">
+    <div className="flex items-start gap-2 rounded-lg bg-white/[0.04] px-3 py-2 text-xs text-zinc-200">
       <Database size={13} className="mt-px flex-shrink-0 text-zinc-300" aria-hidden="true" />
-      <span>
+      <div className="min-w-0 flex-1">
         This update changes the database.
         {preview && ' The preview can\'t show those parts until you apply it.'}
         {database?.mode === 'automatic' && ' Your database updates during the deploy.'}
+        {(database?.mode === 'manual' || database?.mode === 'not_set_up') && ' Whoever runs your server applies its database changes before it goes live.'}
         {(database?.mode === 'manual' || database?.mode === 'not_set_up') && (
-          <> Apply its database changes with <Mono>npm run db:migrate</Mono> before it goes live
-            {database.mode === 'not_set_up' && <>, or add <Mono>SUPABASE_DB_URL</Mono> to let deploys do it</>}.</>
+          <TechDetails>
+            <span className="block">Run <CopyCode text="npm run db:migrate" /> from the app&apos;s folder before it goes live.</span>
+            {database.mode === 'not_set_up' && <span className="block">Or add <Mono>SUPABASE_DB_URL</Mono> to your host to let deploys do it.</span>}
+          </TechDetails>
         )}
-      </span>
-    </p>
+      </div>
+    </div>
   );
 }
 
@@ -344,7 +349,7 @@ export function UpdateProgress({
         }
         return (
           <>
-            <Quiet>Type-check, core check and tests run on the copy. This takes a few minutes.</Quiet>
+            <Quiet>The app checks the update on a copy first, so nothing live changes. This takes a few minutes.</Quiet>
             {run.checks.length > 0 && <CheckList checks={run.checks} />}
           </>
         );

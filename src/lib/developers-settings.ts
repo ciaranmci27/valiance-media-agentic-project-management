@@ -96,6 +96,37 @@ export function groupApiKeys(keys: readonly ApiKey[], me: string | null, agentId
 }
 
 /**
+ * Where a key is listed (P1): your own keys live in your own area (AI > Your
+ * assistant, beside Connect AI), everyone else's (other people's and agents')
+ * in Settings > Developers, for Owners and whoever manages every key.
+ */
+export type KeyListScope = 'mine' | 'workspace';
+
+export function keysInScope<K extends Pick<ApiKey, 'team_member_id'>>(keys: readonly K[], scope: KeyListScope, me: string | null): K[] {
+  return keys.filter((key) => (scope === 'mine' ? !!me && key.team_member_id === me : key.team_member_id !== me));
+}
+
+/**
+ * Where a person's own API keys live: AI > Your assistant, beside Connect AI.
+ * The AI area is closed while the AI agents module is off, so then they show
+ * in Settings > Developers instead, for every member but a guest: nobody,
+ * the Owner included, ever loses their own keys. Never in the demo.
+ */
+export function ownKeysInSettings(input: { agentsOn: boolean; isGuest: boolean; isDemoMode: boolean }): boolean {
+  return !input.agentsOn && !input.isGuest && !input.isDemoMode;
+}
+
+/**
+ * Who sees Settings > Developers at all: Owners, whoever manages every API
+ * key, and whoever holds webhooks (they see webhooks there, or are told to
+ * ask an Owner while the module is off). Never a guest.
+ */
+export function seesDevelopers(input: { isOwner: boolean; isGuest: boolean; canManageAllKeys: boolean; holdsWebhooks: boolean }): boolean {
+  if (input.isGuest) return false;
+  return input.isOwner || input.canManageAllKeys || input.holdsWebhooks;
+}
+
+/**
  * An agent's key on this page: always listed and revocable (an Owner must be
  * able to stop one even with the Agents module off, when its profile is out
  * of reach); Open Connect only where the person can act there: the profile

@@ -64,11 +64,13 @@ function expiresLabel(iso: string): string {
   return sameDay ? `Closes at ${formatTime(when)}` : `Closes ${formatDay(when)}`;
 }
 
-export function QuestionCard({ question, variant = 'panel', dense = false, place, onOpenTask, lead }: {
+export function QuestionCard({ question, variant = 'panel', dense = false, place, onOpenTask, lead, menu }: {
   question: QuestionView;
   variant?: Variant;
   /** hub: tighter padding (the bell). */
   dense?: boolean;
+  /** hub: the row's menu (Snooze), on the right. */
+  menu?: ReactNode;
   /** band and hub: show where it hangs (task or project), opening the task on click. */
   place?: boolean;
   onOpenTask?: (taskId: string) => void;
@@ -486,7 +488,8 @@ export function QuestionCard({ question, variant = 'panel', dense = false, place
                 </>
               )}
               <span className="text-zinc-600" aria-hidden="true">·</span>
-              <time dateTime={question.created_at} className={`flex-shrink-0 tabular-nums ${forYou ? 'text-amber-300' : ''}`} title={formatFull(question.created_at)}>{waited}</time>
+              {/* The wait reads the same on every Needs you row: plain muted ink. */}
+              <time dateTime={question.created_at} className="flex-shrink-0 tabular-nums" title={formatFull(question.created_at)}>{waited}</time>
               {placeLine && <><span className="text-zinc-600" aria-hidden="true">·</span>{question.task_title && <span className="flex-shrink-0">Unblocks</span>}{placeLine}</>}
             </p>
             {more ? (
@@ -533,6 +536,7 @@ export function QuestionCard({ question, variant = 'panel', dense = false, place
             )}
             {!more && error && <p className="mt-2 text-xs text-red-300" role="alert">{error}</p>}
           </div>
+          {menu && <div className="-mr-1.5 -mt-1 flex-shrink-0">{menu}</div>}
         </div>
         {dialog}
         {reviewPanel}

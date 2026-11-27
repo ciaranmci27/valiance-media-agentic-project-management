@@ -565,7 +565,6 @@ function UndoBlock() {
         title="Revoke this key?"
         message="Anything using it stops working at once. This cannot be undone."
         confirmLabel="Revoke key"
-        doubleConfirm={false}
       />
     </Block>
   );

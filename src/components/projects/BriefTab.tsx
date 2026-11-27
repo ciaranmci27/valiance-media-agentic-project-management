@@ -307,7 +307,6 @@ export function BriefTab({ projectId }: { projectId: string }) {
         message="Agents stop seeing it, and it leaves the brief. It cannot be brought back."
         confirmLabel="Archive"
         variant="danger"
-        doubleConfirm={false}
       />
     </div>
   );
@@ -828,7 +827,6 @@ export function ContextBrief({ scope, emptyText, label }: {
           : 'Agents stop seeing it, and it leaves this list. It cannot be brought back.'}
         confirmLabel={memory ? 'Delete' : 'Archive'}
         variant="danger"
-        doubleConfirm={false}
       />
     </div>
   );

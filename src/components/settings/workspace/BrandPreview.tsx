@@ -51,7 +51,7 @@ export function BrandPreview({ brand, dirty }: { brand: Brand; dirty: boolean })
   return (
     <div role="group" aria-labelledby="brand-preview-title">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 id="brand-preview-title" className="text-xs font-medium uppercase tracking-wide text-zinc-400">Preview</h3>
+        <h3 id="brand-preview-title" className="text-sm font-semibold text-white">Preview</h3>
         {dirty && (
           <span className="rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-200">Unsaved</span>
         )}
@@ -59,7 +59,7 @@ export function BrandPreview({ brand, dirty }: { brand: Brand; dirty: boolean })
       <p className="sr-only">How your name, logo and colors look in the app and in emails. It updates as you edit.</p>
 
       <div aria-hidden="true" inert className={`grid gap-3 ${SURFACE_TEXT_SHADES}`} style={surfaceVars(brand)}>
-        {/* Browser tab: the favicon, then name and tagline as the tab title. */}
+        {/* Browser tab: the square logo (or what stands in for it), then name and tagline as the tab title. */}
         <div>
           <p className="mb-1.5 text-[11px] text-zinc-400">Browser tab</p>
           <div className="flex items-end rounded-lg bg-white/[0.03] px-2 pt-2 ring-1 ring-inset ring-white/[0.06]">
@@ -67,6 +67,12 @@ export function BrandPreview({ brand, dirty }: { brand: Brand; dirty: boolean })
               {brand.logos.favicon ? (
                 // eslint-disable-next-line @next/next/no-img-element -- a user upload on another host, shown as is
                 <img src={brand.logos.favicon} alt="" className="h-4 w-4 flex-shrink-0 object-contain" />
+              ) : brand.logos.light ? (
+                // No square logo: the tab icon is a square crop of the horizontal one (/api/brand/icon).
+                <span className="relative block h-4 w-4 flex-shrink-0 overflow-hidden">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- a user upload on another host, shown as is */}
+                  <img src={brand.logos.light} alt="" className="absolute left-0 top-0 h-full w-auto max-w-none" />
+                </span>
               ) : (
                 <span
                   className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-[10px] font-bold leading-none text-white"

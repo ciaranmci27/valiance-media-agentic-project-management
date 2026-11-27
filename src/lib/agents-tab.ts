@@ -1,6 +1,8 @@
 import { latestReview, type NeedsYouItem } from '@/lib/autonomy';
 import { agentRulesOf, ESCALATE_DEFAULT_LABEL } from '@/lib/agent-rules';
 import { groupTargetLabel } from '@/lib/groups';
+import { zonedMidnight } from '@/lib/schedules';
+import { appTimeZone } from '@/lib/time-zone';
 import {
   RUN_FILTER_STATUSES,
   effectiveRunStatus,
@@ -193,14 +195,15 @@ export function needsForAgent(needs: AgentNeedsYou, agentId: string): AgentNeeds
 
 // ── Runs ────────────────────────────────────────────────────────────────
 
-export const RUNS_PAGE_SIZE = 25;
+/** How many runs one read brings: the first window and each "Show 24 more" (DESIGN.md Rule 4). */
+export const RUNS_PAGE_SIZE = 24;
 
 export interface RunFeedFilters {
   agentId: string | null;
   /** What the row shows (display_status): a turn's outcome, a run's status. */
   status: RunDisplayStatus | null;
   projectId: string | null;
-  /** Started on or after this day (YYYY-MM-DD, the viewer's own days). */
+  /** Started on or after this day (YYYY-MM-DD, a day in the viewer's profile zone, as Analytics counts days). */
   from?: string | null;
   /** Started on or before this day (YYYY-MM-DD). */
   to?: string | null;
@@ -227,27 +230,57 @@ export interface RunFeedQuery {
   key: string;
   /** Column equalities to apply, in order. */
   eq: [column: 'agent_id' | 'display_status' | 'project_id', value: string][];
-  /** The days runs started in, as local-midnight bounds on sort_at: gte inclusive, lt exclusive. */
+  /** The days runs started in, as midnight in the profile zone on sort_at: gte inclusive, lt exclusive. */
   started: { gte?: string; lt?: string };
-  /** Inclusive range for PostgREST. */
-  from: number;
-  to: number;
+  /** Rows after this one (keyset: older sort_at, or the same with a lower id); null for the first page. */
+  after: RunCursor | null;
+  /** How many rows to read. */
+  limit: number;
 }
 
-/** Local midnight of a YYYY-MM-DD day, plus some days, as ISO. */
-function dayStartIso(key: string, plusDays = 0): string {
-  const [y, m, d] = key.split('-').map(Number);
-  return new Date(y, m - 1, d + plusDays).toISOString();
+/** Where the next page of the run feed starts: the last row shown, by its sort_at as stored and its id. */
+export interface RunCursor { at: string; id: string }
+
+// Checked before it goes into a filter string: a timestamp as Postgres writes it, and an id of plain characters.
+const CURSOR_AT = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)$/;
+const CURSOR_ID = /^[A-Za-z0-9_:.-]{1,100}$/;
+
+/** A cursor that is safe to send, or null (a bad one starts from the top rather than failing). */
+export function runCursorOf(value: RunCursor | null | undefined): RunCursor | null {
+  return value && CURSOR_AT.test(value.at) && CURSOR_ID.test(value.id) ? value : null;
 }
 
 /**
- * The run feed's query for one set of filters and a zero-based page. A
- * filter that is not a real id, status or day is dropped rather than sent,
- * so a stale URL or a bad value lists everything instead of failing. Status
- * filters on display_status, the same column the pill shows.
+ * The rows shown: the first page (refreshed live) then the pages read after
+ * it, each run once. A run that moved up into the first page since is not
+ * shown twice.
  */
-export function runFeedQuery(filters: RunFeedFilters, page: number, pageSize = RUNS_PAGE_SIZE): RunFeedQuery {
-  const safePage = Number.isInteger(page) && page > 0 ? page : 0;
+export function mergeRunPages<R extends { id: string }>(first: readonly R[], later: readonly R[]): R[] {
+  const seen = new Set(first.map((row) => row.id));
+  return [...first, ...later.filter((row) => !seen.has(row.id) && (seen.add(row.id), true))];
+}
+
+/** The PostgREST or-filter for rows after a cursor, newest first. */
+export function runCursorFilter(cursor: RunCursor): string {
+  return `sort_at.lt."${cursor.at}",and(sort_at.eq."${cursor.at}",id.lt."${cursor.id}")`;
+}
+
+/** Midnight of a YYYY-MM-DD day, plus some days, in a time zone, as ISO. */
+function dayStartIso(key: string, timeZone: string, plusDays = 0): string {
+  const [y, m, d] = key.split('-').map(Number);
+  return zonedMidnight(new Date(Date.UTC(y, m - 1, d + plusDays)).toISOString().slice(0, 10), timeZone).toISOString();
+}
+
+/**
+ * The run feed's query for one set of filters, from the top or after a
+ * cursor (keyset paging: a page never skips or repeats a row as runs land).
+ * A filter that is not a real id, status or day, or a bad cursor, is
+ * dropped rather than sent, so a stale URL or a bad value lists everything
+ * instead of failing. Status filters on display_status, the same column the
+ * pill shows.
+ */
+export function runFeedQuery(filters: RunFeedFilters, after: RunCursor | null = null, pageSize = RUNS_PAGE_SIZE, timeZone: string = appTimeZone()): RunFeedQuery {
+  const cursor = runCursorOf(after);
   const eq: RunFeedQuery['eq'] = [];
   if (filters.agentId && UUID.test(filters.agentId)) eq.push(['agent_id', filters.agentId]);
   if (isRunFilterStatus(filters.status)) eq.push(['display_status', filters.status]);
@@ -255,16 +288,15 @@ export function runFeedQuery(filters: RunFeedFilters, page: number, pageSize = R
   const fromDay = isDateKey(filters.from) ? filters.from : null;
   const toDay = isDateKey(filters.to) ? filters.to : null;
   const started: RunFeedQuery['started'] = {
-    ...(fromDay ? { gte: dayStartIso(fromDay) } : {}),
-    ...(toDay ? { lt: dayStartIso(toDay, 1) } : {}),
+    ...(fromDay ? { gte: dayStartIso(fromDay, timeZone) } : {}),
+    ...(toDay ? { lt: dayStartIso(toDay, timeZone, 1) } : {}),
   };
-  const from = safePage * pageSize;
   return {
-    key: `agent-run-feed:${eq.map(([column, value]) => `${column}=${value}`).join('&')}:${fromDay ?? ''}..${toDay ?? ''}:${from}:${pageSize}`,
+    key: `agent-run-feed:${eq.map(([column, value]) => `${column}=${value}`).join('&')}:${fromDay ?? ''}..${toDay ?? ''}@${fromDay || toDay ? timeZone : ''}:${cursor ? `${cursor.at}/${cursor.id}` : 'top'}:${pageSize}`,
     eq,
     started,
-    from,
-    to: from + pageSize - 1,
+    after: cursor,
+    limit: pageSize,
   };
 }
 

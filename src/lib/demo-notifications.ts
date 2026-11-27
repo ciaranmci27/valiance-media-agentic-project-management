@@ -1,8 +1,10 @@
 'use client';
 
 import { demoNotifications } from '@/lib/demo-data';
+import { demoTeam } from '@/lib/demo-data';
 import {
-  activeSnoozes, isReceiptCategory, withCategory, type NotificationFeedView, type NotificationPage, type NotificationView, type Snooze,
+  activeSnoozes, groupKeyOf, isReceiptCategory, withCategory,
+  type NotificationFeedView, type NotificationGroup, type NotificationGroupPage, type NotificationPage, type NotificationView, type Snooze, type UpdateFilters,
 } from '@/lib/notifications';
 
 /**
@@ -62,4 +64,47 @@ export function demoSnooze(snooze: Snooze) {
 
 export function demoUnsnooze(kind: Snooze['item_kind'], id: string) {
   snoozes = snoozes.filter((s) => !(s.item_kind === kind && s.item_id === id));
+}
+
+/** The demo's open Updates, filtered as the page asks: the same rows pm.notification_open_updates keeps. */
+function openUpdates(filters: UpdateFilters): NotificationView[] {
+  const hidden = activeSnoozes(snoozes, Date.now());
+  const agents = new Set(demoTeam.filter((m) => m.role === 'agent').map((m) => m.id));
+  return all()
+    .filter((row) => visible(row, hidden) && !row.done_at)
+    .filter((row) => !filters.fromAgents || (!!row.actor_id && agents.has(row.actor_id)))
+    .filter((row) => filters.projectIds.length === 0 || (!!row.project_id && filters.projectIds.includes(row.project_id)))
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+}
+
+/** The demo's Updates grouped by what they are about, as GET /api/workspace/notifications/groups answers. */
+export function demoNotificationGroups(filters: UpdateFilters): NotificationGroupPage {
+  const groups = new Map<string, NotificationGroup>();
+  for (const row of openUpdates(filters)) {
+    const key = groupKeyOf(row);
+    const group = groups.get(key);
+    if (group) {
+      group.group_count += 1;
+      if (!row.is_read) group.unread_count += 1;
+    } else {
+      groups.set(key, { latest: { ...row }, group_key: key, group_count: 1, unread_count: row.is_read ? 0 : 1 });
+    }
+  }
+  return { groups: [...groups.values()], total: groups.size, next_cursor: null };
+}
+
+/** One demo group's open Updates, newest first. */
+export function demoGroupRows(groupKey: string): NotificationView[] {
+  return openUpdates({ fromAgents: false, projectIds: [] }).filter((row) => groupKeyOf(row) === groupKey).map((row) => ({ ...row }));
+}
+
+/** Marks one demo group's notifications read. */
+export function demoMarkGroupRead(groupKey: string) {
+  rows = all().map((row) => (groupKeyOf(row) === groupKey ? { ...row, is_read: true } : row));
+}
+
+/** Marks one demo group's open notifications done. */
+export function demoMarkGroupDone(groupKey: string) {
+  const now = new Date().toISOString();
+  rows = all().map((row) => (groupKeyOf(row) === groupKey && !row.done_at && !isReceiptCategory(row.category) ? { ...row, done_at: now, is_read: true } : row));
 }

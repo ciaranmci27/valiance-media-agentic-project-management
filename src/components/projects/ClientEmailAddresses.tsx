@@ -244,7 +244,6 @@ export function ClientEmailAddresses({ isOpen, projectId }: ClientEmailAddresses
             : `Mail from ${removeTarget?.address ?? 'this address'} will no longer map to this project.`}
           confirmLabel="Remove"
           variant="danger"
-          doubleConfirm={false}
         />,
         document.body,
       )}

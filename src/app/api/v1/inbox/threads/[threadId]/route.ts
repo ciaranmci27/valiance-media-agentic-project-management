@@ -1,7 +1,7 @@
 import { withApi } from '@/lib/api/middleware';
 import { success } from '@/lib/api/response';
 import { inboxApi, inboxContextOf } from '@/lib/api/inbox-api';
-import { latestDraft } from '@/lib/communications/inbox-drafts';
+import { draftWriter, latestDraft } from '@/lib/communications/inbox-drafts';
 import { threadDetail } from '@/lib/communications/inbox-service';
 
 export const dynamic = 'force-dynamic';
@@ -16,6 +16,7 @@ export const GET = withApi(async (ctx) => {
   const inbox = inboxContextOf(ctx);
   return success(await inboxApi(async () => {
     const detail = await threadDetail(inbox, ctx.params.threadId);
-    return { ...detail, reply_draft: await latestDraft(inbox, detail.id) };
+    const [replyDraft, writer] = await Promise.all([latestDraft(inbox, detail.id), draftWriter(inbox.service, inbox.access, detail.inbox.id)]);
+    return { ...detail, reply_draft: replyDraft, reply_drafter: writer.writer };
   }));
 }, { permission: 'inbound_email.read' });

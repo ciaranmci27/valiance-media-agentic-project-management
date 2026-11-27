@@ -11,16 +11,19 @@ import { DeveloperDocsSection } from '@/components/settings/DeveloperDocsSection
 import { useSettingsAccess } from '@/components/settings/settings-groups';
 
 /**
- * Settings > Developers: your API keys, how long new keys last (Owners),
- * webhooks (shown while the module is off too, with the way to turn it on),
- * then the MCP and API addresses and docs.
+ * Settings > Developers, for Owners, whoever manages every key and webhook
+ * managers: everyone else's keys, how long new keys last (Owners), webhooks
+ * (shown while the module is off too, with the way to turn it on), then the
+ * MCP and API addresses and docs. Your own keys are in AI > Your assistant,
+ * or here while AI agents is off (that area is closed then).
  */
 export default function DeveloperSettingsPage() {
   const { access } = useAuth();
   const { show, webhooksState } = useSettingsAccess();
   return (
     <>
-      {show.apiKeys && <ApiKeysSection />}
+      {show.myKeys && <ApiKeysSection scope="mine" />}
+      {show.apiKeys && <ApiKeysSection scope="workspace" />}
 
       {show.keyLifetimes && <KeyLifetimeSection agentsOn={isModuleEnabled(access, 'agents')} />}
 

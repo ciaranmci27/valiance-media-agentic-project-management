@@ -9,7 +9,7 @@
  *   npm run -s test:developers-settings
  */
 import {
-  agentKeyLifetimeSettingOptions, agentKeyRow, deliveryDetailLine, endpointHealth, eventSummary, firstWebhookProblem, groupApiKeys, groupEventsFor, keyEnded, keyExpiry, keyPauseAction, keyScopeGroups,
+  agentKeyLifetimeSettingOptions, agentKeyRow, ownKeysInSettings, keysInScope, seesDevelopers, deliveryDetailLine, endpointHealth, eventSummary, firstWebhookProblem, groupApiKeys, groupEventsFor, keyEnded, keyExpiry, keyPauseAction, keyScopeGroups,
   parseAgentEventTypes, replacedKeyIds, rotateOverlapOptions, rotatedKeyExpiryLine, rotationLifetimeNote, webhookEventGroups, webhookFields,
   webhookSaveError, webhooksSectionState, webhookStepProblem, ENDPOINT_HEALTH_DELIVERIES, ROTATE_OVERLAP_DEFAULT_HOURS,
   WEBHOOK_EVENT_GROUPS, WEBHOOK_EVENT_LABELS, type WebhookDraft,
@@ -336,6 +336,25 @@ const draft = (fields: Partial<WebhookDraft> = {}): WebhookDraft => ({
   check('agent key lifetime: nothing set reads as the 90-day default, never "No expiry"', unset[0].label === '90 days (default)' && !unset.some((o) => /no expiry/i.test(o.label)), unset);
   check('agent key lifetime: 90 days is not offered twice', unset.filter((o) => o.label.startsWith('90 days')).length === 1, unset);
   check('agent key lifetime: a saved odd lifetime stays choosable', agentKeyLifetimeSettingOptions(45).some((o) => o.value === '45'));
+}
+
+{
+  // P1: your own keys in your own area, everyone else's in Developers, which is for Owners, key managers and webhook managers.
+  const keys = [key('mine'), key('mate', { team_member_id: 'mate' }), key('nova-key', { team_member_id: 'nova' }), key('old', { revoked_at: hoursFromNow(-2) })];
+  check('your own area lists only your keys, ended ones too', keysInScope(keys, 'mine', 'me').map((k) => k.id).join() === 'mine,old', keysInScope(keys, 'mine', 'me').map((k) => k.id));
+  check('Developers lists everyone else\'s, people and agents', keysInScope(keys, 'workspace', 'me').map((k) => k.id).join() === 'mate,nova-key');
+  check('signed out, nothing is yours', keysInScope(keys, 'mine', null).length === 0);
+  const member = { isOwner: false, isGuest: false, canManageAllKeys: false, holdsWebhooks: false };
+  check('a member without key or webhook management does not see Developers', !seesDevelopers(member));
+  check('an Owner, a key manager and a webhook manager see Developers', seesDevelopers({ ...member, isOwner: true })
+    && seesDevelopers({ ...member, canManageAllKeys: true }) && seesDevelopers({ ...member, holdsWebhooks: true }));
+  check('a guest never sees Developers', !seesDevelopers({ ...member, isGuest: true, canManageAllKeys: true }));
+}
+
+{
+  check('own keys: in the AI area while AI agents is on', !ownKeysInSettings({ agentsOn: true, isGuest: false, isDemoMode: false }));
+  check('own keys: in Settings > Developers for every member while AI agents is off (the AI area is closed)', ownKeysInSettings({ agentsOn: false, isGuest: false, isDemoMode: false }));
+  check('own keys: never for a guest or in the demo', !ownKeysInSettings({ agentsOn: false, isGuest: true, isDemoMode: false }) && !ownKeysInSettings({ agentsOn: false, isGuest: false, isDemoMode: true }));
 }
 
 if (failures.length) {

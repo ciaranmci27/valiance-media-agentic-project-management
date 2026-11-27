@@ -3,7 +3,7 @@ import type { EndpointDoc } from '../docs-data';
 const OWNER = ["settings.manage (an Owner's key; every other member is refused, 403 owner_only)"];
 const OWNER_NOTE = "Owner only, by role, as in Settings: a key whose member is not an Owner answers 403 owner_only, and the key must carry settings.manage.";
 const FILE = 'multipart/form-data, one field named file';
-const kindParam = { name: 'kind', type: 'light|dark|favicon', description: 'Which file: the logo, the dark logo or the favicon' };
+const kindParam = { name: 'kind', type: 'light|dark|favicon|square_dark', description: 'Which file: the horizontal logo (light, dark) or the square logo (favicon for light and the tab icon, square_dark for dark)' };
 const idParam = (what: string) => ({ name: 'id', type: 'uuid', required: true, description: what });
 
 /** Your notification choices, the brand's files, pictures, and the remaining settings and team routes. */
@@ -26,7 +26,7 @@ export const SETTINGS_ENDPOINTS: EndpointDoc[] = [
   // ─── Workspace ──────────────────────────────────────────────────────
   {
     method: 'POST', path: '/api/v1/workspace/brand/logo', group: 'Workspace', scopes: OWNER,
-    description: `Uploads one of the brand's files by the same writer as Settings > Workspace > Brand (${FILE}): a logo or dark logo, PNG or JPG up to 2 MB; a favicon, PNG, JPG or ICO up to 512 KB (413 too large, 415 not an image). Each upload gets a new name, so no screen shows a stale logo; the one it replaces is removed. ${OWNER_NOTE} Audited. Answers as GET /api/v1/workspace/brand.`,
+    description: `Uploads one of the brand's files by the same writer as Settings > Workspace > Brand (${FILE}): the horizontal logo (light, dark), PNG or JPG up to 2 MB; the square logo (favicon is the light one and the tab icon, square_dark the dark one), PNG, JPG or ICO up to 512 KB; a square image on a horizontal slot or a wide one on a square slot is refused (413 too large, 415 not an image). Each upload gets a new name, so no screen shows a stale logo; the one it replaces is removed. ${OWNER_NOTE} Audited. Answers as GET /api/v1/workspace/brand.`,
     queryParams: [kindParam],
     restOnly: 'A binary file upload (multipart), which an MCP tool call cannot carry; remove_brand_logo removes one (tools.ts: binary uploads stay off MCP).',
   },

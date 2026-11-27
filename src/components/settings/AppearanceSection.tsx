@@ -5,7 +5,8 @@ import { Monitor, Moon, Sun } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { applySystemTheme, applyTheme } from '@/lib/theme';
-import { RadioGroup } from '@/components/ui/inputs/RadioGroup';
+import { SubNav } from '@/components/ui/Tabs';
+import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 
 /** The account's theme: system, light or dark, synced across devices. */
 export function AppearanceSection() {
@@ -33,59 +34,21 @@ export function AppearanceSection() {
   };
 
   return (
-    <section id="appearance" className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 bg-brand-500/15 rounded-lg">
-          <Sun className="text-brand-300" size={20} />
-        </div>
-        <div>
-          <h2 className="font-semibold text-white">Appearance</h2>
-          <p className="text-sm text-zinc-400">
-            Choose how the app looks on this account. Syncs across your devices.
-          </p>
-        </div>
-      </div>
-
+    <section id="appearance" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6">
+      <SettingsSectionHeader icon={Sun} title="Appearance" description="How the app looks for you, on every device you sign in on." />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-medium text-zinc-200">Theme</p>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            System follows your device&apos;s light or dark setting.
-          </p>
+          <p className="mt-0.5 text-xs text-zinc-400">System follows your device&apos;s light or dark setting.</p>
         </div>
-        <RadioGroup
-          ariaLabel="Theme"
-          orientation="horizontal"
-          value={themeChoice}
+        <SubNav
+          label="Theme"
+          active={themeChoice}
           onChange={handleThemeChange}
-          options={[
-            {
-              value: 'system',
-              label: (
-                <span className="inline-flex items-center gap-1.5">
-                  <Monitor size={14} />
-                  System
-                </span>
-              ),
-            },
-            {
-              value: 'light',
-              label: (
-                <span className="inline-flex items-center gap-1.5">
-                  <Sun size={14} />
-                  Light
-                </span>
-              ),
-            },
-            {
-              value: 'dark',
-              label: (
-                <span className="inline-flex items-center gap-1.5">
-                  <Moon size={14} />
-                  Dark
-                </span>
-              ),
-            },
+          items={[
+            { key: 'system', label: 'System', icon: Monitor },
+            { key: 'light', label: 'Light', icon: Sun },
+            { key: 'dark', label: 'Dark', icon: Moon },
           ]}
         />
       </div>

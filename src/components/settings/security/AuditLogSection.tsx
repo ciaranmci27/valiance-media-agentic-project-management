@@ -84,12 +84,12 @@ export function AuditLogSection() {
   };
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="audit-log-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="audit-log-heading">
       <SettingsSectionHeader
         icon={ScrollText}
         headingId="audit-log-heading"
         title="Audit log"
-        description="Who changed members, keys, agents, settings, permissions and modules, and every API and MCP write. Rows never change once written."
+        description="Who changed members, keys, agents, settings, permissions and parts of the app, and every change an app or AI tool made. Entries never change once written."
         action={(
           <Button size="sm" variant="secondary" onClick={() => { void exportRows(); }} disabled={exporting || !data || data.total === 0} icon={<Download size={14} aria-hidden="true" />}>
             {exporting ? 'Exporting' : filtered ? 'Export these rows' : 'Export'}

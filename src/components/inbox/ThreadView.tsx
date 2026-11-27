@@ -835,8 +835,10 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
       toast('error', err instanceof Error ? err.message : 'Could not download the file');
     }
   };
-  // Drafts need an agent on the inbox, and the real app (not demo mode).
-  const canDraft = canTriage && !!detail.inbox.handler && !isDemoMode;
+  // Drafts need an agent to write them (the inbox's, or on a personal inbox its person's assistant), and the real app (not demo mode).
+  const drafter = detail.reply_drafter !== undefined ? detail.reply_drafter : detail.inbox.handler;
+  const drafterName = drafter?.name ?? agentName;
+  const canDraft = canTriage && !!drafter && !isDemoMode;
   // The draft folds once it was used (copied, then the thread handled) or a newer email came in.
   const draft = detail.reply_draft;
   const draftFolded: 'used' | 'outdated' | null = draft?.status === 'ready' && draft.completed_at
@@ -863,7 +865,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
     <ReplyDraftCard
       key={draft.id}
       draft={draft}
-      agentName={agentName}
+      agentName={drafterName}
       viewerId={teamMemberId}
       triage={quiet}
       standalone={isMeeting}
@@ -1003,10 +1005,10 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
           {canTriage ? (
             <div className="order-2 ml-auto flex flex-shrink-0 items-center gap-1.5">
               {drafting && (
-                <Tooltip content={`${agentName} is writing a draft`}>
+                <Tooltip content={`${drafterName} is writing a draft`}>
                   <span className="inline-flex px-1 text-zinc-400">
                     <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                    <span className="sr-only">{agentName} is writing a draft</span>
+                    <span className="sr-only">{drafterName} is writing a draft</span>
                   </span>
                 </Tooltip>
               )}

@@ -10,13 +10,17 @@ import {
   DEFAULT_TILE_CAP, METRIC_KEYS, MIXED_LABEL, RUN_METRICS, SCOPE_QUESTIONS, SCOPE_TASKS, SCOPE_TIME, SUM_KINDS, UNPRICED_LABEL, UNSPLIT_MODEL,
   arrangeTiles, breakdown, buildAgentAnalytics, clipOverlaps, collapseRepeats, costLabel, costText, dailyByAgent,
   groupOf, metricValue, moneyVisibility, profitCaveat, providerOf, rangeDays, rankRows, resolveSelectedMetric, runsFromTurns,
-  runOutcomeLine, scopeNotes, successRate, tileStates, unionMs, type AgentAnalyticsInput, type Dimension, type Fact, type MetricKey, type RunRow, type Sums,
+  runOutcomeLine, scopeNotes, successRate, tileStates, unionMs, analyticsRunRows, changeMetrics, metricHasData, periodChange, previousRange,
+  runRowFromFeed, runsListHref, type AgentAnalyticsInput, type Dimension, type Fact, type MetricKey, type RunRow, type Sums,
 } from '@/lib/agent-analytics-model';
 import { activitiesFromWindow, runStatsFromAnswer, type AnalyticsWindowPayload } from '@/lib/agent-analytics-window';
 import { keysetPages, type PageCursor } from '@/lib/agent-analytics-paging';
 import { computeFinanceAttribution } from '@/lib/finance/summary';
 import { agentsTabFrom, AGENTS_TAB_LABELS } from '@/lib/agents-tab';
 import type { AgentActivity, Project, TeamMember, TimeEntry } from '@/lib/types';
+import { demoRunFeedPage } from '@/lib/demo-agents-home';
+import { NO_RUN_FILTERS, runFeedQuery } from '@/lib/agents-tab';
+import { toDateKey } from '@/lib/finance/vesting';
 
 let passed = 0;
 const failures: string[] = [];
@@ -586,6 +590,92 @@ check('revenue says so without time.read_all', scopeNotes({ projectsReadAll: tru
   check('an entry crossing the range end counts only its part in range', reviewerHours > 0 && reviewerHours < 30, reviewerHours);
   check('pending and rejected time is not revenue', (byAgent.find((r) => r.key === HELPER)?.group.sums.revenue ?? 0) === 0
     && (byAgent.find((r) => r.key === HELPER)?.group.sums.pendingRevenue ?? 0) === 300);
+}
+
+// ── Runs agree with the Runs list (same range, agent and project) ──────
+{
+  // The demo's feed is the Runs list's own rows; analytics must count exactly those.
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const now = Date.now();
+  const feed = demoRunFeedPage(NO_RUN_FILTERS, null, 1000).runs;
+  const agentIds = [...new Set(feed.map((r) => r.agent_id))];
+  const projectIds = [...new Set(feed.map((r) => r.project_id).filter((p): p is string => !!p))];
+  const today = new Date(now);
+  const daysAgo = (n: number) => toDateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - n));
+  const rows = analyticsRunRows({ runsFailed: false, serverSummed: false, feedRows: feed.map(runRowFromFeed), activities: [] });
+  for (const [startKey, endKey] of [[daysAgo(29), daysAgo(0)], [daysAgo(0), daysAgo(0)], [daysAgo(6), daysAgo(1)]]) {
+    for (const agentId of [null, ...agentIds]) {
+      for (const projectId of [null, ...projectIds]) {
+        const listed = demoRunFeedPage({ ...NO_RUN_FILTERS, agentId, projectId, from: startKey, to: endKey }, null, 1000).total;
+        const model = buildAgentAnalytics(base({
+          range: { startKey, endKey }, timezone: zone, now, runs: rows,
+          agents: agentIds.map((id) => ({ id, name: id, role: null })),
+          selectedAgentIds: new Set(agentId ? [agentId] : []),
+          selectedProjectIds: new Set(projectId ? [projectId] : []),
+        }));
+        check(`runs ${startKey}..${endKey} agent ${agentId ?? 'all'} project ${projectId ?? 'all'} match the Runs list`,
+          model.totals.sums.run === listed, { analytics: model.totals.sums.run, runsList: listed });
+      }
+    }
+  }
+  check('a failed run read or server sums take no rows', analyticsRunRows({ runsFailed: true, serverSummed: false, feedRows: rows, activities: [] }).length === 0
+    && analyticsRunRows({ runsFailed: false, serverSummed: true, feedRows: rows, activities: [] }).length === 0);
+
+  // One day rule: Runs and Analytics both cut days in the profile zone. A run
+  // at 23:30 in Honolulu is Nov 26 there (09:30 UTC on Nov 27, already Nov 27
+  // for a browser in Denver or UTC): both put it on Nov 26.
+  {
+    const zone = 'Pacific/Honolulu';
+    const lateIso = '2026-11-27T09:30:00.000Z';
+    const late = { ...feed[0], started_at: lateIso, finished_at: null, project_id: null };
+    const lateRows = analyticsRunRows({ runsFailed: false, serverSummed: false, feedRows: [runRowFromFeed(late)], activities: [] });
+    const inRuns = (day: string) => {
+      const q = runFeedQuery({ ...NO_RUN_FILTERS, from: day, to: day }, null, 25, zone);
+      return (!q.started.gte || lateIso >= q.started.gte) && (!q.started.lt || lateIso < q.started.lt);
+    };
+    const inAnalytics = (day: string) => buildAgentAnalytics(base({
+      range: { startKey: day, endKey: day }, timezone: zone, now: Date.parse('2026-11-28T12:00:00Z'), runs: lateRows,
+      agents: [{ id: late.agent_id, name: 'A', role: null }],
+    })).totals.sums.run;
+    check('a run at 23:30 in the profile zone is on that day in Runs', inRuns('2026-11-26') && !inRuns('2026-11-27'), runFeedQuery({ ...NO_RUN_FILTERS, from: '2026-11-26', to: '2026-11-26' }, null, 25, zone).started);
+    check('and on the same day in Analytics', inAnalytics('2026-11-26') === 1 && inAnalytics('2026-11-27') === 0, [inAnalytics('2026-11-26'), inAnalytics('2026-11-27')]);
+  }
+
+  // The link to Runs only when Runs can list the same selection.
+  const none = new Set<string>();
+  const r = { startKey: '2026-11-01', endKey: '2026-11-07' };
+  check('See these runs carries the range, agent and project',
+    runsListHref(r, { agentIds: new Set(['a1']), projectIds: new Set(['p1']), labels: none }) === '/ai?tab=company&view=runs&from=2026-11-01&to=2026-11-07&agent=a1&project=p1');
+  check('no link to Runs for two agents, two projects or a label',
+    runsListHref(r, { agentIds: new Set(['a1', 'a2']), projectIds: none, labels: none }) === null
+    && runsListHref(r, { agentIds: none, projectIds: new Set(['p1', 'p2']), labels: none }) === null
+    && runsListHref(r, { agentIds: none, projectIds: none, labels: new Set(['x']) }) === null);
+}
+
+// ── The chart opens on a stat with data, never an empty $0 chart ───────
+{
+  const zero = groupOf([]).sums;
+  check('$0 revenue is no data', !metricHasData('revenue', zero) && !metricHasData('profit', zero));
+  check('pending revenue is data', metricHasData('revenue', { ...zero, pendingRevenue: 10 }));
+  check('with money first and empty, the chart opens on the first stat with data',
+    resolveSelectedMetric(['revenue', 'profit', 'questions'], null, ['questions']) === 'questions');
+  check('a picked empty stat stays picked', resolveSelectedMetric(['revenue', 'questions'], 'revenue', ['questions']) === 'revenue');
+}
+
+// ── Change against the last period ─────────────────────────────────────
+{
+  check('the last period is the same length, just before', JSON.stringify(previousRange({ startKey: '2026-11-01', endKey: '2026-11-07' })) === JSON.stringify({ startKey: '2026-10-25', endKey: '2026-10-31' }));
+  check('the last period crosses a month end', previousRange({ startKey: '2026-03-01', endKey: '2026-03-01' }).startKey === '2026-02-28');
+  check('runs up 50% is neutral', JSON.stringify(periodChange('runs', 15, 10)) === JSON.stringify({ value: '50%', direction: 'up', good: undefined }));
+  check('cost up is bad', periodChange('cost', 20, 10)?.good === 'down');
+  check('nothing either side is no change', periodChange('runs', 0, 0) === null);
+  check('nothing last period gives no change (no share to give)', periodChange('runs', 3, 0) === null);
+  check('no change is flat', periodChange('runs', 10, 10)?.direction === 'flat');
+  check('tokens and cost compare only with the server spend',
+    !changeMetrics({ runStats: true, spend: false, questionStats: true, feedRows: false }).includes('tokens')
+    && changeMetrics({ runStats: true, spend: true, questionStats: true, feedRows: false }).includes('cost'));
+  check('the demo compares runs and busy time only',
+    JSON.stringify(changeMetrics({ runStats: false, spend: false, questionStats: false, feedRows: true })) === JSON.stringify(['runs', 'busy']));
 }
 
 function finish() {

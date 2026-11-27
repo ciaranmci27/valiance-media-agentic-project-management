@@ -1021,12 +1021,13 @@ export const endpoints: EndpointDoc[] = [
   { method: 'GET', path: '/api/v1/tasks/:id/comments', description: 'List comments on a task, ordered by created_at ascending', group: 'Comments',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
   },
-  { method: 'POST', path: '/api/v1/tasks/:id/comments', description: 'Add a comment to a task. Specify the author via user_id (team member ID). An agent that is stuck on the task sends blocked: true (a comment starting with "[BLOCKED]" counts the same): it shows on Needs you for the task\'s assignees and creator and the agent\'s managers until a person comments after it, the agent comments again, or the task\'s status changes. Each comment carries blocked. For a decision, use POST /api/v1/questions (ask_human) or an approval with your run_id instead. blocked from a key that is not an agent\'s answers 422 blocked_agents_only.', group: 'Comments',
+  { method: 'POST', path: '/api/v1/tasks/:id/comments', description: 'Add a comment to a task. Specify the author via user_id (team member ID). An agent that is stuck on the task sends blocked: true (a comment starting with "[BLOCKED]" counts the same): it shows on Needs you for the task\'s assignees and creator and the agent\'s managers until a person comments after it, the agent comments again, or the task\'s status changes. Each comment carries blocked. For a decision, use POST /api/v1/questions (ask_human) or an approval with your run_id instead. blocked from a key that is not an agent\'s answers 422 blocked_agents_only. With notify: true the task\'s people (its assignees and creator, never the author) are told in the bell, and the answer adds notified (how many). notify needs notifications.send on the key and its member (403 missing_permission, nothing written); an agent\'s notify counts against its send_rate_per_minute (429 send_rate_limited, nothing written). MCP: add_task_comment.', group: 'Comments',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Task ID' }],
     body: [
       { name: 'user_id', type: 'uuid', required: true, description: 'Author team member ID' },
       { name: 'text', type: 'string', required: true, description: 'Comment text' },
       { name: 'blocked', type: 'boolean', required: false, description: 'Agents only: you are stuck on this task until a person replies or the task moves (Needs you)' },
+      { name: 'notify', type: 'boolean', required: false, description: 'Also tell the task\'s people (assignees and creator) in the bell. Needs notifications.send.' },
     ],
   },
   { method: 'PATCH', path: '/api/v1/tasks/:id/comments/:commentId', description: 'Edit a comment\'s text', group: 'Comments',
@@ -2211,6 +2212,7 @@ export const endpoints: EndpointDoc[] = [
       { name: 'entity_type', type: 'string', description: 'Filter by entity type: task, project, lead, comment, member, contact, suggestion, goal, question, invoice, reminder, webhook, schedule' },
       { name: 'view', type: 'string', description: 'all (default: every notification, as before), updates (not done, Needs you receipts left out, as the app lists Updates), unread (those Updates not read yet) or done (marked done). With a view other than all, meta.next_cursor is set while more follow.' },
       { name: 'category', type: 'string', description: 'Filter by category, for example task_comments or invoice_drafts' },
+      { name: 'group_key', type: 'string', description: 'One group\'s open Updates (group_key from GET /api/v1/notifications/groups), newest first, keyset paged with before; not with is_read, entity_type or category.' },
       { name: 'before', type: 'string', description: 'Keyset paging: the previous page\'s meta.next_cursor, with the same view (updates, unread or done) and no other filter. The answer is { data, meta: { limit, next_cursor } }, snoozed notifications left out, as the app lists them.' },
     ],
   },
@@ -2239,7 +2241,9 @@ export const endpoints: EndpointDoc[] = [
   { method: 'DELETE', path: '/api/v1/notifications/:id', description: 'Delete a notification', group: 'Notifications',
     params: [{ name: 'id', type: 'uuid', required: true, description: 'Notification ID' }],
   },
-  { method: 'POST', path: '/api/v1/notifications/mark-all-read', description: 'Mark all unread notifications as read for the API key\'s linked team member. No request body needed.', group: 'Notifications' },
+  { method: 'POST', path: '/api/v1/notifications/mark-all-read', description: 'Mark all unread notifications as read for the API key\'s linked team member. No request body needed; send { group_key } (from GET /api/v1/notifications/groups) to mark only that group read, as opening a grouped row in the app does. Answers { marked_read }.', group: 'Notifications',
+    body: [{ name: 'group_key', type: 'string', required: false, description: 'Only this group\'s unread notifications' }],
+  },
 
   // Groups
   { method: 'GET', path: '/api/v1/groups', description: 'List groups by name, paginated: every live group for a member who may read the team, else the groups the key\'s member is in. Each with member_count, lead_count and is_member. A group stands wherever one member is a target: ask a question or approval to it (asked_to_group), let an agent escalate to it, or let it own an agent.', group: 'Groups',

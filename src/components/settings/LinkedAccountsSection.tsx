@@ -87,7 +87,6 @@ export function useUnlinkChatAccount() {
         ? `Your assistant will no longer know ${removing.handle ?? removing.external_id} on ${providerLabel(removing.provider)} is you, and cannot act for you through it. You can link it again from the assistant.`
         : ''}
       confirmLabel="Unlink"
-      doubleConfirm={false}
     />
   );
   return { ask: setRemoving, busy, dialog };

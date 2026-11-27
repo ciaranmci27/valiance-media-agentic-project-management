@@ -437,6 +437,9 @@ async function main() {
     const v1Plan = await import('../src/app/api/v1/inbox/messages/[id]/plan/route');
     const v1Rules = await import('../src/app/api/v1/inbox/sender-rules/route');
     const v1Draft = await import('../src/app/api/v1/inbox/reply-drafts/[id]/route');
+    const v1Drafts = await import('../src/app/api/v1/inbox/reply-drafts/route');
+    const askDraftRoute = await import('../src/app/api/workspace/inbox/threads/[id]/draft/route');
+    const threadRoute = await import('../src/app/api/workspace/inbox/threads/[id]/route');
     const v1Task = await import('../src/app/api/v1/tasks/[id]/route');
     const v1Reply = await import('../src/app/api/v1/assistant/messages/[id]/reply/route');
     const v1Handled = await import('../src/app/api/v1/assistant/messages/[id]/handled/route');
@@ -692,6 +695,25 @@ async function main() {
     const draftOn = await v1(v1Draft.PUT, 'PUT', `/api/v1/inbox/reply-drafts/${draftId}`, { id: draftId }, s.keys.anaAgent.secret, { body: 'Yes, booked for Friday.' });
     check('drafts: switched back on, it writes the draft for her own inbox', draftOn.status === 200
       && (await s.q<Loose>('SELECT status FROM pm.reply_drafts WHERE id = $1', [draftId]))[0].status === 'ready', draftOn.body);
+
+    // Her personal inbox has no handler of its own: a draft she asks for goes to her assistant.
+    const asked = await session(askDraftRoute.POST, 'POST', `/api/workspace/inbox/threads/${conversation}/draft`, { id: conversation }, { instructions: 'Say yes.' });
+    const waitingFor = await v1(v1Drafts.GET, 'GET', '/api/v1/inbox/reply-drafts', {}, s.keys.anaAgent.secret);
+    check('drafts: asked on her own inbox, the draft goes to her assistant', asked.status === 201 && asked.body?.data?.status === 'requested'
+      && ((waitingFor.body?.data ?? []) as Loose[]).some((row) => row.id === asked.body.data.id), [asked.body, waitingFor.body]);
+    const shown = await session(threadRoute.GET, 'GET', `/api/workspace/inbox/threads/${conversation}`, { id: conversation });
+    check('drafts: the thread names her assistant as the one who writes it', shown.body?.data?.reply_drafter?.id === s.anaAgent, shown.body?.data?.reply_drafter);
+    await s.q("UPDATE pm.reply_drafts SET status = 'failed', completed_at = now() WHERE thread_id = $1 AND status = 'requested'", [conversation]);
+    await session(assistantRoute.PATCH, 'PATCH', '/api/workspace/assistant', {}, { switches: { sort_inbox: false } });
+    const unshared = await session(askDraftRoute.POST, 'POST', `/api/workspace/inbox/threads/${conversation}/draft`, { id: conversation }, {});
+    check('drafts: with Sort my inbox off, it says how to let her assistant in', unshared.status === 409 && /Sort my inbox/.test(JSON.stringify(unshared.body)), unshared.body);
+    await session(assistantRoute.PATCH, 'PATCH', '/api/workspace/assistant', {}, { switches: { sort_inbox: true } });
+    await s.q('UPDATE pm.business_settings SET assistants_enabled = false');
+    const assistantsOff = await session(askDraftRoute.POST, 'POST', `/api/workspace/inbox/threads/${conversation}/draft`, { id: conversation }, {});
+    const hidden = await session(threadRoute.GET, 'GET', `/api/workspace/inbox/threads/${conversation}`, { id: conversation });
+    await s.q('UPDATE pm.business_settings SET assistants_enabled = true');
+    check('drafts: with assistants off, no agent writes it (409) and the thread offers none', assistantsOff.status === 409 && /no agent/.test(JSON.stringify(assistantsOff.body))
+      && hidden.body?.data?.reply_drafter === null, [assistantsOff.body, hidden.body?.data?.reply_drafter]);
 
     // Undo "Finished a task": only when the assistant itself moved it to done.
     const doneByIt = randomUUID();

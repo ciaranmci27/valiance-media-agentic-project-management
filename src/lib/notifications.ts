@@ -196,7 +196,74 @@ export interface NotificationGroup {
 
 export interface NotificationGroupPage {
   groups: NotificationGroup[];
+  /** How many groups the list holds in all, when known. */
+  total?: number | null;
   next_cursor: string | null;
+}
+
+/** What a group of Updates is about: "task:<id>", "project:<id>", or "notification:<id>" for a notice about nothing. */
+export const GROUP_KEY = /^[a-z][a-z_]{0,39}:[A-Za-z0-9._-]{1,200}$/;
+
+
+/** A group key's parts, or null when it is not one. Mirrors pm.notification_group_key. */
+export function parseGroupKey(key: string | null | undefined): { entityType: string; entityId: string } | null {
+  if (!key || !GROUP_KEY.test(key)) return null;
+  const at = key.indexOf(':');
+  const parts = { entityType: key.slice(0, at), entityId: key.slice(at + 1) };
+  // A notice that is its own group is named by its id.
+  if (parts.entityType === 'notification' && !UUID.test(parts.entityId)) return null;
+  return parts;
+}
+
+/** The group a notice belongs to: what it is about, or itself. */
+export function groupKeyOf(row: Pick<Notification, 'entity_type' | 'entity_id' | 'id'>): string {
+  return row.entity_type && row.entity_id ? `${row.entity_type}:${row.entity_id}` : `notification:${row.id}`;
+}
+
+/** Which Updates the list keeps: notices from agents only, and some projects only (none: every project). */
+export interface UpdateFilters {
+  fromAgents: boolean;
+  projectIds: string[];
+}
+
+export const NO_UPDATE_FILTERS: UpdateFilters = { fromAgents: false, projectIds: [] };
+
+/** How many filters are on: the number on the one filter button. */
+export function updateFilterCount(filters: UpdateFilters): number {
+  return (filters.fromAgents ? 1 : 0) + (filters.projectIds.length > 0 ? 1 : 0);
+}
+
+/** A group's line: "Website relaunch: 3 updates", or the latest notice's title when the group is one notice. */
+export function groupLabel(group: Pick<NotificationGroup, 'group_count'> & { latest: Pick<NotificationView, 'title'> }, place: string | null): string {
+  if (group.group_count <= 1 || !place) return group.latest.title;
+  return `${place}: ${group.group_count} updates`;
+}
+
+// ── Snooze choices ──────────────────────────────────────────────────────
+
+export type SnoozeChoice = 'later_today' | 'tomorrow' | 'next_week';
+
+export const SNOOZE_CHOICES: { key: SnoozeChoice; label: string }[] = [
+  { key: 'later_today', label: 'Later today' },
+  { key: 'tomorrow', label: 'Tomorrow' },
+  { key: 'next_week', label: 'Next week' },
+];
+
+/**
+ * When a snooze choice wakes, in the viewer's own time: later today is three
+ * hours from now; tomorrow is 9 am tomorrow; next week is 9 am next Monday.
+ */
+export function snoozeUntil(choice: SnoozeChoice, now: Date = new Date()): Date {
+  if (choice === 'later_today') return new Date(now.getTime() + 3 * 3_600_000);
+  const at = new Date(now);
+  at.setHours(9, 0, 0, 0);
+  if (choice === 'tomorrow') {
+    at.setDate(at.getDate() + 1);
+    return at;
+  }
+  const toMonday = ((8 - at.getDay()) % 7) || 7;
+  at.setDate(at.getDate() + toMonday);
+  return at;
 }
 
 /** A keyset cursor: the last row's sort time and id. */

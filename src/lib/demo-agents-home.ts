@@ -1,4 +1,4 @@
-import { runFeedQuery, type RunFeedFilters } from '@/lib/agents-tab';
+import { runFeedQuery, type RunCursor, type RunFeedFilters } from '@/lib/agents-tab';
 import { runDisplayStatus, type AgentRunNote, type AgentRunPlanStep, type AgentRunStatus, type AgentRunSummary } from '@/lib/agent-runs';
 import type { QuestionView } from '@/lib/questions';
 import { actionSentence } from '@/lib/question-actions-text';
@@ -276,13 +276,22 @@ const summaryOf = (demo: DemoRun): AgentRunSummary => {
 };
 
 /** A page of the demo run feed, filtered and paged by the real query's rules. */
-export function demoRunFeedPage(filters: RunFeedFilters, page: number, pageSize: number): { runs: AgentRunSummary[]; total: number } {
-  const query = runFeedQuery(filters, page, pageSize);
+export function demoRunFeedPage(filters: RunFeedFilters, after: RunCursor | null, pageSize: number, timeZone?: string): { runs: AgentRunSummary[]; total: number | null; next: RunCursor | null } {
+  const query = runFeedQuery(filters, after, pageSize, timeZone);
+  // The demo's sort_at is started_at; newest first, then the higher id, like the view.
   const rows = demoRunRows().map(summaryOf)
     .filter((row) => query.eq.every(([column, value]) => (row as unknown as Record<string, unknown>)[column] === value))
     .filter((row) => (!query.started.gte || row.started_at >= query.started.gte) && (!query.started.lt || row.started_at < query.started.lt))
-    .sort((a, b) => (a.started_at < b.started_at ? 1 : -1));
-  return { runs: rows.slice(query.from, query.to + 1), total: rows.length };
+    .sort((a, b) => (a.started_at === b.started_at ? (a.id < b.id ? 1 : -1) : a.started_at < b.started_at ? 1 : -1));
+  const at = query.after;
+  const rest = at ? rows.filter((row) => row.started_at < at.at || (row.started_at === at.at && row.id < at.id)) : rows;
+  const page = rest.slice(0, query.limit);
+  const last = page[page.length - 1];
+  return {
+    runs: page,
+    total: at ? null : rows.length,
+    next: page.length === query.limit && rest.length > query.limit && last ? { at: last.started_at, id: last.id } : null,
+  };
 }
 
 /** One demo run by id, as a feed row; null when there is none. */

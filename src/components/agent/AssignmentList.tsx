@@ -121,7 +121,6 @@ export function useTakeOffProject(options: { demoWrites?: boolean } = {}) {
         : ''}
       confirmLabel="Take off"
       variant="danger"
-      doubleConfirm={false}
     />
   );
 
@@ -256,7 +255,6 @@ export function AssignmentList({ rows, mode, canEdit, templateLabels, empty, too
           ? `The pause lives on the setup. Without it, ${confirmPaused.row.agent_name} keeps its access and starts working ${confirmPaused.row.project_name ?? 'this project'} again. To stop it here, keep the setup paused, or take it off the project.`
           : ''}
         confirmLabel="Remove and let it work"
-        doubleConfirm={false}
       />
     </div>
   );

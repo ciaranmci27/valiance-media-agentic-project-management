@@ -2,8 +2,8 @@ import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ApiError } from './errors';
 import {
-  RECEIPT_CATEGORIES, SNOOZE_KINDS, SNOOZE_MAX_DAYS, decodeCursor, encodeCursor, isReceiptCategory, safeNotificationLink, withCategory,
-  type NotificationActor, type NotificationFeedView, type NotificationGroupPage, type NotificationPage, type NotificationView, type Snooze,
+  GROUP_KEY, RECEIPT_CATEGORIES, SNOOZE_KINDS, SNOOZE_MAX_DAYS, decodeCursor, encodeCursor, isReceiptCategory, parseGroupKey, safeNotificationLink, withCategory,
+  type NotificationActor, type UpdateFilters, type NotificationFeedView, type NotificationGroupPage, type NotificationPage, type NotificationView, type Snooze,
 } from '@/lib/notifications';
 import type { Notification } from '@/lib/types';
 
@@ -28,7 +28,7 @@ export function missingFoundation(error: { code?: string | null; message?: strin
 /** What team_member_notifications_category_check allows. */
 const CATEGORY_FORMAT = /^[a-z][a-z0-9_]{0,59}$/;
 
-export const notificationsNotReady = () => new ApiError(503, 'SERVICE_UNAVAILABLE', 'Notifications need the latest database update. Ask an Owner to apply it in Settings > Updates.', { reason: 'database_update_needed', migration: '20261127000700_notifications_foundation.sql' });
+export const notificationsNotReady = (migration = '20261127000700_notifications_foundation.sql') => new ApiError(503, 'SERVICE_UNAVAILABLE', 'Notifications need the latest database update. Ask an Owner to apply it in Settings > Updates.', { reason: 'database_update_needed', migration });
 
 export interface UpsertNotificationInput {
   userId: string;
@@ -163,39 +163,114 @@ export async function notificationViewCount(db: SupabaseClient, memberId: string
 
 type GroupRow = Omit<Notification, 'user_id'> & { group_key: string; group_count: number; unread_count: number };
 
-/** A member's Updates grouped by what they are about, newest group first. */
-export async function notificationGroups(db: SupabaseClient, memberId: string, options: { limit?: number; before?: string | null } = {}): Promise<NotificationGroupPage> {
+/** A member's Updates grouped by what they are about, newest group first: from agents only, or some projects only, when asked. */
+export async function notificationGroups(
+  db: SupabaseClient,
+  memberId: string,
+  options: { limit?: number; before?: string | null; filters?: Partial<UpdateFilters> } = {},
+): Promise<NotificationGroupPage> {
   const limit = Math.min(100, Math.max(1, options.limit ?? FEED_PAGE_SIZE));
   const before = decodeCursor(options.before);
-  const { data, error } = await db.rpc('notification_groups', {
-    p_member_id: memberId, p_limit: limit, p_before_at: before?.at ?? null, p_before_id: before?.id ?? null,
-  });
-  if (error) {
-    if (!missingFoundation(error)) throw error;
-    // Before the migration: each row is its own group.
-    const rows = await legacyFeed(db, memberId, 'updates', limit, before);
-    return {
-      groups: rows.map((row) => ({ latest: row, group_key: `notification:${row.id}`, group_count: 1, unread_count: row.is_read ? 0 : 1 })),
-      next_cursor: cursorOf(rows, 'updates', limit),
-    };
+  const fromAgents = options.filters?.fromAgents ?? false;
+  const projectIds = options.filters?.projectIds?.length ? options.filters.projectIds : null;
+  const page = { p_member_id: memberId, p_limit: limit, p_before_at: before?.at ?? null, p_before_id: before?.id ?? null };
+  const filters = { p_from_agents: fromAgents, p_project_ids: projectIds };
+  const [grouped, total] = await Promise.all([
+    db.rpc('notification_update_groups', { ...page, ...filters }),
+    db.rpc('notification_group_total', { p_member_id: memberId, ...filters }),
+  ]);
+  let data = grouped.data as GroupRow[] | null;
+  if (grouped.error) {
+    if (!missingFoundation(grouped.error)) throw grouped.error;
+    // Before 20261127003300 there are no filters: refuse them rather than answer unfiltered.
+    if (fromAgents || projectIds) throw notificationsNotReady('20261127003300_notifications_groups.sql');
+    const older = await db.rpc('notification_groups', page);
+    if (older.error) {
+      if (!missingFoundation(older.error)) throw older.error;
+      // Before 20261127000700: each row is its own group.
+      const rows = await legacyFeed(db, memberId, 'updates', limit, before);
+      return {
+        groups: rows.map((row) => ({ latest: row, group_key: `notification:${row.id}`, group_count: 1, unread_count: row.is_read ? 0 : 1 })),
+        total: null,
+        next_cursor: cursorOf(rows, 'updates', limit),
+      };
+    }
+    data = older.data as GroupRow[] | null;
   }
-  const groups = ((data ?? []) as GroupRow[]).map(({ group_key, group_count, unread_count, ...row }) => ({
+  const groups = (data ?? []).map(({ group_key, group_count, unread_count, ...row }) => ({
     latest: withCategory({ ...row, user_id: memberId } as Notification),
     group_key, group_count: Number(group_count), unread_count: Number(unread_count),
   }));
+  const withSenders = await withActors(db, groups.map((g) => g.latest));
   const last = groups[groups.length - 1];
-  return { groups, next_cursor: groups.length === limit && last ? encodeCursor(last.latest.created_at, last.latest.id) : null };
+  return {
+    groups: groups.map((g, i) => ({ ...g, latest: withSenders[i] ?? g.latest })),
+    total: total.error ? null : Number(total.data ?? 0),
+    next_cursor: groups.length === limit && last ? encodeCursor(last.latest.created_at, last.latest.id) : null,
+  };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The Updates filters a request asks for: from=agents (notices an agent
+ * sent), project_id (repeatable, or comma separated; up to 50). Anything
+ * else is a 400 naming what to send.
+ */
+export function updateFiltersFrom(params: URLSearchParams): UpdateFilters {
+  const from = params.get('from');
+  if (from !== null && from !== 'agents' && from !== 'anyone') throw new ApiError(400, 'BAD_REQUEST', 'from must be agents or anyone', { reason: 'invalid_from' });
+  const projectIds = [...new Set(params.getAll('project_id').flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean))];
+  if (projectIds.length > 50 || projectIds.some((value) => !UUID_RE.test(value))) {
+    throw new ApiError(400, 'BAD_REQUEST', 'project_id must be up to 50 project ids', { reason: 'invalid_project_id' });
+  }
+  return { fromAgents: from === 'agents', projectIds };
+}
+
+/** One group's open Updates, newest first, keyset paged. */
+export async function notificationGroupRows(
+  db: SupabaseClient,
+  memberId: string,
+  groupKey: string,
+  options: { limit?: number; before?: string | null } = {},
+): Promise<{ items: NotificationView[]; next_cursor: string | null }> {
+  if (!parseGroupKey(groupKey)) throw new ApiError(400, 'BAD_REQUEST', 'group_key must be a group_key from a list of groups', { reason: 'invalid_group_key' });
+  const limit = Math.min(100, Math.max(1, options.limit ?? FEED_PAGE_SIZE));
+  const before = decodeCursor(options.before);
+  const { data, error } = await db.rpc('notification_group_rows', {
+    p_member_id: memberId, p_group_key: groupKey, p_limit: limit, p_before_at: before?.at ?? null, p_before_id: before?.id ?? null,
+  });
+  if (error) {
+    if (missingFoundation(error)) throw notificationsNotReady('20261127003300_notifications_groups.sql');
+    throw error;
+  }
+  const items = ((data ?? []) as Notification[]).map(withCategory);
+  return { items: await withActors(db, items), next_cursor: cursorOf(items, 'updates', limit) };
+}
+
+export const groupReadSchema = z.object({ group_key: z.string().regex(GROUP_KEY, 'group_key must be a group_key from a list of groups') }).strict();
+
+/** Marks every unread notification in one group read: opening a group reads it. Answers { marked_read }. */
+export async function markGroupRead(db: SupabaseClient, memberId: string, groupKey: string): Promise<{ marked_read: number }> {
+  const parts = parseGroupKey(groupKey);
+  if (!parts) throw new ApiError(400, 'BAD_REQUEST', 'group_key must be a group_key from a list of groups', { reason: 'invalid_group_key' });
+  let query = db.from('team_member_notifications').update({ is_read: true }).eq('user_id', memberId).eq('is_read', false);
+  query = parts.entityType === 'notification' ? query.eq('id', parts.entityId) : query.eq('entity_type', parts.entityType).eq('entity_id', parts.entityId);
+  const { data, error } = await query.select('id');
+  if (error) throw error;
+  return { marked_read: (data ?? []).length };
 }
 
 export const doneSchema = z.union([
   z.object({ ids: z.array(z.string().uuid()).min(1).max(200), done: z.boolean().default(true) }).strict(),
   z.object({ all: z.literal(true), done: z.literal(true).default(true) }).strict(),
+  z.object({ group_key: z.string().regex(GROUP_KEY, 'group_key must be a group_key from a list of groups'), done: z.literal(true).default(true) }).strict(),
 ]);
 
 /**
  * Marks a member's notifications done (read too), or not done again. `all`
- * marks every open Update done; receipts are left as they are, since Needs
- * you owns what they announce.
+ * marks every open Update done, `group_key` every open Update in one group;
+ * receipts are left as they are, since Needs you owns what they announce.
  */
 export async function setNotificationsDone(db: SupabaseClient, memberId: string, input: z.infer<typeof doneSchema>): Promise<{ updated: number }> {
   const now = new Date().toISOString();
@@ -205,6 +280,14 @@ export async function setNotificationsDone(db: SupabaseClient, memberId: string,
   if ('ids' in input) {
     query = query.in('id', input.ids);
     if (!input.done) query = query.not('done_at', 'is', null);
+  } else if ('group_key' in input) {
+    // Every open Update in one group: what Done on a grouped row does.
+    const parts = parseGroupKey(input.group_key);
+    if (!parts) throw new ApiError(400, 'BAD_REQUEST', 'group_key must be a group_key from a list of groups', { reason: 'invalid_group_key' });
+    query = parts.entityType === 'notification'
+      ? query.eq('id', parts.entityId)
+      : query.eq('entity_type', parts.entityType).eq('entity_id', parts.entityId);
+    query = query.is('done_at', null).is('cleared_at', null).not('category', 'in', `(${RECEIPT_CATEGORIES.join(',')})`);
   } else {
     query = query.is('done_at', null).is('cleared_at', null).not('category', 'in', `(${RECEIPT_CATEGORIES.join(',')})`);
   }

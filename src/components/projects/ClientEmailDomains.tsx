@@ -202,7 +202,6 @@ export function ClientEmailDomains({ isOpen, projectId }: ClientEmailDomainsProp
           message={`Mail from ${removeTarget?.domain ?? 'this domain'} will no longer map to this project.`}
           confirmLabel="Remove"
           variant="danger"
-          doubleConfirm={false}
         />,
         document.body,
       )}

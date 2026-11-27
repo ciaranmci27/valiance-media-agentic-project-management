@@ -694,7 +694,6 @@ export function HireFlow() {
           ? 'The key is not shown again. If you leave now, make a new key from its profile and revoke this one.'
           : 'What you filled in is not saved. Discarding it cannot be undone.'}
         confirmLabel={keyAtRisk ? 'Leave' : 'Discard'}
-        doubleConfirm={false}
       />
     </FlowShell>
   );

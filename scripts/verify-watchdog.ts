@@ -172,7 +172,7 @@ async function agentChecks(s: Seed) {
     && novaOffline[0].payload.data.member_ids.includes(s.nova) && novaOffline[0].payload.data.agent.stale_after_seconds === 180, novaOffline.map((e) => e.payload.data));
   const novaBells = await bells(s, 'member', s.nova);
   check('offline: its owner gets one bell, in plain words, linking to the agent', novaBells.length === 1 && novaBells[0].user_id === s.pat
-    && novaBells[0].title === 'Nova stopped responding' && novaBells[0].message === 'Nova stopped responding 10 minutes ago, its claimed task went back to the queue.'
+    && novaBells[0].title === 'Nova stopped responding' && novaBells[0].message === 'Nova stopped responding. Its last check-in was 10 minutes ago. Its claimed task went back to the queue.'
     && novaBells[0].link === `/agent/${s.nova}`, novaBells);
   check('offline: a paused agent is skipped', offline.every((e) => e.payload.data.agent.id !== s.sleepy) && (await bells(s, 'member', s.sleepy)).length === 0);
   check('offline: a personal assistant is left to its own path', offline.every((e) => e.payload.data.agent.id !== s.buddy) && (await bells(s, 'member', s.buddy)).length === 0);
@@ -330,7 +330,7 @@ async function questionChecks(s: Seed) {
   const patBell = (await bells(s, 'question', mine)).filter((b) => b.user_id !== s.owner);
   check('questions: a person who asked hears it once', patBell.length === 1 && patBell[0].user_id === s.pat && patBell[0].title === 'Your question to Olivia expired without an answer'
     && patBell[0].message === 'Ship Friday?' && patBell[0].cleared_at === null, patBell);
-  const novaBell = (await bells(s, 'question', novas)).filter((b) => b.cleared_at === null);
+  const novaBell = (await bells(s, 'question', novas)).filter((b) => b.cleared_at === null && b.user_id !== s.owner);
   check('questions: an agent\'s question goes to its owners, linking to the task', novaBell.length === 1 && novaBell[0].user_id === s.pat
     && novaBell[0].title === "Nova's question to Olivia expired without an answer" && novaBell[0].link === `/projects/${s.project}?task=${task}`, novaBell);
   const again = await watchdog(s);

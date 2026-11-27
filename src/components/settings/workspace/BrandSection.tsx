@@ -20,6 +20,9 @@ import {
   type BrandSettings,
   type BrandSettingsInput,
   type BrandShade,
+  logoKindFor,
+  logoKindShape,
+  logoKindTheme,
   type LogoKind,
 } from '@/lib/brand';
 import { useBrand } from '@/lib/brand/context';
@@ -27,7 +30,9 @@ import { BRAND_LIMITS } from '@/lib/brand/validate';
 import { BrandPreview } from './BrandPreview';
 import { BrandTextField } from './BrandTextField';
 import { HexColorField } from './HexColorField';
-import { LogoField } from './LogoField';
+import { LogoField, type LogoGuard } from './LogoField';
+import { logoShapeProblem } from './logo-checks';
+import { measureLogoFile } from './logo-measure';
 import { OutcomeLine, type Outcome } from './OutcomeLine';
 import {
   EMPTY_INPUT,
@@ -46,21 +51,31 @@ import {
 
 const DESCRIPTION = 'Your company\'s name, logo and color, as the app, the client portal, emails and invoices show them.';
 
-const URL_FIELD: Record<LogoKind, 'logoLightUrl' | 'logoDarkUrl' | 'faviconUrl'> = {
+const URL_FIELD: Record<LogoKind, 'logoLightUrl' | 'logoDarkUrl' | 'faviconUrl' | 'squareDarkUrl'> = {
   light: 'logoLightUrl',
   dark: 'logoDarkUrl',
   favicon: 'faviconUrl',
+  square_dark: 'squareDarkUrl',
 };
 
-const LOGO_NAME: Record<LogoKind, string> = { light: 'Light logo', dark: 'Dark logo', favicon: 'Favicon' };
+/** Each slot's whole name, for lines and buttons. The stored kinds are older than the slots (types.ts, LOGO_KINDS). */
+const LOGO_NAME: Record<LogoKind, string> = {
+  light: 'Horizontal logo, light theme',
+  dark: 'Horizontal logo, dark theme',
+  favicon: 'Square logo, light theme',
+  square_dark: 'Square logo, dark theme',
+};
+
+const SHAPE_NAME = { horizontal: 'Horizontal', square: 'Square' } as const;
 
 interface LogoState {
   busy: boolean;
   error: string | null;
+  guard: LogoGuard | null;
   outcome: Outcome | null;
 }
 
-const IDLE: LogoState = { busy: false, error: null, outcome: null };
+const IDLE: LogoState = { busy: false, error: null, guard: null, outcome: null };
 
 /**
  * Settings > Workspace > Brand: what the app, the portal, emails and invoice
@@ -97,7 +112,7 @@ export function BrandSection() {
   const [saving, setSaving] = useState(false);
   const [bar, setBar] = useState<Outcome | null>(null);
   const [resetLine, setResetLine] = useState<Outcome | null>(null);
-  const [logos, setLogos] = useState<Record<LogoKind, LogoState>>({ light: IDLE, dark: IDLE, favicon: IDLE });
+  const [logos, setLogos] = useState<Record<LogoKind, LogoState>>({ light: IDLE, dark: IDLE, favicon: IDLE, square_dark: IDLE });
   // Open by itself while any shade is changed by hand, until the Owner toggles it.
   const [shadesToggled, setShadesToggled] = useState<boolean | null>(null);
   const shadesId = useId();
@@ -217,11 +232,29 @@ export function BrandSection() {
     setLogos((previous) => ({ ...previous, [kind]: { ...IDLE, ...next } }));
   };
 
-  const upload = async (kind: LogoKind, file: File, doneText = `${LOGO_NAME[kind]} saved. Everyone sees it now.`) => {
+  const upload = async (kind: LogoKind, file: File, doneText = `${LOGO_NAME[kind]} saved. Everyone sees it now.`, checkShape = true) => {
     const problem = checkLogoFile(kind, file);
     if (problem) {
       setLogo(kind, { error: problem });
       return;
+    }
+    // A square image on a horizontal slot (or a wide one on a square slot): say so, and offer the slot it fits.
+    if (checkShape) {
+      const measure = await measureLogoFile(file);
+      const wrong = logoShapeProblem(logoKindShape(kind), measure);
+      if (wrong) {
+        const target = wrong.belongs === logoKindShape(kind) ? null : logoKindFor(wrong.belongs, logoKindTheme(kind));
+        // An ICO only fits a square slot, so it is never offered a horizontal one.
+        const fits = target && !checkLogoFile(target, file);
+        setLogo(kind, {
+          guard: {
+            text: wrong.text,
+            actionLabel: fits ? `Add it to ${SHAPE_NAME[wrong.belongs]}` : null,
+            onAction: fits ? () => { setLogo(kind, {}); void upload(target, file, undefined, false); } : undefined,
+          },
+        });
+        return;
+      }
     }
     if (local) {
       const url = URL.createObjectURL(file);
@@ -350,48 +383,78 @@ export function BrandSection() {
               </Group>
 
               <Group title="Logo">
-                <LogoField
-                  kind="light"
-                  label="Logo for light backgrounds"
-                  usage="The sign-in page in light mode and light invoice PDFs."
-                  url={saved.logoLightUrl}
-                  emptyNote="No logo yet: your name shows as text"
-                  name={preview.name}
-                  brand600={preview.colors.brand[600]}
-                  disabled={!!migration}
-                  {...logos.light}
-                  onFile={(file) => { void upload('light', file); }}
-                  onRemove={() => { void remove('light'); }}
-                />
-                <LogoField
-                  kind="dark"
-                  label="Logo for dark backgrounds"
-                  usage="The sidebar, client portal, emails and standard invoice PDFs. Uses the light logo if you leave this empty."
-                  url={saved.logoDarkUrl}
-                  fallbackUrl={saved.logoLightUrl}
-                  emptyNote="No logo yet: your name shows as text"
-                  fallbackNote="Using your light logo"
-                  name={preview.name}
-                  brand600={preview.colors.brand[600]}
-                  invert={form.invertLogoInSidebar}
-                  disabled={!!migration}
-                  {...logos.dark}
-                  onFile={(file) => { void upload('dark', file); }}
-                  onRemove={() => { void remove('dark'); }}
-                />
-                <LogoField
-                  kind="favicon"
-                  label="Favicon"
-                  usage="The small icon in the browser tab."
-                  url={saved.faviconUrl}
-                  emptyNote="Made from your name and color"
-                  name={preview.name}
-                  brand600={preview.colors.brand[600]}
-                  disabled={!!migration}
-                  {...logos.favicon}
-                  onFile={(file) => { void upload('favicon', file); }}
-                  onRemove={() => { void remove('favicon'); }}
-                />
+                <p className="-mt-2 text-xs leading-relaxed text-zinc-400">
+                  A horizontal logo for the sidebar, sign-in page, emails and invoices, and a square one for the browser tab.
+                  Each has a light and a dark theme version. Leave a dark one empty and the light one is used.
+                </p>
+                <LogoSlots title="Horizontal">
+                  <LogoField
+                    kind="light"
+                    label="Light theme"
+                    fullName={LOGO_NAME.light}
+                    usage="Used in the sign-in page in light mode and light invoice PDFs."
+                    url={saved.logoLightUrl}
+                    emptyNote="Empty, so your name shows as text"
+                    name={preview.name}
+                    brand600={preview.colors.brand[600]}
+                    disabled={!!migration}
+                    {...logos.light}
+                    onFile={(file) => { void upload('light', file); }}
+                    onRemove={() => { void remove('light'); }}
+                  />
+                  <LogoField
+                    kind="dark"
+                    label="Dark theme"
+                    fullName={LOGO_NAME.dark}
+                    usage="Used in the sidebar, the client portal, emails and standard invoice PDFs."
+                    url={saved.logoDarkUrl}
+                    fallbackUrl={saved.logoLightUrl}
+                    emptyNote="Empty, so your name shows as text"
+                    fallbackNote="Empty, so the light theme logo is used"
+                    name={preview.name}
+                    brand600={preview.colors.brand[600]}
+                    invert={form.invertLogoInSidebar}
+                    disabled={!!migration}
+                    {...logos.dark}
+                    onFile={(file) => { void upload('dark', file); }}
+                    onRemove={() => { void remove('dark'); }}
+                  />
+                </LogoSlots>
+                <LogoSlots title="Square">
+                  <LogoField
+                    kind="favicon"
+                    label="Light theme"
+                    fullName={LOGO_NAME.favicon}
+                    usage="Used as the browser tab icon (the favicon) and on the loading screen."
+                    url={saved.faviconUrl}
+                    cropUrl={saved.logoLightUrl}
+                    emptyNote="Empty, so the tab icon is your name's first letter on your color"
+                    fallbackNote="Empty, so the tab icon is a square crop of your horizontal logo"
+                    name={preview.name}
+                    brand600={preview.colors.brand[600]}
+                    disabled={!!migration}
+                    {...logos.favicon}
+                    onFile={(file) => { void upload('favicon', file); }}
+                    onRemove={() => { void remove('favicon'); }}
+                  />
+                  <LogoField
+                    kind="square_dark"
+                    label="Dark theme"
+                    fullName={LOGO_NAME.square_dark}
+                    usage="Used as the tab icon in a dark browser and on the loading screen in dark mode."
+                    url={saved.squareDarkUrl}
+                    fallbackUrl={saved.faviconUrl}
+                    cropUrl={saved.faviconUrl ? null : saved.logoLightUrl}
+                    emptyNote="Empty, so the light theme tab icon is used"
+                    fallbackNote="Empty, so the light theme square logo is used"
+                    name={preview.name}
+                    brand600={preview.colors.brand[600]}
+                    disabled={!!migration}
+                    {...logos.square_dark}
+                    onFile={(file) => { void upload('square_dark', file); }}
+                    onRemove={() => { void remove('square_dark'); }}
+                  />
+                </LogoSlots>
               </Group>
 
               <Group title="Color">
@@ -542,8 +605,19 @@ function Group({ title, first = false, children }: { title: string; first?: bool
   const id = useId();
   return (
     <div role="group" aria-labelledby={id} className={first ? '' : 'mt-8 border-t border-white/[0.06] pt-6'}>
-      <h3 id={id} className="text-xs font-medium uppercase tracking-wide text-zinc-400">{title}</h3>
+      <h3 id={id} className="text-sm font-semibold text-white">{title}</h3>
       <div className="mt-4 space-y-6">{children}</div>
+    </div>
+  );
+}
+
+/** One logo shape's two slots, light theme then dark. */
+function LogoSlots({ title, children }: { title: string; children: ReactNode }) {
+  const id = useId();
+  return (
+    <div role="group" aria-labelledby={id}>
+      <h4 id={id} className="text-xs font-medium text-zinc-300">{title}</h4>
+      <div className="mt-3 space-y-5">{children}</div>
     </div>
   );
 }
@@ -682,7 +756,7 @@ function BrandSkeleton() {
         <div className="mt-8 border-t border-white/[0.06] pt-6">
           <div className="h-3 w-12 rounded bg-white/[0.05]" />
           <div className="mt-4 space-y-6">
-            {['light', 'dark', 'favicon'].map((key) => (
+            {['light', 'dark', 'favicon', 'square_dark'].map((key) => (
               <div key={key} className="space-y-2">
                 <div className="h-3 w-40 rounded bg-white/[0.06]" />
                 <div className="h-[90px] rounded-xl bg-white/[0.02] ring-1 ring-inset ring-white/[0.06]" />

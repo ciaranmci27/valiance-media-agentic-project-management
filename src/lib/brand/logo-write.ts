@@ -4,28 +4,31 @@ import { insertAuditRows } from '@/lib/api/audit';
 import { afterResponse } from '@/lib/api/after-response';
 import { isSchemaMissing } from '@/lib/api/owner-route';
 import { plainDbMessage } from '@/lib/api/plain-error';
-import { BRAND_BUCKET, type LogoKind } from '@/lib/brand';
+import { BRAND_BUCKET, logoKindShape, type LogoKind } from '@/lib/brand';
 import { expireBrand } from '@/lib/brand/server';
 import { LOGO_MAX_BYTES, sniffImage } from '@/lib/brand/validate';
 import { pmStorage } from '@/lib/supabase/storage';
 import { expireCache } from '@/lib/api/workspace-settings';
 
 /**
- * Uploading and removing one of the brand's files (light logo, dark logo,
- * favicon): the one writer behind Settings > Workspace > Brand and
+ * Uploading and removing one of the brand's files (the horizontal logo for
+ * light and dark, the square logo for light, which is the tab icon, and the
+ * square logo for dark): the one writer behind Settings > Workspace > Brand and
  * /api/v1/workspace/brand/logo. Owner only: each caller checks that first.
  * Each upload gets a new object name, so browsers and email clients never
  * show a stale cached logo; the replaced file is removed after the row
  * points at the new one. Every change leaves an audit row.
  */
 
-export const LOGO_COLUMN: Record<LogoKind, 'logo_light_path' | 'logo_dark_path' | 'favicon_path'> = {
+export const LOGO_COLUMN: Record<LogoKind, 'logo_light_path' | 'logo_dark_path' | 'favicon_path' | 'logo_square_dark_path'> = {
   light: 'logo_light_path',
   dark: 'logo_dark_path',
   favicon: 'favicon_path',
+  // Added by migration 20261127003100: until it runs, an upload here answers that the database needs updating.
+  square_dark: 'logo_square_dark_path',
 };
 
-const LABEL: Record<LogoKind, string> = { light: 'Logo', dark: 'Dark logo', favicon: 'Favicon' };
+const LABEL: Record<LogoKind, string> = { light: 'Horizontal logo', dark: 'Horizontal logo for the dark theme', favicon: 'Square logo', square_dark: 'Square logo for the dark theme' };
 
 /** A refusal in plain words, with the status the caller answers and, for a missing migration, a code. */
 export interface LogoRefusal { status: number; message: string; code?: 'MIGRATION_REQUIRED' | 'too_large' | 'not_an_image' | 'upload_failed' }
@@ -76,7 +79,7 @@ export async function readLogoFile(kind: LogoKind, file: Blob): Promise<{ bytes:
   if (file.size > LOGO_MAX_BYTES[kind]) return { status: 413, message: `${LABEL[kind]} can be at most ${megabytes(LOGO_MAX_BYTES[kind])}`, code: 'too_large' };
   const bytes = new Uint8Array(await file.arrayBuffer());
   const image = sniffImage(bytes, kind);
-  if (!image) return { status: 415, message: kind === 'favicon' ? 'Use a PNG, JPG or ICO file' : 'Use a PNG or JPG file', code: 'not_an_image' };
+  if (!image) return { status: 415, message: logoKindShape(kind) === 'square' ? 'Use a PNG, JPG or ICO file' : 'Use a PNG or JPG file', code: 'not_an_image' };
   return { bytes, ext: image.ext, contentType: image.contentType };
 }
 

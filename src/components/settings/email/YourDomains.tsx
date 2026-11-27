@@ -154,7 +154,6 @@ export function YourDomains({
         message={`Addresses on ${removeTarget?.domain ?? 'it'} that aren't listed will stop reading as written to you, and may be suggested again for review. Listed addresses keep their project and whose.`}
         confirmLabel="Remove"
         variant="danger"
-        doubleConfirm={false}
       />
     </div>
   );

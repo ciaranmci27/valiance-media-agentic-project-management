@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { Check, CheckCircle2, Eye, GitMerge, Lightbulb, Mail, MessageSquareWarning, Send, X, Zap } from 'lucide-react';
+import { Check, CheckCircle2, Clock, Eye, GitMerge, Lightbulb, Mail, MessageSquareWarning, MoreHorizontal, Send, X, Zap } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
@@ -18,7 +18,9 @@ import { companyHubItems, waitedWords, type HubItem } from '@/lib/ai-home';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import type { AssistantDraft } from '@/lib/assistant';
 import { timeAgo } from '@/lib/task-times';
-import { formatFull } from '@/lib/time-format';
+import { formatDateTime, formatFull } from '@/lib/time-format';
+import { SNOOZE_CHOICES, snoozeUntil, type SnoozeChoice, type SnoozeKind } from '@/lib/notifications';
+import { RowActionsMenu } from '@/components/ui/RowActionsMenu';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -92,6 +94,19 @@ function rowsOf(items: HubItem[], needs: AgentNeedsYou, drafts: AssistantDraft[]
       }
     }
   });
+}
+
+/** What snoozing a row hides: its question, its task or its suggestion; a reply draft has nothing to snooze. */
+function snoozeTarget(row: Row): { kind: SnoozeKind; id: string } | null {
+  switch (row.kind) {
+    case 'question':
+    case 'approval': return { kind: 'question', id: row.payload.question.id };
+    case 'blocked': return { kind: 'task', id: row.payload.blocked.task.id };
+    case 'merge':
+    case 'review': return { kind: 'task', id: row.payload.review.task.id };
+    case 'suggestion': return { kind: 'suggestion', id: row.payload.suggestion.id };
+    default: return null;
+  }
 }
 
 /** How many rows show at first, and how many each "Show more" adds. */
@@ -171,6 +186,38 @@ export function NeedsYouView({ needs, onOpenTask, compact = false, bare = false,
   };
   const pad = dense ? 'px-3 py-2.5' : 'px-4 py-3 lg:px-5';
 
+  /**
+   * Snooze: the row leaves Needs you (everywhere, it is one list) until the
+   * time comes, then it is back on its own. Undo brings it back now. A reply
+   * draft has nothing to snooze.
+   */
+  const snoozeMenu = (row: Row): ReactNode => {
+    const target = snoozeTarget(row);
+    if (!target) return null;
+    const snooze = async (choice: SnoozeChoice) => {
+      const until = snoozeUntil(choice);
+      const outcome = await actions.snooze(target.kind, target.id, until);
+      if (outcome.status !== 'done') {
+        toast('error', outcome.status === 'failed' ? outcome.message : 'Could not snooze it');
+        return;
+      }
+      toast('success', `Snoozed until ${formatDateTime(until)}`, {
+        action: { label: 'Undo', onClick: () => void actions.unsnooze(target.kind, target.id) },
+      });
+    };
+    return (
+      <RowActionsMenu
+        label="Snooze"
+        icon={<MoreHorizontal size={16} aria-hidden="true" />}
+        actions={SNOOZE_CHOICES.map((choice) => ({
+          label: `Snooze: ${choice.label.toLowerCase()}`,
+          icon: <Clock size={14} aria-hidden="true" />,
+          onClick: () => void snooze(choice.key),
+        }))}
+      />
+    );
+  };
+
   const approveTarget = approveModalId ? taskSuggestions.find((s) => s.id === approveModalId) : undefined;
   const editTarget = editModalId ? taskSuggestions.find((s) => s.id === editModalId) : undefined;
   const declineTarget = declineModalId ? taskSuggestions.find((s) => s.id === declineModalId) : undefined;
@@ -199,6 +246,7 @@ export function NeedsYouView({ needs, onOpenTask, compact = false, bare = false,
     icon: ReactNode; title: string; context: string; taskId?: string | null; taskTitle?: string | null; unblocks?: boolean;
     projectId?: string | null; action: ReactNode; details?: string | null; below?: ReactNode;
   }) => {
+    const menu = snoozeMenu(row);
     const agent = row.agentId ? memberById.get(row.agentId) : undefined;
     const project = opts.projectId ? projectById.get(opts.projectId) : undefined;
     const open = opened.has(row.key);
@@ -237,6 +285,7 @@ export function NeedsYouView({ needs, onOpenTask, compact = false, bare = false,
           <div className="mt-2 flex flex-wrap items-center gap-2">{actions}</div>
           {opts.below}
         </div>
+        {menu && <div className="-mr-1.5 -mt-1 flex-shrink-0">{menu}</div>}
       </div>
     );
   };
@@ -248,7 +297,7 @@ export function NeedsYouView({ needs, onOpenTask, compact = false, bare = false,
         const question = row.payload.question;
         const agent = memberById.get(question.asked_by);
         return (
-          <QuestionCard question={question} variant="hub" dense={dense} place onOpenTask={onOpenTask}
+          <QuestionCard question={question} variant="hub" dense={dense} place onOpenTask={onOpenTask} menu={snoozeMenu(row)}
             lead={agent ? <AgentAvatar id={agent.id} name={agent.name} src={agent.avatar || null} size="sm" /> : undefined} />
         );
       }

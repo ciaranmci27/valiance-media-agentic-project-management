@@ -26,7 +26,7 @@ function refused(refusal: LogoRefusal): ApiError {
 
 /**
  * The brand's files over the API (Settings > Workspace > Brand), by the same
- * writer as Settings: ?kind=light|dark|favicon. POST uploads one (multipart,
+ * writer as Settings: ?kind=light|dark|favicon|square_dark. POST uploads one (multipart,
  * one field named file: PNG or JPG up to 2 MB, a favicon PNG, JPG or ICO up
  * to 512 KB; REST only, a file upload), DELETE removes it and the default
  * shows again. Owner only, on a key that carries settings.manage. Answers

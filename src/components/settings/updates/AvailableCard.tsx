@@ -8,7 +8,7 @@ import { Markdown } from '@/components/ui/Markdown';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { OutcomeLine } from '@/components/settings/workspace/OutcomeLine';
 import { digestNotes } from './update-phase';
-import { CheckButton, CopyCode, Mono, checkedLabel } from './parts';
+import { CheckButton, CopyCode, Mono, TechDetails, checkedLabel } from './parts';
 import { ConnectionBlocker } from './ConnectionBlocker';
 
 /**
@@ -91,12 +91,16 @@ export function AvailableCard({
             <p className="mt-1.5 text-sm text-zinc-300">
               {database?.mode === 'automatic'
                 ? 'Your database updates on its own while the new version deploys.'
-                : database?.mode === 'manual'
-                  ? <>Automatic database updates are off: run <CopyCode text="npm run db:migrate" /> before it goes live.</>
-                  : database?.mode === 'not_set_up'
-                    ? <>Run <CopyCode text="npm run db:migrate" /> before it goes live, or add <Mono>SUPABASE_DB_URL</Mono> to let deploys do it.</>
-                    : 'Apply its database changes when it deploys.'}
+                : database?.mode === 'manual' || database?.mode === 'not_set_up'
+                  ? 'Automatic database updates are off, so whoever runs your server applies these changes before it goes live.'
+                  : 'Apply its database changes when it deploys.'}
             </p>
+            {(database?.mode === 'manual' || database?.mode === 'not_set_up') && (
+              <TechDetails>
+                <span className="block">Run <CopyCode text="npm run db:migrate" /> from the app&apos;s folder before it goes live.</span>
+                {database.mode === 'not_set_up' && <span className="block">Or add <Mono>SUPABASE_DB_URL</Mono> to your host to let deploys do it.</span>}
+              </TechDetails>
+            )}
             <div className="mt-2 space-y-2 text-zinc-300">
               {digest.database.map((item) => (
                 <div key={item.version}>

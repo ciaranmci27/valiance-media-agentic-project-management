@@ -30,10 +30,10 @@ export interface DataRetentionField {
 }
 
 export const DATA_RETENTION_FIELDS: readonly DataRetentionField[] = [
-  { key: 'webhook_retention_days', label: 'Webhook deliveries', help: 'Sent and failed ones. Waiting ones always stay.', minDays: 7, defaultDays: 30, module: 'webhooks' },
-  { key: 'agent_health_history_days', label: 'Agent uptime history', help: 'Each agent keeps its latest state.', minDays: 7, defaultDays: 90, module: 'agents' },
-  { key: 'agent_activity_retention_days', label: 'Agent events', help: 'Billing events always stay.', minDays: 30, defaultDays: null, module: 'agents' },
-  { key: 'agent_run_retention_days', label: 'Agent runs', help: 'Finished runs. Runs still in use stay.', minDays: 30, defaultDays: null, module: 'agents' },
+  { key: 'webhook_retention_days', label: 'Updates sent to other apps', help: 'Sent and failed ones. Ones still waiting to send always stay.', minDays: 7, defaultDays: 30, module: 'webhooks' },
+  { key: 'agent_health_history_days', label: 'When agents were online', help: 'Each agent keeps whether it is online now.', minDays: 7, defaultDays: 90, module: 'agents' },
+  { key: 'agent_activity_retention_days', label: 'What agents did', help: 'Anything used for billing always stays.', minDays: 30, defaultDays: null, module: 'agents' },
+  { key: 'agent_run_retention_days', label: 'Finished agent work', help: 'Work an agent finished. Anything still in use stays.', minDays: 30, defaultDays: null, module: 'agents' },
   { key: 'chat_retention_days', label: 'Chat message text', help: 'The text is removed; the message stays in its thread.', minDays: 7, defaultDays: null, module: 'agents' },
 ];
 

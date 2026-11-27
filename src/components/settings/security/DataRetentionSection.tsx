@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { HardDrive } from 'lucide-react';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
-import { Button } from '@/components/ui/Button';
+import { useDiscardGuard } from '@/components/ui/useDiscardGuard';
+import { SettingsSaveBar } from '@/components/settings/SettingsSaveBar';
 import { Select } from '@/components/ui/inputs/Select';
 import { toast } from '@/components/ui/Toast';
 import { isModuleEnabled } from '@/lib/access-control';
@@ -42,6 +43,7 @@ export function DataRetentionSection() {
 
   const changed = !!draft && !!saved && fields.some((field) => draft[field.key] !== saved[field.key]);
   const confirm = useRetentionConfirm(DATA_RETENTION_RUN_UTC);
+  const guard = useDiscardGuard(changed, () => setDraft(saved));
 
   const save = () => {
     if (!draft || !saved || !settings) return;
@@ -70,7 +72,7 @@ export function DataRetentionSection() {
   if (fields.length === 0) return null;
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="data-retention-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="data-retention-heading">
       <SettingsSectionHeader
         icon={HardDrive}
         headingId="data-retention-heading"
@@ -95,15 +97,18 @@ export function DataRetentionSection() {
               disabled={busy || isDemoMode}
             />
           ))}
-          <div className="flex justify-end gap-2 sm:col-span-2">
-            {changed && (
-              <Button variant="ghost" onClick={() => setDraft(saved)}>Discard</Button>
-            )}
-            <Button onClick={save} disabled={!changed || busy || confirm.counting || isDemoMode}>{busy ? 'Saving' : confirm.counting ? 'Checking' : 'Save'}</Button>
-          </div>
         </div>
       )}
       {confirm.dialog}
+      {guard.dialog}
+      {!isDemoMode && (
+        <SettingsSaveBar
+          dirty={changed}
+          saving={busy || confirm.counting}
+          onDiscard={() => setDraft(saved)}
+          onSave={save}
+        />
+      )}
     </section>
   );
 }

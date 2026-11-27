@@ -67,7 +67,7 @@ export function BellPopover({ anchorRef, open, onClose, onNavigate, hub }: {
       align="start"
       width={400}
       // A dialog a row opens (approve a suggestion, review changes) is part of the bell.
-      ignoreOutsideSelector={'[aria-modal="true"], [role="dialog"], [role="tooltip"]'}
+      ignoreOutsideSelector={'[aria-modal="true"], [role="dialog"], [role="tooltip"], [data-row-actions]'}
       className="rounded-xl border border-white/[0.08] bg-surface-overlay shadow-overlay"
     >
       <div role="dialog" aria-label="Notifications">{body}</div>

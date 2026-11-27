@@ -12,8 +12,31 @@ export type BrandScale = Record<BrandShade, string>;
 /** How the sidebar lists projects: a section of the first few (agencies), or a menu of every active one under Projects (teams, solo). */
 export type SidebarProjectsStyle = 'list' | 'menu';
 
-export const LOGO_KINDS = ['light', 'dark', 'favicon'] as const;
+/**
+ * The brand's four logo slots: a horizontal logo and a square one, each for
+ * the light theme and the dark theme. The stored names are older than the
+ * slots: `light` and `dark` are the horizontal logo for light and dark
+ * backgrounds, `favicon` is the square logo for light ones (it is the
+ * browser tab icon), and `square_dark` the square logo for dark ones.
+ */
+export const LOGO_KINDS = ['light', 'dark', 'favicon', 'square_dark'] as const;
 export type LogoKind = typeof LOGO_KINDS[number];
+
+/** A slot's shape: horizontal (light, dark) or square (favicon, square_dark). */
+export function logoKindShape(kind: LogoKind): 'horizontal' | 'square' {
+  return kind === 'favicon' || kind === 'square_dark' ? 'square' : 'horizontal';
+}
+
+/** A slot's theme: the light or the dark one. */
+export function logoKindTheme(kind: LogoKind): 'light' | 'dark' {
+  return kind === 'dark' || kind === 'square_dark' ? 'dark' : 'light';
+}
+
+/** The slot with this shape and theme. */
+export function logoKindFor(shape: 'horizontal' | 'square', theme: 'light' | 'dark'): LogoKind {
+  if (shape === 'horizontal') return theme === 'light' ? 'light' : 'dark';
+  return theme === 'light' ? 'favicon' : 'square_dark';
+}
 
 /** The brand as every screen, email and PDF reads it: complete, no blanks. */
 export interface Brand {
@@ -39,7 +62,10 @@ export interface Brand {
     light: string | null;
     /** For dark backgrounds: the sidebar, the client portal, emails, standard invoice PDFs. Falls back to light. */
     dark: string | null;
+    /** The square logo for light backgrounds: the browser tab icon and the loading screen. */
     favicon: string | null;
+    /** The square logo for dark backgrounds: the tab icon in a dark browser, the loading screen in dark mode. Falls back to favicon. */
+    squareDark: string | null;
   };
   /** Flips the logo in the dark sidebar, for a mark drawn for light backgrounds only. */
   invertLogoInSidebar: boolean;
@@ -67,6 +93,8 @@ export interface BrandSettings {
   logoLightUrl: string | null;
   logoDarkUrl: string | null;
   faviconUrl: string | null;
+  /** The square logo for dark backgrounds (migration 20261127003100); null falls back to faviconUrl. */
+  squareDarkUrl: string | null;
   invertLogoInSidebar: boolean;
   showNameUnderLogo: boolean;
   sidebarProjects: SidebarProjectsStyle;
@@ -74,4 +102,4 @@ export interface BrandSettings {
 }
 
 /** The fields the settings page saves (logos upload on their own route). */
-export type BrandSettingsInput = Omit<BrandSettings, 'logoLightUrl' | 'logoDarkUrl' | 'faviconUrl'>;
+export type BrandSettingsInput = Omit<BrandSettings, 'logoLightUrl' | 'logoDarkUrl' | 'faviconUrl' | 'squareDarkUrl'>;

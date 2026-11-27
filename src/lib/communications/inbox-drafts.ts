@@ -5,7 +5,8 @@ import { InboxError, loadTriageableThread, many, one, type InboxContext } from '
 import { comms } from '@/lib/communications/db';
 import { inboxDecisionRecipients, primaryPersonHandler } from './inbox-handlers';
 import { inboxOwnerOf } from './inbox-visibility';
-import { readPreferences } from '@/lib/api/assistant';
+import { findPersonalAgent, readAssistantSettings, readPreferences } from '@/lib/api/assistant';
+import { isModuleEnabled, type AccessContext } from '@/lib/access-control';
 
 /**
  * Reply drafts on request. A person asks for one on a thread (optionally
@@ -80,12 +81,8 @@ export async function markDraftCopied(ctx: InboxContext, threadId: string, draft
 
 export async function requestReplyDraft(ctx: InboxContext, threadId: string, request: RequestDraftRequest): Promise<InboxReplyDraft> {
   const thread = await loadTriageableThread(ctx, threadId);
-  const { data: inbox, error: inboxError } = await comms(ctx.service).from('inboxes').select('handler_member_id').eq('id', thread.inbox_id).maybeSingle();
-  if (inboxError) throw inboxError;
-  if (!inbox?.handler_member_id) throw new InboxError(409, 'This inbox has no agent to write a draft. Choose one in its settings.');
-  // A person's assistant with Draft replies off would never answer: say so now, not after the wait.
-  const offFor = await draftRepliesOffFor(ctx.service, inbox.handler_member_id);
-  if (offFor) throw new InboxError(409, `${offFor} has Draft replies switched off, so it writes no drafts. Its person turns it on from their Assistant page.`);
+  const writer = await draftWriter(ctx.service, ctx.access, thread.inbox_id);
+  if (writer.refusal) throw new InboxError(409, writer.refusal);
   const waiting = await one<DraftRow & Record<string, unknown>>(comms(ctx.service).from('reply_drafts').select(DRAFT_COLUMNS)
     .eq('thread_id', thread.id).eq('status', 'requested').order('created_at', { ascending: false }).limit(1).maybeSingle());
   if (waiting) {
@@ -109,12 +106,51 @@ export async function requestReplyDraft(ctx: InboxContext, threadId: string, req
   return (await presentDrafts(ctx.service, [row]))[0];
 }
 
-/** The handler's name when it is a personal assistant whose person switched Draft replies off; null otherwise. */
-async function draftRepliesOffFor(service: SupabaseClient, handlerId: string): Promise<string | null> {
-  const handler = await one<{ name: string; delegate_of: string | null }>(service.from('team_members').select('name, delegate_of').eq('id', handlerId).maybeSingle()).catch(() => null);
-  if (!handler?.delegate_of) return null;
-  const preferences = await readPreferences(service, handlerId);
-  return preferences.switches.draft_replies ? null : handler.name;
+export interface DraftWriter {
+  /** Who writes the inbox's drafts; null when nobody does. */
+  writer: { id: string; name: string } | null;
+  /** Why a draft cannot be asked for now, in words for the person; null when it can. */
+  refusal: string | null;
+}
+
+/**
+ * Who writes a reply draft for an inbox: its primary handler when that is an
+ * agent; on a personal inbox, else its person's own assistant (delegate_of
+ * them, assistants on), which reads the inbox through Sort my inbox; else a
+ * person primary handler, as before. Nobody: the refusal says what to change.
+ * A personal assistant whose person switched Draft replies off writes none.
+ */
+export async function draftWriter(service: SupabaseClient, access: AccessContext, inboxId: string): Promise<DraftWriter> {
+  const { data: inbox, error } = await comms(service).from('inboxes').select('handler_member_id').eq('id', inboxId).maybeSingle();
+  if (error) throw error;
+  const handlerId = (inbox as { handler_member_id: string | null } | null)?.handler_member_id ?? null;
+  const handler = handlerId
+    ? await one<{ id: string; name: string; role: string; delegate_of: string | null }>(service.from('team_members').select('id, name, role, delegate_of').eq('id', handlerId).maybeSingle())
+    : null;
+  if (handler?.role === 'agent') return writerOf(service, handler);
+  const owner = await inboxOwnerOf(service, inboxId);
+  if (owner && isModuleEnabled(access, 'agents') && (await readAssistantSettings(service)).enabled) {
+    const assistant = await findPersonalAgent(service, owner);
+    if (assistant) {
+      const shared = await one<{ inbox_id: string }>(comms(service).from('inbox_access').select('inbox_id').eq('inbox_id', inboxId).eq('member_id', assistant.id as string).maybeSingle());
+      if (!shared) {
+        return { writer: null, refusal: `${assistant.name} cannot read this inbox yet. Its person turns on Sort my inbox on their Assistant page, then asks again.` };
+      }
+      return writerOf(service, { id: assistant.id as string, name: assistant.name as string, delegate_of: owner });
+    }
+  }
+  if (handler) return { writer: { id: handler.id, name: handler.name }, refusal: null };
+  return { writer: null, refusal: 'This inbox has no agent to write a draft. Choose one in its settings.' };
+}
+
+/** An agent as the writer, unless it is a personal assistant whose person switched Draft replies off. */
+async function writerOf(service: SupabaseClient, agent: { id: string; name: string; delegate_of: string | null }): Promise<DraftWriter> {
+  const writer = { id: agent.id, name: agent.name };
+  if (!agent.delegate_of) return { writer, refusal: null };
+  const preferences = await readPreferences(service, agent.id);
+  return preferences.switches.draft_replies
+    ? { writer, refusal: null }
+    : { writer, refusal: `${agent.name} has Draft replies switched off, so it writes no drafts. Its person turns it on from their Assistant page.` };
 }
 
 /**

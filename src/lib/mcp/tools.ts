@@ -815,18 +815,19 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'add_task_comment',
     lead: 'Add a comment to a task.',
-    detail: "Posted under your own name. blocked: true says you are stuck on this task: it shows on Needs you for the task's people and your managers until a person replies or the task moves. For a decision use ask_human or request_approval with your run_id instead; a comment is the record.",
+    detail: "Posted under your own name. blocked: true says you are stuck on this task: it shows on Needs you for the task's people and your managers until a person replies or the task moves. For a decision use ask_human or request_approval with your run_id instead; a comment is the record. notify: true also tells the task's people (its assignees and creator, never you) in the bell: it needs notifications.send (403 otherwise) and counts against your send_rate_per_minute (429 send_rate_limited). Use it for news they should see now, not for every note.",
     input: z.object({
       task_id: id('task_id'),
       text: z.string().min(1).max(20_000),
       blocked: z.boolean().optional().describe('You are stuck on this task until a person replies'),
+      notify: z.boolean().optional().describe("Also tell the task's people in the bell"),
       idempotency_key: idempotencyKeyInput,
     }).strict(),
     permission: 'tasks.read',
     method: 'POST',
     path: '/api/v1/tasks/{id}/comments',
     // The route requires user_id but always uses the key's member.
-    request: ({ task_id, text, blocked }, context) => ({ params: { id: task_id }, body: { user_id: context.memberId, text, ...(blocked === undefined ? {} : { blocked }) } }),
+    request: ({ task_id, text, blocked, notify }, context) => ({ params: { id: task_id }, body: { user_id: context.memberId, text, ...(blocked === undefined ? {} : { blocked }), ...(notify === undefined ? {} : { notify }) } }),
   }),
   routeTool({
     name: 'add_task_file',
@@ -1414,13 +1415,14 @@ export const PM_TOOLS: PmTool[] = [
   routeTool({
     name: 'list_notifications',
     lead: 'List your own notifications, newest first.',
-    detail: 'is_read=false for unread only. view: all (default, every notification), updates (what the app lists as Updates: not done, receipts for something waiting on you left out), unread (those Updates not read yet) or done. category narrows to one kind, such as task_comments, agent_message or reminder. Each has category, project_id, actor_id and done_at. With a view other than all, meta.next_cursor pages on: pass it back as before (with the same view, no other filter). Grouped: list_notification_groups.',
+    detail: 'is_read=false for unread only. view: all (default, every notification), updates (what the app lists as Updates: not done, receipts for something waiting on you left out), unread (those Updates not read yet) or done. category narrows to one kind, such as task_comments, agent_message or reminder. Each has category, project_id, actor_id and done_at. With a view other than all, meta.next_cursor pages on: pass it back as before (with the same view, no other filter). Grouped: list_notification_groups; group_key lists one group\'s open Updates, newest first, paged the same way.',
     input: z.object({
       is_read: z.boolean().optional(),
       entity_type: z.enum(['task', 'project', 'lead', 'comment', 'member', 'contact', 'suggestion', 'goal', 'question']).optional(),
       view: z.enum(['all', 'updates', 'unread', 'done']).optional(),
       category: z.string().regex(/^[a-z][a-z0-9_]{0,59}$/).optional().describe('A category key such as task_comments'),
       before: z.string().min(1).max(100).optional().describe('meta.next_cursor from the previous page'),
+      group_key: z.string().min(3).max(240).optional().describe('One group\'s rows (from list_notification_groups)'),
       page, limit: limit(25),
     }).strict(),
     permission: 'notifications.manage_own',

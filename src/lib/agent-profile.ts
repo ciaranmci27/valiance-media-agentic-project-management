@@ -223,3 +223,45 @@ export function syncProfileForm(state: ProfileFormState, saved: ProfileForm): Pr
   if (sameProfileForm(state.draft, saved)) return startProfileForm(saved);
   return { draft: state.draft, base: saved, conflict: true };
 }
+
+// ── The profile's header words and tabs ─────────────────────────────────
+
+/**
+ * The one line under an agent's name: its title, then its template and role
+ * only where they say something the title does not ("Builder", never
+ * "Builder · Builder · Builder").
+ */
+export function agentSubtitle({ title, templateLabel, role }: { title: string | null | undefined; templateLabel: string | null | undefined; role: string | null | undefined }): string {
+  const seen = new Set<string>();
+  const words: string[] = [];
+  for (const word of [title, templateLabel, role]) {
+    const text = word?.trim();
+    if (!text || seen.has(text.toLowerCase())) continue;
+    seen.add(text.toLowerCase());
+    words.push(text);
+  }
+  return words.join(' · ') || 'No role yet';
+}
+
+/** "3 working now" when an agent runs several workers at once; nothing for one. */
+export function instancesLine(pool: { count: number; working: number } | null | undefined): string | null {
+  if (!pool || pool.count <= 1) return null;
+  return pool.working >= pool.count ? `${pool.count} working now` : `${pool.count} running, ${pool.working} working now`;
+}
+
+/** An agent page's sections, in order. */
+export const PROFILE_TABS = ['overview', 'runs', 'projects', 'rules', 'access'] as const;
+export type ProfileTab = (typeof PROFILE_TABS)[number];
+
+/** Sections that moved into another tab: old ?tab= links land there, on the part they named. */
+const MOVED_TABS: Record<string, { tab: ProfileTab; anchor: string }> = {
+  activity: { tab: 'overview', anchor: 'ov-activity' },
+  notes: { tab: 'rules', anchor: 'rp-notes' },
+  connect: { tab: 'access', anchor: 'cn-host' },
+};
+
+/** The tab a ?tab= value opens, and the part to scroll to when it named a section that moved. */
+export function profileTabOf(requested: string | null | undefined): { tab: ProfileTab; anchor: string | null } {
+  if (requested && (PROFILE_TABS as readonly string[]).includes(requested)) return { tab: requested as ProfileTab, anchor: null };
+  return (requested && MOVED_TABS[requested]) || { tab: 'overview', anchor: null };
+}

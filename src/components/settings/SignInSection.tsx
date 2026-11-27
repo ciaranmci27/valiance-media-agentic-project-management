@@ -116,7 +116,7 @@ export function SignInSection() {
   const showGoogle = !!view && ((allowsGoogle(view.methods) && view.google_provider === 'on') || view.google.linked);
 
   return (
-    <section id="sign-in" className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6" aria-labelledby="sign-in-heading">
+    <section id="sign-in" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6" aria-labelledby="sign-in-heading">
       <SettingsSectionHeader
         icon={KeyRound}
         headingId="sign-in-heading"

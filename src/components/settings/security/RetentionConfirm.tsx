@@ -51,7 +51,6 @@ export function useRetentionConfirm(runsAtUtc: { hour: number; minute: number })
       message={pending?.message ?? ''}
       confirmLabel="Save and remove"
       variant="danger"
-      doubleConfirm={false}
     />
   );
 

@@ -443,7 +443,6 @@ export function EmailHandlerSection() {
         message={`Mail sent to ${offTarget?.address ?? 'it'}, and to your addresses that deliver to it, is dropped while it is off, not queued. Mail already in it stays. You can turn it back on any time.`}
         confirmLabel="Turn off"
         variant="danger"
-        doubleConfirm={false}
       />
     </section>
   );

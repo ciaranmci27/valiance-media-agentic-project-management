@@ -783,7 +783,6 @@ export function YourAddressesSection() {
         message={copy?.message ?? ''}
         confirmLabel={copy?.label ?? 'Confirm'}
         variant={copy?.danger ? 'danger' : 'default'}
-        doubleConfirm={false}
       />
     </section>
   );

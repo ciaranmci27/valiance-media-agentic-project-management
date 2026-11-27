@@ -52,7 +52,7 @@ export function QualityCard({ quality, measuring }: { quality: Quality; measurin
       {measuring ? (
         <CardSkeleton rows={4} />
       ) : (
-        <div className="p-5">
+        <div className="px-4 pb-4 lg:px-5">
           <CardStats stats={tiles.map(({ sub, ...tile }) => ({ ...tile, context: sub }))} />
           {q.revertedPrs.length > 0 && (
             <ul className="mt-4 pt-3 border-t border-white/[0.08] space-y-1">
