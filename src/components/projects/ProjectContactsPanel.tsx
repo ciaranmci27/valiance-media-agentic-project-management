@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useState } from 'react';
 import Link from 'next/link';
 import { Plus, Edit, Trash2, Star, UserCircle, ExternalLink, Search, X } from 'lucide-react';
@@ -139,7 +140,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
           resetAddForm();
           setEditingPcId(null);
         }}
-        title={`Project Contacts (${projectContactsList.length})`}
+        title="Project contacts"
         size="lg"
       >
         <div className="space-y-3">
@@ -169,10 +170,10 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                             <ExternalLink size={11} className="flex-shrink-0 opacity-50" />
                           </Link>
                           {pc.is_primary_client && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-300 flex-shrink-0">
+                            <Pill tone="waiting">
                               <Star size={10} />
                               Primary
-                            </span>
+                            </Pill>
                           )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-zinc-400 min-w-0">
@@ -281,7 +282,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
           {canManageContacts && showAddForm ? (
             <div className="border border-white/[0.08] rounded-lg p-4 bg-white/[0.03] space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium text-white">Add Contact</h4>
+                <h4 className="text-sm font-medium text-white">Add contact</h4>
                 <button
                   onClick={resetAddForm}
                   className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.08] transition-all"
@@ -294,7 +295,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
               <TextInput
                 value={addSearch}
                 onChange={setAddSearch}
-                placeholder="Search contacts..."
+                placeholder="Search contacts"
                 leftIcon={Search}
                 size="sm"
               />
@@ -350,7 +351,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                     value={addRole}
                     onChange={(value) => handleAddRoleChange(value)}
                     options={roleOptions}
-                    placeholder="Select a role..."
+                    placeholder="Select a role"
                   />
                 </div>
                 {addRole === 'Other' && (
@@ -359,7 +360,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
                       label="Custom Role"
                       value={addCustomRole}
                       onChange={(e) => setAddCustomRole(e.target.value)}
-                      placeholder="Enter custom role..."
+                      placeholder="Enter custom role"
                     />
                   </div>
                 )}
@@ -398,7 +399,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
               className="w-full"
               variant="secondary"
             >
-              Add Contact
+              Add contact
             </Button>
           ) : null}
 
@@ -415,7 +416,7 @@ export function ProjectContactsPanel({ isOpen, onClose, projectId }: ProjectCont
           isOpen={!!removeTarget}
           onClose={() => setRemoveTarget(null)}
           onConfirm={executeRemove}
-          title="Remove Contact"
+          title="Remove this contact?"
           message="Remove this contact from the project?"
           confirmLabel="Remove"
           variant="danger"

@@ -83,7 +83,7 @@ export function ScheduleList({ onOpen }: { onOpen: (schedule: ScheduleView) => v
       </div>
 
       {list.data && !list.data.scheduler_ready && (
-        <p role="status" className="mb-3 flex items-start gap-2 rounded-lg bg-amber-500/[0.1] px-3 py-2 text-xs text-amber-200">
+        <p role="status" className="mb-3 flex items-start gap-2 rounded-lg bg-amber-500/[0.1] px-3 py-2 text-xs text-amber-300">
           <Info size={13} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
           Schedules are saved but do not run on their own yet: the database cannot wake the app. Whoever runs this install can finish the setup.
         </p>
@@ -150,7 +150,7 @@ export function ScheduleList({ onOpen }: { onOpen: (schedule: ScheduleView) => v
                     </div>
                     <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-zinc-400">
                       {facts.map((fact, i) => (
-                        <span key={fact} className={`min-w-0 max-w-full truncate ${i === 1 && paused ? 'text-amber-200' : ''}`}>{fact}</span>
+                        <span key={fact} className={`min-w-0 max-w-full truncate ${i === 1 && paused ? 'text-amber-300' : ''}`}>{fact}</span>
                       ))}
                     </p>
                   </div>

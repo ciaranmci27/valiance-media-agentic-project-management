@@ -71,7 +71,7 @@ export function AssistantServiceSection() {
   const key = view?.keys[0] ?? null;
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="assistant-service-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="assistant-service-heading">
       <SettingsSectionHeader
         icon={Server}
         headingId="assistant-service-heading"

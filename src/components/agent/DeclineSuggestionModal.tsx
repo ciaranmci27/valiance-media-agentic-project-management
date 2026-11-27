@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useNeedsYouActions } from '@/lib/needs-you-actions';
 import type { TaskSuggestion } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { toast } from '@/components/ui/Toast';
 
@@ -40,7 +39,10 @@ export function DeclineSuggestionModal({ suggestion, onClose }: {
   };
 
   return (
-    <Modal isOpen={!!suggestion} onClose={close} title="Decline suggestion" size="sm">
+    <Modal isOpen={!!suggestion} onClose={close} title="Decline suggestion"
+      size="sm"
+      primaryAction={{ label: withReason ? 'Decline and tell the agent' : 'Decline', onClick: () => void send(), busy, disabled: !suggestion }}
+    >
       {suggestion && (
         <div className="space-y-4">
           <p className="text-sm font-medium text-white">{suggestion.title}</p>
@@ -61,12 +63,6 @@ export function DeclineSuggestionModal({ suggestion, onClose }: {
               <span className="font-medium">With a reason:</span> rejected, and the agent learns from it, so it stops suggesting this kind of thing.
             </li>
           </ul>
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={close}>Cancel</Button>
-            <Button size="sm" variant={withReason ? 'danger' : 'secondary'} onClick={() => void send()} disabled={busy}>
-              {busy ? 'Declining' : withReason ? 'Decline and tell the agent' : 'Decline'}
-            </Button>
-          </div>
         </div>
       )}
     </Modal>

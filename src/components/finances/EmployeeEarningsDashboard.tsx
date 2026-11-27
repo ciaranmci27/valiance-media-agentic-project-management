@@ -260,7 +260,7 @@ export function EmployeeEarningsDashboard({
             <div className="flex h-72 gap-2">
               <div className="flex w-12 flex-col justify-between py-0.5 text-right">
                 {[...axisTicks].reverse().map((tick) => (
-                  <span key={tick} className="text-[10px] font-medium text-zinc-500">
+                  <span key={tick} className="text-[11px] font-medium text-zinc-500">
                     {money.compact(tick)}
                   </span>
                 ))}
@@ -317,7 +317,7 @@ export function EmployeeEarningsDashboard({
                           </div>
                         )}
                         {(Math.abs(approved) > 0.005 || pending > 0.005) && (
-                          <div className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-20 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-surface-overlay border border-white/[0.08] px-2.5 py-2 text-[10px] text-white shadow-lg group-hover:block">
+                          <div className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-20 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-surface-overlay border border-white/[0.08] px-2.5 py-2 text-[11px] text-white shadow-lg group-hover:block">
                             <p className="mb-1 font-semibold text-zinc-200">{bar.label}</p>
                             {Math.abs(approved) > 0.005 && (
                               <p>
@@ -334,7 +334,7 @@ export function EmployeeEarningsDashboard({
                           </div>
                         )}
                         {showLabel && (
-                          <span className="absolute top-[calc(100%+8px)] left-1/2 w-16 -translate-x-1/2 truncate text-center text-[10px] font-medium text-zinc-500">
+                          <span className="absolute top-[calc(100%+8px)] left-1/2 w-16 -translate-x-1/2 truncate text-center text-[11px] font-medium text-zinc-500">
                             {bar.label}
                           </span>
                         )}
@@ -370,7 +370,7 @@ export function EmployeeEarningsDashboard({
             <FolderKanban size={18} className="text-zinc-400" />
             <h2 className="font-semibold text-white">By project</h2>
           </div>
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-5 border-b border-white/[0.06] px-5 py-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-5 border-b border-white/[0.06] px-5 py-2 text-[11px] font-medium text-zinc-500">
             <span>Project</span>
             <span className="w-24 text-right">Approved</span>
             <span className="w-24 text-right">Pending</span>

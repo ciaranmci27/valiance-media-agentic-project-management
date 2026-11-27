@@ -103,7 +103,7 @@ export function FlowShell({ title, subtitle, exitHref, exitLabel = 'Cancel', onE
       <header className="px-4 pt-5 lg:px-8 lg:pt-8">
         <div className="mx-auto flex max-w-5xl items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight text-white lg:text-[28px]">{title}</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-white lg:text-title">{title}</h1>
             {subtitle && <p className="mt-1 max-w-xl text-sm text-zinc-400">{subtitle}</p>}
           </div>
           <Link

@@ -6,8 +6,7 @@ import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { useDemo } from '@/lib/demo-context';
 import { hasPermission } from '@/lib/access-control';
-import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { Select } from '@/components/ui/inputs/Select';
@@ -126,7 +125,10 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
   const adding = filed.size > 0;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={adding ? 'Add a project' : 'Set project'} size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={adding ? 'Add a project' : 'Set project'}
+      size="lg"
+      primaryAction={{ label: adding ? 'Add project' : 'Set project', onClick: () => void save(), disabled: !projectId, busy: saving }}
+    >
       <div className="space-y-5">
         <div className="space-y-2">
           <Select
@@ -171,6 +173,7 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
           )}
         </div>
 
+        <ModalAdvanced label="Remember for future mail" defaultOpen={rememberSender || rememberDomain}>
         {detail.senders.length === 0 ? (
           <p className="rounded-lg bg-white/[0.03] px-3 py-2.5 text-xs text-zinc-400">
             Every sender in this thread is a teammate or an inbox, so there is no client address to remember.
@@ -182,10 +185,7 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
           </p>
         ) : (
           <div className="space-y-4 rounded-lg border border-white/[0.08] bg-white/[0.02] p-4">
-            <div>
-              <h3 className="text-sm font-medium text-white">Remember for future mail</h3>
-              <p className="mt-0.5 text-xs text-zinc-400">Mail from this sender then maps to a project on arrival.</p>
-            </div>
+            <p className="text-xs text-zinc-400">Mail from this sender then maps to a project on arrival.</p>
             {rememberable.length > 1 && (
               <Select
                 label="Sender"
@@ -248,13 +248,7 @@ export function ThreadProjectDialog({ isOpen, onClose, detail, onSaved }: Thread
             )}
           </div>
         )}
-
-        <div className="flex justify-end gap-2 border-t border-white/[0.08] pt-4">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => void save()} disabled={saving || !projectId}>
-            {saving ? 'Saving...' : adding ? 'Add project' : 'Save'}
-          </Button>
-        </div>
+        </ModalAdvanced>
       </div>
     </Modal>
   );

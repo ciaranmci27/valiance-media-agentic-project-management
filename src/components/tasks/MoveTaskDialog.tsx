@@ -193,21 +193,23 @@ export function MoveTaskDialog({ tasks, isOpen, onClose, runner, targetProjectId
   const busy = working !== null;
 
   return (
-    <Modal isOpen={isOpen} onClose={close} title={title ?? (one ? 'Move to another project' : `Move ${tasks.length} tasks`)} size="lg">
+    <Modal
+      isOpen={isOpen}
+      onClose={close}
+      title={title ?? (one ? 'Move to another project' : `Move ${tasks.length} tasks`)}
+      size="lg"
+      primaryAction={plan ? undefined : { label: target ? `Move to ${target}` : 'Move tasks', onClick: () => void start(), disabled: !projectId, busy }}
+    >
       <div className="space-y-5">
         {!plan ? (
           <>
-            {intro ?? (
-              <p className="text-sm text-zinc-300">
-                {one ? <>&ldquo;{tasks[0].title}&rdquo; moves</> : <>These tasks move</>} with {one ? 'its' : 'their'} subtasks, comments, files and reminders.
-              </p>
-            )}
+            {intro}
             {targetProjectId ? (
               <ul className="divide-y divide-white/[0.05] overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.02]" aria-label="Tasks to move">
                 {tasks.map((task) => (
                   <li key={task.id} className="flex min-w-0 items-center gap-2.5 px-3 py-2">
                     <FolderInput size={13} className="flex-shrink-0 text-zinc-400" aria-hidden="true" />
-                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-zinc-100">{task.title}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100">{task.title}</span>
                     <span className="flex-shrink-0 text-[11px] text-zinc-400">{projectName(task.project_id)}</span>
                   </li>
                 ))}
@@ -222,16 +224,9 @@ export function MoveTaskDialog({ tasks, isOpen, onClose, runner, targetProjectId
                 searchable
                 placeholder={options.length ? 'Search projects' : 'No other project to move to'}
                 emptyText="No matching projects."
-                helperText="Projects you can add tasks to."
-              />
+                              />
             )}
-            {refusal && <p role="alert" className="rounded-lg bg-red-500/[0.1] px-3 py-2 text-xs text-red-200">{refusal}</p>}
-            <div className="flex justify-end gap-2 border-t border-white/[0.08] pt-4">
-              <Button variant="ghost" onClick={close}>Cancel</Button>
-              <Button onClick={() => void start()} disabled={busy || !projectId}>
-                {busy ? 'Moving...' : target ? `Move to ${target}` : 'Move'}
-              </Button>
-            </div>
+            {refusal && <p role="alert" className="rounded-lg bg-red-500/[0.1] px-3 py-2 text-xs text-red-300">{refusal}</p>}
           </>
         ) : (
           <>
@@ -244,7 +239,7 @@ export function MoveTaskDialog({ tasks, isOpen, onClose, runner, targetProjectId
                   {plan.losing.map((member) => (
                     <li key={member.id} className="flex min-w-0 items-center gap-2.5 px-3 py-2">
                       <Avatar name={member.name} src={avatarOf(member.id)} size="xs" />
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-zinc-100">{member.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100">{member.name}</span>
                       <span className="flex-shrink-0 text-[11px] text-zinc-400">{member.on.map((role) => ROLE_WORDS[role]).join(', ')}</span>
                     </li>
                   ))}
@@ -270,17 +265,17 @@ export function MoveTaskDialog({ tasks, isOpen, onClose, runner, targetProjectId
             <div className="flex flex-wrap justify-end gap-2 border-t border-white/[0.08] pt-4">
               <Button variant="ghost" onClick={() => setPlan(null)} disabled={busy}>Back</Button>
               {plan.losing.length === 0 ? (
-                <Button onClick={() => void finish('refuse')} disabled={busy}>{busy ? 'Moving...' : `Move the rest to ${target}`}</Button>
+                <Button onClick={() => void finish('refuse')} disabled={busy}>{busy ? 'Moving' : `Move the rest to ${target}`}</Button>
               ) : (
                 <>
                   {plan.can_add_members && allAddable && (
                     <Button variant="secondary" onClick={() => void finish('add_to_project')} disabled={busy} icon={<UserPlus size={14} aria-hidden="true" />}>
-                      {working === 'add_to_project' ? 'Adding...' : 'Add them to the project'}
+                      {working === 'add_to_project' ? 'Adding' : 'Add them to the project'}
                     </Button>
                   )}
                   {plan.can_unassign && (
                     <Button onClick={() => void finish('unassign')} disabled={busy} icon={<UserMinus size={14} aria-hidden="true" />}>
-                      {working === 'unassign' ? 'Moving...' : 'Remove them'}
+                      {working === 'unassign' ? 'Moving' : 'Remove them'}
                     </Button>
                   )}
                 </>

@@ -10,7 +10,7 @@ import { assistantPending, missingAssistantSchema } from '@/lib/api/assistant';
 import { chatAdapter, ChatProviderError, type ChatCredentials } from './providers';
 import { newRelaySecret } from './providers/discord';
 import {
-  chatConnectionHealth, chatInboundUrl, chatProviderLabel, CHAT_TOKEN_SHAPES, SLACK_SIGNING_SECRET_SHAPE,
+  chatActionsUrl, chatConnectionHealth, chatInboundUrl, chatProviderLabel, CHAT_TOKEN_SHAPES, SLACK_SIGNING_SECRET_SHAPE,
   type ChatChannelRouteView, type ChatConnectionHealth, type ChatConnectionAgentsInput, type ChatConnectionAgentView, type ChatConnectionKind, type ChatConnectionView,
   type ChatListenMode, type ChatProvider, type CreateChatChannelInput, type CreateChatConnection, type UpdateChatChannelInput, type UpdateChatConnection,
 } from './types';
@@ -66,6 +66,15 @@ export function openCredentials(row: { id: string; credentials: string }): ChatC
   return JSON.parse(open('chat', row.credentials, row.id)) as ChatCredentials;
 }
 
+/** Whether a Slack connection's answer buttons are on (credentials.buttons, set with answer_buttons); false when the credentials cannot be read. */
+function slackButtonsOn(row: Row): boolean {
+  try {
+    return openCredentials(row as { id: string; credentials: string }).buttons === '1';
+  } catch {
+    return false;
+  }
+}
+
 /** A connection's kind; every connection before 20261125001100 is personal. */
 export const connectionKind = (row: Row | null | undefined): ChatConnectionKind => (row?.kind === 'company' ? 'company' : 'personal');
 
@@ -85,6 +94,7 @@ export function presentConnection(row: Row, appUrl: string, extras: {
     bot_handle: row.bot_handle ?? null,
     enabled: row.enabled !== false,
     inbound_url: chatInboundUrl(appUrl, row.id),
+    ...(row.provider === 'slack' ? { actions_url: chatActionsUrl(appUrl, row.id), answer_buttons: slackButtonsOn(row) } : {}),
     last_inbound_at: row.last_inbound_at ?? null,
     last_refused_at: row.last_refused_at ?? null,
     ...(row.provider === 'discord' ? { relay_seen_at: row.relay_seen_at ?? null } : {}),
@@ -367,18 +377,27 @@ export async function updateChatConnection(
   requireOwner(access);
   const row = await loadConnection(service, id);
   if (!row) throw notFound('Chat connection');
-  const { new_relay_secret: rotate, bot_token: botToken, signing_secret: signingSecret, ...fields } = patch;
+  const { new_relay_secret: rotate, bot_token: botToken, signing_secret: signingSecret, answer_buttons: answerButtons, ...fields } = patch;
   const changes: Row = { ...fields };
   let relaySecret: string | null = null;
   const replacing = botToken !== undefined || signingSecret !== undefined;
-  if (rotate || replacing) {
+  // Telegram turns presses on by itself; Discord has no buttons. Only Slack needs the Owner's word.
+  if (answerButtons !== undefined && row.provider !== 'slack') {
+    throw new ApiError(422, 'VALIDATION_ERROR', 'Only a Slack connection has the answer buttons switch: Telegram turns them on by itself, Discord has none', { reason: 'answer_buttons_slack_only' });
+  }
+  if (rotate || replacing || answerButtons !== undefined) {
     let credentials: ChatCredentials;
     try {
       credentials = openCredentials(row as { id: string; credentials: string });
     } catch {
       throw new ApiError(409, 'CONFLICT', "This connection's credentials cannot be opened (the encryption key changed). Connect it again.", { reason: 'credentials_unreadable' });
     }
-    if (replacing) credentials = await replacedCredentials(row, credentials, { botToken, signingSecret }, appUrl);
+    if (replacing) credentials = { ...(await replacedCredentials(row, credentials, { botToken, signingSecret }, appUrl)), ...(credentials.buttons ? { buttons: credentials.buttons } : {}) };
+    if (answerButtons !== undefined) {
+      const { buttons: _was, ...rest } = credentials;
+      void _was;
+      credentials = answerButtons ? { ...rest, buttons: '1' } : rest;
+    }
     if (rotate) {
       // The old secret stops working at once; the relay needs the new one.
       if (row.provider !== 'discord') throw new ApiError(409, 'CONFLICT', 'Only a Discord connection has a relay secret', { reason: 'no_relay' });
@@ -399,6 +418,7 @@ export async function updateChatConnection(
   }
   await audit(service, memberId, 'PATCH', id, {
     ...fields, ...(rotate ? { new_relay_secret: true } : {}), ...(botToken !== undefined ? { bot_token: 'replaced' } : {}), ...(signingSecret !== undefined ? { signing_secret: 'replaced' } : {}),
+    ...(answerButtons !== undefined ? { answer_buttons: answerButtons } : {}),
   }, '', door);
   const view = await presentFull(service, (await loadConnection(service, id))!, appUrl);
   return relaySecret ? { ...view, relay_secret: relaySecret } : view;

@@ -1,5 +1,6 @@
 'use client';
 
+import { GroupLabel } from '@/components/ui/GroupLabel';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Globe } from 'lucide-react';
@@ -18,12 +19,11 @@ import {
 } from '@/lib/agent-rules';
 import type { TeamMember } from '@/lib/types';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
-import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/inputs/Select';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { Toggle } from '@/components/ui/Toggle';
-import Modal from '@/components/ui/Modal';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import { pmStorage } from '@/lib/supabase/storage';
@@ -312,8 +312,14 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
 
   return (
     <>
-      <Modal isOpen onClose={onClose} title="Edit Team Member" size="md">
-        <form onSubmit={handleSubmit} className="space-y-4">
+      <Modal
+        isOpen
+        onClose={onClose}
+        title="Edit member"
+        size="md"
+        primaryAction={{ label: formLoading ? 'Saving' : 'Save changes', form: 'edit-member-form', busy: formLoading }}
+      >
+        <form id="edit-member-form" onSubmit={handleSubmit} className="space-y-4">
           <div className="flex justify-center">
             <AvatarUpload
               name={member.name}
@@ -390,6 +396,7 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
             />
           )}
 
+          <ModalAdvanced>
           {role === 'agent' && isOwner && isAgentsEnabled && (
             <Select
               label="Agent profile"
@@ -491,7 +498,7 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
                         type="text"
                         value={tzSearch}
                         onChange={(e) => setTzSearch(e.target.value)}
-                        placeholder="Search timezones..."
+                        placeholder="Search timezones"
                         className="bg-white/[0.03] py-1.5 rounded-md"
                         autoFocus
                       />
@@ -502,9 +509,9 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
                       ) : (
                         filteredTz.map((group) => (
                           <div key={group.label}>
-                            <div className="sticky top-0 bg-white/[0.03] px-3 py-1 text-[11px] font-semibold text-zinc-500 uppercase tracking-wide font-mono border-b border-white/[0.06]">
+                            <GroupLabel className="sticky top-0 bg-surface-raised px-3 py-1 border-b border-white/[0.06]">
                               {group.label}
-                            </div>
+                            </GroupLabel>
                             {group.items.map((entry) => (
                               <button
                                 key={entry.id}
@@ -536,14 +543,7 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="ghost" onClick={onClose} disabled={formLoading}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={formLoading}>
-              {formLoading ? 'Saving...' : 'Save changes'}
-            </Button>
-          </div>
+          </ModalAdvanced>
         </form>
       </Modal>
 
@@ -552,9 +552,9 @@ function EditMemberForm({ member, onClose }: { member: TeamMember; onClose: () =
         isOpen={showEmailConfirm}
         onClose={() => setShowEmailConfirm(false)}
         onConfirm={handleConfirmEmailChange}
-        title="Change Email Address"
+        title="Change sign-in email?"
         message={`This will change the login email for ${member.name || 'this member'} from "${member.email}" to "${email.trim().toLowerCase()}". They'll need to use the new email to sign in.`}
-        confirmLabel="Update Email"
+        confirmLabel="Change email"
         variant="default"
       />
     </>

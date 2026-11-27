@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/inputs/Select';
 import { RadioGroup } from '@/components/ui/inputs/RadioGroup';
 import { toast } from '@/components/ui/Toast';
@@ -77,7 +76,10 @@ export function LinkTaskDialog({ isOpen, onClose, detail, onLinked }: {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={close} title="Link a task" size="lg">
+    <Modal isOpen={isOpen} onClose={close} title="Link a task"
+      size="lg"
+      primaryAction={{ label: 'Link task', onClick: () => void save(), disabled: !taskId, busy: saving }}
+    >
       <div className="space-y-5">
         <p className="sr-only">Choose a task this thread is about, and how it relates.</p>
         <Select
@@ -99,10 +101,6 @@ export function LinkTaskDialog({ isOpen, onClose, detail, onLinked }: {
           onChange={setRelation}
           options={RELATIONS.map((option) => ({ value: option.value, label: option.label, description: option.description }))}
         />
-        <div className="flex justify-end gap-2 border-t border-white/[0.08] pt-4">
-          <Button variant="ghost" onClick={close}>Cancel</Button>
-          <Button onClick={() => void save()} disabled={saving || !taskId}>{saving ? 'Linking...' : 'Link task'}</Button>
-        </div>
       </div>
     </Modal>
   );

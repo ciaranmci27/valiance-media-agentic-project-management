@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, ChevronDown } from 'lucide-react';
 import { scopeGroups, AGENT_SCOPE_BEYOND_ROLE, AGENT_SCOPE_OWNER_ONLY, type ScopeGroup } from '@/lib/agents-ui';
@@ -80,12 +81,12 @@ export function ScopePicker({
                         label={
                           <span className="flex flex-wrap items-center gap-2">
                             <span className={`text-sm ${locked ? 'text-zinc-400' : 'text-zinc-100'}`}>{scope.label}</span>
-                            {suggested.has(scope.key) && <span className="rounded-full bg-brand-500/[0.14] px-1.5 py-0.5 text-[10px] font-medium text-brand-200">Suggested</span>}
-                            {scope.beyondRole && <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-zinc-300">Not by default</span>}
+                            {suggested.has(scope.key) && <Pill tone="info">Suggested</Pill>}
+                            {scope.beyondRole && <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[11px] font-medium text-zinc-300">Not by default</span>}
                             {scope.sensitive && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/[0.14] px-1.5 py-0.5 text-[10px] font-medium text-amber-200">
+                              <Pill tone="waiting">
                                 <AlertTriangle size={10} aria-hidden="true" />Sensitive
-                              </span>
+                              </Pill>
                             )}
                           </span>
                         }

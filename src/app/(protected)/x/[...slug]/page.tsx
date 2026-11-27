@@ -19,7 +19,7 @@ export default function CustomPage() {
   return (
     <div className="animate-fadeIn min-h-screen">
       <Header title={page.title} subtitle={page.subtitle} />
-      <div className="p-4 lg:p-6 space-y-5 lg:space-y-6">
+      <div className="p-4 lg:p-6 space-y-6">
         <Body rest={rest} />
       </div>
     </div>

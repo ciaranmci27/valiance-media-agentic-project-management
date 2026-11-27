@@ -71,7 +71,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
         <Logo className="h-10 w-auto dark:hidden" />
         <Logo variant="dark" className="hidden h-10 w-auto dark:block" />
       </div>
-      <main className="glass-card rounded-xl p-5 lg:p-6" aria-labelledby="consent-heading">
+      <main className="glass-card rounded-xl p-5 lg:p-5" aria-labelledby="consent-heading">
         {/* Where it returns sits beside the name: the name is the tool's own claim, the address is not. */}
         <h1 id="consent-heading" className="text-lg font-semibold tracking-tight text-zinc-100">
           {name}, returning to <span className="break-all text-brand-200">{back}</span>
@@ -83,7 +83,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
         </p>
 
         {blocked ? (
-          <div role="alert" className="mt-5 flex gap-3 rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-amber-100">
+          <div role="alert" className="mt-5 flex gap-3 rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-amber-300">
             <ShieldAlert size={16} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
             <p>{blocked}</p>
           </div>
@@ -102,7 +102,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
           </>
         )}
 
-        <p className="mt-4 flex gap-2.5 rounded-lg bg-amber-500/[0.14] px-3.5 py-2.5 text-sm text-amber-100">
+        <p className="mt-4 flex gap-2.5 rounded-lg bg-amber-500/[0.14] px-3.5 py-2.5 text-sm text-amber-300">
           <ShieldAlert size={16} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
           <span>{words.caution}</span>
         </p>
@@ -120,7 +120,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
 function Notice({ brandName, title, message }: { brandName: string; title: string; message: string }) {
   return (
     <div className="w-full max-w-md">
-      <main className="glass-card rounded-xl p-5 lg:p-6" aria-labelledby="consent-notice-heading">
+      <main className="glass-card rounded-xl p-5 lg:p-5" aria-labelledby="consent-notice-heading">
         <h1 id="consent-notice-heading" className="text-lg font-semibold tracking-tight text-zinc-100">{title}</h1>
         <p className="mt-2 text-sm text-zinc-300">{message}</p>
         <Link href="/dashboard" className="mt-5 inline-flex rounded text-sm font-medium text-brand-300 underline underline-offset-2 hover:decoration-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">

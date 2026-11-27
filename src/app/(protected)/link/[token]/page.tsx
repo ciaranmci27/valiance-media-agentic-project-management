@@ -108,7 +108,7 @@ export default function LinkAccountPage() {
 
   return (
     <div className="animate-fadeIn flex min-h-[80vh] items-center justify-center px-4 py-10">
-      <main className="glass-card w-full max-w-md rounded-xl p-6 lg:p-8">
+      <main className="glass-card w-full max-w-md rounded-xl p-5">
         {state.kind === 'loading' && (
           <div role="status" className="flex items-center justify-center gap-2 py-10 text-sm text-zinc-400">
             <Loader2 size={16} className="animate-spin" aria-hidden="true" />Checking the link
@@ -176,7 +176,7 @@ export default function LinkAccountPage() {
                   />
                 </div>
               )}
-              <div role="note" className="mt-4 flex items-start gap-2.5 rounded-lg bg-amber-500/[0.10] px-3.5 py-3 text-sm text-amber-100">
+              <div role="note" className="mt-4 flex items-start gap-2.5 rounded-lg bg-amber-500/[0.10] px-3.5 py-3 text-sm text-amber-300">
                 <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-amber-300" aria-hidden="true" />
                 <p>{link.from_chat
                   ? `Only confirm if you just messaged the bot yourself from this ${link.provider_label} account. If someone sent you this link, close it.`

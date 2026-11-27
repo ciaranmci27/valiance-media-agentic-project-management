@@ -314,7 +314,19 @@ export type SystemChatSkip = 'no_linked_chat' | 'rate_limited';
 export async function sendSystemChatNotice(
   service: SupabaseClient,
   personId: string,
-  input: { text: string; link: { url: string; label: string } | null; as: { username: string; iconUrl: string | null } },
+  input: {
+    text: string;
+    link: { url: string; label: string } | null;
+    as: { username: string; iconUrl: string | null };
+    /**
+     * Answer buttons for a question the notice is about, made for the
+     * connection chosen (lib/chat/answers.ts): only where the provider draws
+     * them; null sends the message without.
+     */
+    buttonsFor?: (connectionId: string, room: number) => Promise<{ batch: string; buttons: { label: string; token: string; style?: 'primary' | 'danger' }[]; body: string; stacked: boolean } | null>;
+    /** Told which message the buttons went on. */
+    onButtonsSent?: (batch: string, conversationId: string, messageId: string | null) => Promise<void>;
+  },
 ): Promise<{ status: 'sent'; id: string } | { status: 'skipped'; reason: SystemChatSkip }> {
   const { data: connections, error } = await service.from('chat_connections').select(CONNECTION_COLUMNS).eq('enabled', true).order('created_at');
   if (missingColumn(error) || missingAssistantSchema(error)) throw databasePending();
@@ -337,14 +349,33 @@ export async function sendSystemChatNotice(
   const window = await allowed(service, target.connection.id, `out:to:member:${personId}`, CHAT_SEND_RECIPIENT_LIMIT);
   if (!window.allowed) return { status: 'skipped', reason: 'rate_limited' };
 
-  const credentials = openCredentials(target.connection as { id: string; credentials: string });
+  let credentials = openCredentials(target.connection as { id: string; credentials: string });
+  // Buttons where the provider draws them and presses can come back (a Telegram
+  // connection from before them asks for presses first); else the plain message.
+  let answers: Awaited<ReturnType<NonNullable<typeof input.buttonsFor>>> = null;
+  if (input.buttonsFor && target.adapter.supportsButtons && (target.adapter.buttonsReady?.(credentials) ?? true)) {
+    try {
+      const enabled = target.adapter.enableButtons ? await target.adapter.enableButtons(credentials) : null;
+      if (enabled) {
+        await storeCredentials(service, target.connection.id, credentials, enabled);
+        credentials = enabled;
+      }
+      // What the buttons may still add to the message and keep it one piece.
+      const used = input.text.length + (input.link ? input.link.label.length + input.link.url.length + 4 : 0) + 2;
+      answers = await input.buttonsFor(target.connection.id, (target.adapter.buttonTextMax ?? 0) - used);
+    } catch (error) {
+      if (!(error instanceof ChatProviderError)) throw error;
+      answers = null;
+    }
+  }
   let conversationId = '';
   let externalId: string | null = null;
   let failure: ChatProviderError | null = null;
   try {
     conversationId = await directConversation(service, target);
     const sent = await target.adapter.send(credentials, {
-      conversationId, threadId: null, text: input.text, as: input.as, direct: true, link: input.link,
+      conversationId, threadId: null, text: answers?.body ? `${input.text}\n\n${answers.body}` : input.text, as: input.as, direct: true, link: input.link,
+      ...(answers ? { buttons: answers.buttons, buttonsStacked: answers.stacked } : {}),
     });
     externalId = sent.externalMessageId;
     if (sent.credentials) await storeCredentials(service, target.connection.id, credentials, sent.credentials);
@@ -361,5 +392,6 @@ export async function sendSystemChatNotice(
   if (missingColumn(insertError)) throw databasePending();
   if (insertError) throw insertError;
   if (failure) throw failure;
+  if (answers && input.onButtonsSent) await input.onButtonsSent(answers.batch, conversationId, externalId);
   return { status: 'sent', id: (data as Row).id };
 }

@@ -51,6 +51,11 @@ const MUST_FAIL: [RuleId, string][] = [
   ['placeholder-dots', "<input placeholder={'Type a note…'} />"],
   ['card-padding', '<div className="p-6 glass-card rounded-xl">x</div>'],
   ['card-padding', "<div className={cn('lg:p-6 glass-card', extra)}>x</div>"],
+  ['eyebrow', '<p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Details</p>'],
+  ['eyebrow', "const label = 'text-[11px] font-medium tracking-wide uppercase text-zinc-500';"],
+  ['dialog-title', '<Modal isOpen title="Convert this lead into a new project" onClose={close}>x</Modal>'],
+  ['dialog-title', "<Modal isOpen title={editing ? 'Edit retainer' : 'Set up a brand new retainer'} onClose={close}>x</Modal>"],
+  ['dialog-title', '<Modal isOpen title="Billing" onClose={close}>x</Modal>'],
 ];
 for (const [rule, source] of MUST_FAIL) check(`fails: ${rule} on ${JSON.stringify(source.slice(0, 60))}`, has(source, rule), rulesIn(source));
 
@@ -80,6 +85,15 @@ const MUST_PASS: [RuleId, string, string?][] = [
   ['title-case-dialog', '<Modal isOpen title="New API key" onClose={close}>x</Modal>'],
   ['title-case-dialog', '<Modal isOpen title={`Edit ${name}`} onClose={close}>x</Modal>'],
   ['placeholder-dots', '<TextInput placeholder="Search contacts" value={q} onChange={setQ} />'],
+  ['eyebrow', '<GroupLabel>Today</GroupLabel>'],
+  ['eyebrow', '<p className="text-[11px] font-semibold uppercase tracking-wider">x</p>', 'src/components/ui/GroupLabel.tsx'],
+  ['eyebrow', '<TextInput inputClassName="font-mono uppercase" />'],
+  ['eyebrow', '<p className="text-xs font-semibold text-zinc-400">Details</p>'],
+  ['dialog-title', '<Modal isOpen title="Edit contact" onClose={close}>x</Modal>'],
+  ['dialog-title', "<Modal isOpen title={editing ? 'Edit retainer' : 'New retainer'} onClose={close}>x</Modal>"],
+  ['dialog-title', '<Modal isOpen title={`Edit ${name}`} onClose={close}>x</Modal>'],
+  ['dialog-title', "<Modal isOpen title={kind === 'email' ? 'Pick an email' : `Approve ${n} suggestions`} onClose={close}>x</Modal>"],
+  ['dialog-title', '<ConfirmDialog isOpen title="Move this task to another project?" message="x" onClose={a} onConfirm={b} />'],
 ];
 for (const [rule, source, file] of MUST_PASS) check(`passes: ${rule} on ${JSON.stringify(source.slice(0, 60))}`, !has(source, rule, file), rulesIn(source, file));
 

@@ -18,7 +18,7 @@ import { applyModuleChange } from '@/lib/modules/registry';
  */
 export function WebhooksOffCard({ canTurnOn }: { canTurnOn: boolean }) {
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="webhooks-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="webhooks-heading">
       <SettingsSectionHeader icon={Webhook} title="Webhooks" headingId="webhooks-heading" description={WEBHOOKS_DESCRIPTION} />
       <div className="rounded-lg bg-white/[0.03] px-4 py-6 text-center">
         <Webhook className="mx-auto mb-2 text-zinc-400" size={22} aria-hidden="true" />

@@ -1,5 +1,6 @@
 'use client';
 
+import { Tooltip } from '@/components/ui/Tooltip';
 import { cloneElement, useState, type ComponentProps, type ReactElement, type ReactNode } from 'react';
 import { ArrowRight, Search } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -77,25 +78,28 @@ type ToolbarButtonProps = DistributiveOmit<ButtonProps, 'children' | 'icon' | 's
   icon: ReactElement<{ size?: number; 'aria-hidden'?: boolean | 'true' }>;
   /** The button's text from sm up, and its accessible name everywhere. */
   label: string;
+  /** The hover hint; the label when left out. */
+  hint?: string;
 };
 
 /**
  * A TabToolbar action or primary button. From sm up it is a normal Button with
  * its label; on phones it is a 36px square icon button, the height of the
  * search and the SubNav, so the toolbar keeps to two rows on every tab.
- * `title` defaults to the label so the icon still explains itself on hover.
+ * Its Tooltip shows `hint`, or the label, so the icon still explains itself on hover.
  */
-export function ToolbarButton({ icon, label, title, className = '', ...rest }: ToolbarButtonProps) {
+export function ToolbarButton({ icon, label, hint, className = '', ...rest }: ToolbarButtonProps) {
   return (
-    <Button
-      {...(rest as ButtonProps)}
-      icon={cloneElement(icon, { size: 16, 'aria-hidden': 'true' })}
-      aria-label={label}
-      title={title ?? label}
-      className={`h-9 whitespace-nowrap max-sm:w-9 max-sm:!px-0 ${className}`}
-    >
-      <span className="hidden sm:inline">{label}</span>
-    </Button>
+    <Tooltip content={hint ?? label}>
+      <Button
+        {...(rest as ButtonProps)}
+        icon={cloneElement(icon, { size: 16, 'aria-hidden': 'true' })}
+        aria-label={label}
+        className={`h-9 whitespace-nowrap max-sm:w-9 max-sm:!px-0 ${className}`}
+      >
+        <span className="hidden sm:inline">{label}</span>
+      </Button>
+    </Tooltip>
   );
 }
 
@@ -145,6 +149,8 @@ interface RailCardProps {
   className?: string;
   /** Replaces the body's px-5 pb-5, e.g. for a list that runs edge to edge. */
   bodyClassName?: string;
+  /** Fill its cell in a row of cards (DESIGN.md Rule 14); see `Card`'s `fill`. */
+  fill?: boolean;
   children: ReactNode;
 }
 
@@ -153,10 +159,10 @@ interface RailCardProps {
  * header everywhere, a 16px icon and a small semibold title with an optional
  * action on the right, so the tabs read as one workspace.
  */
-export function RailCard({ title, afterTitle, icon, action, description, className, bodyClassName, children }: RailCardProps) {
+export function RailCard({ title, afterTitle, icon, action, description, className, bodyClassName, fill, children }: RailCardProps) {
   // The shared Card (ui/Card.tsx, DESIGN.md Rule 2); RailCard stays for its callers.
   return (
-    <Card title={title} afterTitle={afterTitle} icon={icon} action={action} description={description} className={className} bodyClassName={bodyClassName}>
+    <Card title={title} afterTitle={afterTitle} icon={icon} action={action} description={description} className={className} bodyClassName={bodyClassName} fill={fill}>
       {children}
     </Card>
   );
@@ -198,17 +204,8 @@ export function CardAction({ onClick, children, ...aria }: {
   );
 }
 
-/**
- * The one small uppercase label: list groups, day headings, form sections.
- * `as` keeps heading semantics where the label titles a group (h3).
- */
-export function GroupLabel({ children, className = 'mb-1.5', as: Tag = 'p' }: {
-  children: ReactNode;
-  className?: string;
-  as?: 'p' | 'h3' | 'span';
-}) {
-  return <Tag className={`text-[11px] font-semibold uppercase tracking-wider text-zinc-400 ${className}`}>{children}</Tag>;
-}
+/** The one uppercase label, for groups inside a list (DESIGN.md Rule 2). */
+export { GroupLabel } from '@/components/ui/GroupLabel';
 
 interface EmptyCardProps {
   /** A lucide icon element; sized and coloured here, e.g. <Clock />. */

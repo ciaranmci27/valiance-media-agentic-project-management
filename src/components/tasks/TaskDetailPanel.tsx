@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
@@ -615,9 +616,9 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
       {repeats && (
         <DetailRow icon={Repeat} label="Repeats">
           <Tooltip content="The same problem was reported again while this task was open">
-            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+            <Pill tone="waiting">
               {repeats}
-            </span>
+            </Pill>
           </Tooltip>
         </DetailRow>
       )}
@@ -1180,9 +1181,11 @@ export function TaskDetailPanel({ task, onClose, onDelete, variant = 'panel' }: 
               }
             }}
           />
-          <Button type="submit" size="sm" disabled={!newComment.trim()} title="Ctrl or Cmd + Enter">
-            Comment
-          </Button>
+          <Tooltip content="Ctrl or Cmd + Enter">
+            <Button type="submit" size="sm" disabled={!newComment.trim()}>
+              Comment
+            </Button>
+          </Tooltip>
         </form>
       </Section>
 

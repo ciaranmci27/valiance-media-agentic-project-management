@@ -129,7 +129,7 @@ export function DocsTocNav({
         {/* Desktop sidebar TOC */}
         <aside className="hidden lg:block">
           <nav className="sticky top-6">
-            <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-3">
+            <p className="text-xs font-medium text-zinc-400 mb-3">
               On this page
             </p>
             <div className="space-y-0.5">

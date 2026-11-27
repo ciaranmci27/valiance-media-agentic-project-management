@@ -75,7 +75,7 @@ export function MeetingDetails({ meeting }: { meeting: InboxMeeting }) {
                 aria-expanded={allAttendees}
                 className="ml-1.5 inline-flex items-center gap-0.5 rounded font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
               >
-                {allAttendees ? 'Show fewer' : `Show all ${guests.length}`}
+                {allAttendees ? 'Show fewer' : `Show ${guests.length - ATTENDEES_SHOWN} more`}
                 <ChevronDown size={12} className={`transition-transform motion-reduce:transition-none ${allAttendees ? 'rotate-180' : ''}`} aria-hidden="true" />
               </button>
             )}

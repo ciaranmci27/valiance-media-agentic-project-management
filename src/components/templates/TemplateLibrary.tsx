@@ -1,5 +1,6 @@
 'use client';
 
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { useState, type ReactNode } from 'react';
 import { ArrowRightLeft, CalendarClock, Copy, Edit, Eye, FolderKanban, Globe, LayoutTemplate, Play, Repeat, Trash2 } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -14,8 +15,6 @@ import {
   TEMPLATE_NAME_MAX, templateSizeLabel, type TaskTemplateSummary, type TaskTemplateView,
 } from '@/lib/task-templates';
 import { canEditTemplate, canWriteTemplateIn, keyDatesSummary, rolesSummary } from '@/lib/template-ui';
-import { Button } from '@/components/ui/Button';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import Modal from '@/components/ui/Modal';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { Select } from '@/components/ui/inputs/Select';
@@ -73,7 +72,7 @@ export function useTemplateRowActions({ onEdit, onUse, onSchedule }: {
   const { access } = useAuth();
   const { isDemoMode } = useDemo();
   const [moving, setMoving] = useState<TaskTemplateSummary | null>(null);
-  const [trashing, setTrashing] = useState<TaskTemplateSummary | null>(null);
+  const undoTrash = useUndoTrash();
   const canRun = hasPermission(access, 'tasks.create');
 
   const duplicate = async (template: TaskTemplateSummary) => {
@@ -104,11 +103,9 @@ export function useTemplateRowActions({ onEdit, onUse, onSchedule }: {
     try {
       await workspaceApi(`/api/workspace/task-templates/${encodeURIComponent(template.id)}`, { method: 'DELETE' });
       invalidateTables([...TEMPLATE_TABLES]);
-      toast('success', `${template.name} moved to Trash`);
+      undoTrash('task_templates', template.id, { message: `${template.name} moved to Trash`, onRestored: () => invalidateTables([...TEMPLATE_TABLES]) });
     } catch (error) {
       toast('error', errorText(error, 'Could not move it to Trash'));
-    } finally {
-      setTrashing(null);
     }
   };
 
@@ -125,7 +122,7 @@ export function useTemplateRowActions({ onEdit, onUse, onSchedule }: {
       out.push(
         { label: 'Duplicate', icon: <Copy size={14} />, divider: true, onClick: () => void duplicate(template) },
         { label: template.project_id ? 'Move' : 'Move to a project', icon: <ArrowRightLeft size={14} />, onClick: () => setMoving(template) },
-        { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', divider: true, onClick: () => setTrashing(template) },
+        { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', divider: true, onClick: () => void trash(template) },
       );
     }
     return out;
@@ -134,14 +131,6 @@ export function useTemplateRowActions({ onEdit, onUse, onSchedule }: {
   const dialogs = (
     <>
       {moving && <MoveTemplateDialog template={moving} onClose={() => setMoving(null)} />}
-      <ConfirmDialog
-        isOpen={!!trashing}
-        onClose={() => setTrashing(null)}
-        onConfirm={() => { if (trashing) void trash(trashing); }}
-        title={`Move ${trashing?.name ?? 'this template'} to Trash?`}
-        trash
-        message="It leaves the library for everyone. Tasks it already made stay as they are, and it can be restored from Trash."
-      />
     </>
   );
 
@@ -183,10 +172,10 @@ export function MoveTemplateDialog({ template, onClose }: { template: TaskTempla
     }
   };
   return (
-    <Modal isOpen onClose={onClose} title={`Move ${template.name}`} size="sm">
+    <Modal isOpen onClose={onClose} title="Move template" size="sm" primaryAction={{ label: 'Move template', onClick: () => void move(), disabled: !target, busy }}>
       <div className="space-y-4">
         <p className="text-sm text-zinc-400">
-          Now: {template.project_id ? `only in ${template.project_name ?? 'one project'}` : 'company-wide'}. Its past runs and the tasks they made stay as they are.
+          {template.name} is now {template.project_id ? `only in ${template.project_name ?? 'one project'}` : 'company-wide'}.
         </p>
         {options.length ? (
           <Select
@@ -202,10 +191,6 @@ export function MoveTemplateDialog({ template, onClose }: { template: TaskTempla
         ) : (
           <p role="status" className="rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-zinc-300">There is nowhere else you may keep it. Moving it company-wide needs Manage templates.</p>
         )}
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={() => void move()} disabled={!target || busy}>{busy ? 'Moving' : 'Move'}</Button>
-        </div>
       </div>
     </Modal>
   );

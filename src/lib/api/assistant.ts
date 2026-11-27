@@ -255,7 +255,7 @@ export async function notifyAssistantBroken(service: SupabaseClient, agent: { id
     const rows = admins.filter((admin) => !told.has(admin.id)).map((admin) => ({
       user_id: admin.id,
       ...(reason === 'host_down'
-        ? { title: `${person.name}'s assistant is on hold, its host is not responding`, message: `${HOST_DOWN_WORDS} ${person.name} sees that too.` }
+        ? { title: `${person.name}'s assistant has stopped: the service that runs it is down`, message: `${HOST_DOWN_WORDS} ${person.name} sees that too.` }
         : { title: `${person.name}'s assistant is not working`, message: `${BROKEN_WORDS[reason]} ${person.name} sees that it is not working and that you were told.` }),
       link: admin.role === 'owner' ? ASSISTANT_SERVICE_HREF : `/ai/agents/${agent.id}`,
       entity_type: 'member',

@@ -1,5 +1,6 @@
 'use client';
 
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { useState } from 'react';
 
 import { useParams, useRouter } from 'next/navigation';
@@ -15,7 +16,6 @@ import { FileAttachments } from '@/components/ui/FileAttachments';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/ui/Toast';
 import { LeadInteraction, LeadProposal } from '@/lib/types';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
@@ -97,13 +97,11 @@ export default function LeadDetailPage() {
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isConvertOpen, setIsConvertOpen] = useState(false);
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const undoTrash = useUndoTrash();
   const [isInteractionFormOpen, setIsInteractionFormOpen] = useState(false);
   const [editingInteraction, setEditingInteraction] = useState<LeadInteraction | null>(null);
   const [isProposalFormOpen, setIsProposalFormOpen] = useState(false);
   const [editingProposal, setEditingProposal] = useState<LeadProposal | null>(null);
-  const [deletingInteractionId, setDeletingInteractionId] = useState<string | null>(null);
-  const [deletingProposalId, setDeletingProposalId] = useState<string | null>(null);
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesValue, setNotesValue] = useState('');
 
@@ -135,10 +133,10 @@ export default function LeadDetailPage() {
   const sourceCfg = SOURCE_CONFIG[lead.source] || SOURCE_CONFIG.other;
   const canConvert = lead.status !== 'won' && lead.status !== 'lost';
 
+  // Moving to Trash acts at once, with Undo (DESIGN.md Rule 6); the toast outlives the page change.
   const handleDelete = async () => {
     router.push('/leads');
-    const ok = await deleteLead(leadId);
-    if (ok) toast('success', 'Lead moved to Trash');
+    if (await deleteLead(leadId)) undoTrash('leads', leadId, { message: 'Lead moved to Trash' });
   };
 
   const handleMarkFollowUpComplete = async (interaction: LeadInteraction) => {
@@ -156,16 +154,12 @@ export default function LeadDetailPage() {
     setIsProposalFormOpen(true);
   };
 
-  const executeDeleteInteraction = async () => {
-    if (!deletingInteractionId) return;
-    const ok = await deleteLeadInteraction(deletingInteractionId);
-    if (ok) toast('success', 'Interaction moved to Trash');
+  const trashInteraction = async (id: string) => {
+    if (await deleteLeadInteraction(id)) undoTrash('lead_interactions', id, { message: 'Interaction moved to Trash' });
   };
 
-  const executeDeleteProposal = async () => {
-    if (!deletingProposalId) return;
-    const ok = await deleteLeadProposal(deletingProposalId);
-    if (ok) toast('success', 'Proposal moved to Trash');
+  const trashProposal = async (id: string) => {
+    if (await deleteLeadProposal(id)) undoTrash('lead_proposals', id, { message: 'Proposal moved to Trash' });
   };
 
   const isOverdue = (scheduledAt: string) => new Date(scheduledAt) < new Date();
@@ -173,7 +167,7 @@ export default function LeadDetailPage() {
   return (
     <div className="animate-fadeIn min-h-screen">
       <Header
-        title="Lead Details"
+        title="Lead details"
         actions={canManageLeads ? (
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => setIsEditOpen(true)} icon={<Edit size={16} />}>
@@ -190,7 +184,7 @@ export default function LeadDetailPage() {
 
       <div className="p-4 lg:p-6 space-y-6">
         {/* Lead Info Card */}
-        <div className="glass-card rounded-xl p-5 lg:p-6">
+        <div className="glass-card rounded-xl p-5 lg:p-5">
           <div className="flex flex-col lg:flex-row lg:items-center lg:gap-5 mb-4">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
               <User size={18} className="text-zinc-500" />
@@ -274,7 +268,7 @@ export default function LeadDetailPage() {
                 <RichTextEditor
                   value={notesValue}
                   onChange={setNotesValue}
-                  placeholder="Add notes about this lead..."
+                  placeholder="Add notes about this lead"
                   rows={3}
                 />
                 <div className="flex justify-end gap-2">
@@ -329,7 +323,7 @@ export default function LeadDetailPage() {
                 onClick={() => { setEditingInteraction(null); setIsInteractionFormOpen(true); }}
                 icon={<Plus size={14} />}
               >
-                Add Follow-up
+                Add follow-up
               </Button>}
             </div>
             <div className="space-y-3">
@@ -369,9 +363,9 @@ export default function LeadDetailPage() {
         )}
 
         {/* Interactions + Proposals row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        <div className="card-row lg:grid-cols-2">
           {/* Interactions Timeline */}
-          <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
+          <div className="glass-card card-fill rounded-xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
               <div className="flex items-center gap-2">
                 <StickyNote size={18} className="text-zinc-400" />
@@ -389,7 +383,7 @@ export default function LeadDetailPage() {
             </div>
 
             {interactions.length > 0 ? (
-              <div className="flex-1 overflow-y-auto p-3 space-y-1">
+              <div className="card-scroll p-3 space-y-1">
                 {interactions.map((interaction) => {
                   const author = interaction.created_by ? getTeamMember(interaction.created_by) : null;
                   const isCompletedFollowUp = interaction.type === 'follow_up' && interaction.completed;
@@ -433,7 +427,7 @@ export default function LeadDetailPage() {
                           <Edit size={14} />
                         </button>
                         <button
-                          onClick={() => setDeletingInteractionId(interaction.id)}
+                          onClick={() => void trashInteraction(interaction.id)}
                           className="p-1.5 text-zinc-600 hover:text-red-500 transition-all"
                         >
                           <Trash2 size={14} />
@@ -455,7 +449,7 @@ export default function LeadDetailPage() {
           </div>
 
           {/* Proposals */}
-          <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
+          <div className="glass-card card-fill rounded-xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
               <div className="flex items-center gap-2">
                 <DollarSign size={18} className="text-zinc-400" />
@@ -473,7 +467,7 @@ export default function LeadDetailPage() {
             </div>
 
             {proposals.length > 0 ? (
-              <div className="flex-1 overflow-y-auto p-3 space-y-1">
+              <div className="card-scroll p-3 space-y-1">
                 {proposals.map((proposal) => {
                   const pStatus = PROPOSAL_STATUS_CONFIG[proposal.status] || PROPOSAL_STATUS_CONFIG.draft;
                   return (
@@ -503,7 +497,7 @@ export default function LeadDetailPage() {
                           <Edit size={14} />
                         </button>
                         <button
-                          onClick={() => setDeletingProposalId(proposal.id)}
+                          onClick={() => void trashProposal(proposal.id)}
                           className="p-1.5 text-zinc-600 hover:text-red-500 transition-all"
                         >
                           <Trash2 size={14} />
@@ -526,14 +520,14 @@ export default function LeadDetailPage() {
         </div>
 
         {/* Contacts + Files row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        <div className="card-row lg:grid-cols-2">
           <LeadContactsSection leadId={leadId} readOnly={!canManageLeads} />
           {canReadFiles && <FileAttachments entityType="lead" entityId={leadId} />}
         </div>
 
         {canManageLeads && <div className="flex justify-end">
-          <Button variant="danger" onClick={() => setIsDeleteOpen(true)} icon={<Trash2 size={16} />}>
-            Delete Lead
+          <Button variant="danger" onClick={() => void handleDelete()} icon={<Trash2 size={16} />}>
+            Move to Trash
           </Button>
         </div>}
       </div>
@@ -565,36 +559,6 @@ export default function LeadDetailPage() {
         leadId={leadId}
         proposal={editingProposal}
       />}
-
-      <ConfirmDialog
-        isOpen={isDeleteOpen}
-        onClose={() => setIsDeleteOpen(false)}
-        onConfirm={handleDelete}
-        title="Move lead to Trash?"
-        message="The lead goes to Trash with its interactions and proposals."
-        variant="danger"
-        trash
-      />
-
-      <ConfirmDialog
-        isOpen={!!deletingInteractionId}
-        onClose={() => setDeletingInteractionId(null)}
-        onConfirm={executeDeleteInteraction}
-        title="Move interaction to Trash?"
-        message="The interaction goes to Trash."
-        variant="danger"
-        trash
-      />
-
-      <ConfirmDialog
-        isOpen={!!deletingProposalId}
-        onClose={() => setDeletingProposalId(null)}
-        onConfirm={executeDeleteProposal}
-        title="Move proposal to Trash?"
-        message="The proposal goes to Trash."
-        variant="danger"
-        trash
-      />
     </div>
   );
 }

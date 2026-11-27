@@ -237,7 +237,7 @@ export function ConnectionCard({
   const repoName = connection.repo ? <Mono>{connection.repo}</Mono> : 'this app\'s repository';
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="updates-connection-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="updates-connection-heading">
       <SettingsSectionHeader icon={Plug} title="GitHub connection" headingId="updates-connection-heading" description={DESCRIPTION} />
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -407,7 +407,7 @@ function GithubSecrets({
           label="Token"
           hint="The token you just copied."
           envName="PM_GITHUB_TOKEN"
-          placeholder="github_pat_..."
+          placeholder="github_pat_"
           locked={false}
           onSaved={onSaved}
           sample={sample}

@@ -95,7 +95,7 @@ export function MailRulesSection() {
   };
 
   return (
-    <section id="mail-rules" className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6">
+    <section id="mail-rules" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6">
       <SettingsSectionHeader
         icon={Filter}
         title="Mail rules"

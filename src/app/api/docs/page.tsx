@@ -86,7 +86,7 @@ function ParamTable({
   if (!params || params.length === 0) return null;
   return (
     <div className="mt-3">
-      <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">{title}</p>
+      <p className="text-xs font-semibold text-zinc-500 mb-2">{title}</p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm border border-zinc-100 rounded-lg overflow-hidden">
           <thead>
@@ -305,7 +305,7 @@ export default async function ApiDocsPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <p className="text-xs font-medium text-emerald-600 uppercase tracking-wide mb-2">
+                  <p className="text-xs font-medium text-emerald-600 mb-2">
                     Success
                   </p>
                   <pre className="bg-zinc-900 rounded-lg p-4 text-xs text-zinc-300 font-mono overflow-x-auto">{`{
@@ -320,7 +320,7 @@ export default async function ApiDocsPage() {
 }`}</pre>
                 </div>
                 <div>
-                  <p className="text-xs font-medium text-red-600 uppercase tracking-wide mb-2">
+                  <p className="text-xs font-medium text-red-600 mb-2">
                     Error
                   </p>
                   <pre className="bg-zinc-900 rounded-lg p-4 text-xs text-zinc-300 font-mono overflow-x-auto">{`{
@@ -336,7 +336,7 @@ export default async function ApiDocsPage() {
 
               {/* Status and error code reference */}
               <div className="mt-6">
-                <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Status and error codes</p>
+                <p className="text-xs font-medium text-zinc-500 mb-2">Status and error codes</p>
                 <div className="overflow-x-auto rounded-lg border border-zinc-200">
                   <table className="w-full text-sm">
                     <thead className="bg-zinc-50">
@@ -372,7 +372,7 @@ export default async function ApiDocsPage() {
 
               {/* Access-denied detail example */}
               <div className="mt-6">
-                <p className="text-xs font-medium text-red-600 uppercase tracking-wide mb-2">Access denied (403) with guidance</p>
+                <p className="text-xs font-medium text-red-600 mb-2">Access denied (403) with guidance</p>
                 <p className="text-sm text-zinc-500 mb-2">
                   Authorization is two-factor: a permission must be on both the API key&apos;s scopes and the linked
                   member&apos;s role. A 403 reports which side is missing, so a client knows exactly what to grant and where.
@@ -626,7 +626,7 @@ mcp_servers:
                               </div>
                             )}
                             <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                              <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Scope</span>
+                              <span className="text-[11px] font-medium text-zinc-400">Scope</span>
                               {getEndpointScopes(ep).map((scope, index, scopes) => (
                                 <span key={scope} className="inline-flex items-center gap-1">
                                   <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] text-zinc-700">{scope}</code>

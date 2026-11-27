@@ -52,7 +52,7 @@ export const MARKDOWN_PROSE = [
   '[&_strong]:font-semibold [&_strong]:text-zinc-100',
   '[&_code]:rounded [&_code]:bg-white/[0.06] [&_code]:px-1 [&_code]:py-px [&_code]:font-mono [&_code]:text-[0.85em] [&_code]:text-zinc-200',
   '[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-white/[0.04] [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0',
-  '[&_h1]:mb-1 [&_h1]:mt-3 [&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:text-white',
+  '[&_h1]:mb-1 [&_h1]:mt-3 [&_h1]:text-sm [&_h1]:font-semibold [&_h1]:text-white',
   '[&_h2]:mb-1 [&_h2]:mt-3 [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-zinc-100',
   '[&_h3]:mb-1 [&_h3]:mt-3 [&_h3]:text-sm [&_h3]:font-medium [&_h3]:text-zinc-100',
   '[&_h4]:mb-1 [&_h4]:mt-3 [&_h4]:text-sm [&_h4]:font-medium [&_h4]:text-zinc-100',

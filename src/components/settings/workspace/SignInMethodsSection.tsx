@@ -94,14 +94,14 @@ export function SignInMethodsSection() {
         <>
           {DESCRIPTIONS[methods]}
           {blocked && !(providerOff && allowsGoogle(methods)) && <span className="mt-1 block text-zinc-500">{blocked}</span>}
-          {left && <span className="mt-1 block text-amber-200">{left}</span>}
+          {left && <span className="mt-1 block text-amber-300">{left}</span>}
         </>
       ),
     };
   };
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="sign-in-methods-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="sign-in-methods-heading">
       <SettingsSectionHeader
         icon={LogIn}
         headingId="sign-in-methods-heading"
@@ -111,7 +111,7 @@ export function SignInMethodsSection() {
       {!state ? (
         <p className="text-sm text-zinc-400" role="status">{read.failed ? 'Could not load the setting.' : 'Loading'}</p>
       ) : !state.ready ? (
-        <p role="status" className="rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-amber-100">
+        <p role="status" className="rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-amber-300">
           This needs the latest database update. Apply it from Settings &gt; Updates, then come back here.
         </p>
       ) : (
@@ -125,7 +125,7 @@ export function SignInMethodsSection() {
           />
 
           {providerOff && (
-            <p role="status" className="rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-amber-100">
+            <p role="status" className="rounded-lg bg-amber-500/[0.14] px-3.5 py-3 text-sm text-amber-300">
               {methodUnavailable('google', facts)} Until then, the sign-in page shows email and password.
             </p>
           )}

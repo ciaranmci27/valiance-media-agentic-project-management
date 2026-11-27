@@ -182,7 +182,7 @@ export function UnreadNotice({ tasks }: { tasks: Task[] }) {
       <History size={14} className="flex-shrink-0 text-brand-300" aria-hidden="true" />
       <span>{summary}</span>
       <button type="button" onClick={() => setFilters({ ...filters, unread: !on })} className={link}>
-        {on ? 'Show all' : 'Show only these'}
+        {on ? 'Show every task' : 'Show only these'}
       </button>
       {unreadIds.length > 0 && (
         <button

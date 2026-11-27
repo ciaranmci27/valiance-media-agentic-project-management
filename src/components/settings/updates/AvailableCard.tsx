@@ -54,7 +54,7 @@ export function AvailableCard({
   const changes = digest.changes ? `${digest.changes} ${digest.changes === 1 ? 'change' : 'changes'}` : null;
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="updates-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="updates-heading">
       <SettingsSectionHeader
         icon={CircleArrowUp}
         title={<><span className="font-mono">{target.version}</span> is ready</>}

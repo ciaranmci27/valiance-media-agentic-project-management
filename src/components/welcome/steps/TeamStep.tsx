@@ -117,7 +117,7 @@ export function TeamStep({ onNext, onSkip, onBack }: WizardStepProps) {
     >
       {earlier.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-400">Already on your team</h2>
+          <h2 className="text-xs font-medium text-zinc-400">Already on your team</h2>
           <ul className="mt-3 flex flex-wrap gap-2">
             {earlier.slice(0, 12).map((member) => (
               <li key={member.id} className="inline-flex items-center gap-2 rounded-full bg-white/[0.04] py-1 pl-1 pr-3 text-xs text-zinc-300">
@@ -132,7 +132,7 @@ export function TeamStep({ onNext, onSkip, onBack }: WizardStepProps) {
 
       {sentRows.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-400">Invited</h2>
+          <h2 className="text-xs font-medium text-zinc-400">Invited</h2>
           <ul className="mt-3 divide-y divide-white/[0.06]">
             {sentRows.map((row) => (
               <li key={row.key} className="py-4 first:pt-0 last:pb-0">
@@ -158,7 +158,7 @@ export function TeamStep({ onNext, onSkip, onBack }: WizardStepProps) {
       )}
 
       <div>
-        {sentRows.length > 0 && <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-zinc-400">Invite someone else</h2>}
+        {sentRows.length > 0 && <h2 className="mb-3 text-xs font-medium text-zinc-400">Invite someone else</h2>}
         <ul className="space-y-4">
           {draftRows.map((row, index) => (
             <li key={row.key} className="grid grid-cols-1 gap-3 rounded-xl bg-white/[0.02] p-3 ring-1 ring-inset ring-white/[0.06] sm:grid-cols-[1fr_1.3fr_9rem_auto] sm:items-start sm:bg-transparent sm:p-0 sm:ring-0">

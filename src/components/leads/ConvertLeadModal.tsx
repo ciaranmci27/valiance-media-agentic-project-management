@@ -3,12 +3,10 @@
 import { useState, useEffect } from 'react';
 import { Lead } from '@/lib/types';
 import { useApp } from '@/lib/store';
-import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import { useBrand } from '@/lib/brand/context';
-import { formatPhone } from '@/lib/format-phone';
 
 const OTHER_COLORS = ['#8B5CF6', '#EC4899', '#EF4444', '#F59E0B', '#10B981', '#06B6D4', '#3B82F6'];
 
@@ -59,42 +57,22 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Convert Lead to Project"
+      title="Convert to project"
       size="lg"
+      primaryAction={{ label: 'Create project', form: 'convert-lead-form', disabled: !projectName.trim() }}
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-white/[0.03] rounded-lg p-4 border border-white/[0.08]">
-          <h3 className="text-sm font-medium text-zinc-300 mb-2">Lead Info</h3>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <span className="text-zinc-400">Name:</span>{' '}
-              <span className="text-white">{lead.name}</span>
-            </div>
-            <div>
-              <span className="text-zinc-400">Company:</span>{' '}
-              <span className="text-white">{lead.company || '—'}</span>
-            </div>
-            <div>
-              <span className="text-zinc-400">Email:</span>{' '}
-              <span className="text-white">{lead.email || '—'}</span>
-            </div>
-            <div>
-              <span className="text-zinc-400">Phone:</span>{' '}
-              <span className="text-white">{lead.phone ? formatPhone(lead.phone) : '—'}</span>
-            </div>
-          </div>
-        </div>
-
+      <form id="convert-lead-form" onSubmit={handleSubmit} className="space-y-4">
         <Input
-          label="Project Name"
+          label="Project name"
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
-          placeholder="Enter project name"
+          placeholder="Project name"
           required
         />
 
+        <ModalAdvanced label="Color and description">
         <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-300">Project Color</label>
+          <label className="block text-sm font-medium text-zinc-300">Project color</label>
           <div className="flex gap-2">
             {projectColors.map((c) => (
               <button
@@ -111,26 +89,21 @@ export function ConvertLeadModal({ isOpen, onClose, lead }: ConvertLeadModalProp
         </div>
 
         <Textarea
-          label="Project Description (optional)"
+          label="Project description"
           value={projectDescription}
           onChange={setProjectDescription}
-          placeholder="Describe the project..."
+          placeholder="Describe the project"
           rows={3}
         />
 
-        <div className="flex items-center justify-between pt-4">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <div className="flex gap-3">
-            <Button type="button" variant="secondary" onClick={handleSkip}>
-              Skip
-            </Button>
-            <Button type="submit">
-              Convert to Project
-            </Button>
-          </div>
-        </div>
+        </ModalAdvanced>
+
+        <p className="text-xs text-zinc-400">
+          No project needed?{' '}
+          <button type="button" onClick={handleSkip} className="rounded font-medium text-brand-300 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500">
+            Mark it won
+          </button>
+        </p>
       </form>
     </Modal>
   );

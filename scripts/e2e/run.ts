@@ -29,13 +29,14 @@ import templatesSchedules from './04-templates-schedules';
 import files from './05-files';
 import keys from './06-keys';
 import guests from './07-guests';
+import browserFlows from './08-browser';
 
 export interface Scenario {
   name: string;
   run: (ctx: Ctx) => Promise<void>;
 }
 
-const SCENARIOS: Scenario[] = [hireAgent, chatToDone, whoCanUse, templatesSchedules, files, keys, guests];
+const SCENARIOS: Scenario[] = [hireAgent, chatToDone, whoCanUse, templatesSchedules, files, keys, guests, browserFlows];
 const APP_DIR = join(__dirname, '..', '..');
 
 async function freePort(from: number): Promise<number> {

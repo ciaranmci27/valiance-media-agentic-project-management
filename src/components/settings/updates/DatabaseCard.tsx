@@ -170,7 +170,7 @@ export function DatabaseCard({
 
   if (!database) {
     return (
-      <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="updates-database-heading">
+      <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="updates-database-heading">
         {heading}
         <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-white/[0.03] px-3.5 py-2.5">
           <p className="min-w-0 flex-1 text-sm text-zinc-400">Couldn&apos;t read the database update status.</p>
@@ -210,7 +210,7 @@ export function DatabaseCard({
   ) : null;
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="updates-database-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="updates-database-heading">
       {heading}
 
       {mode === 'not_set_up' ? (

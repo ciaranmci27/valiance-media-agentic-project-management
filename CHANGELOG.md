@@ -9,6 +9,31 @@ Each section starts with `## X.Y.Z (YYYY-MM-DD)` and uses these headings, leavin
 - `### Database`: the core migration files in the release, one per line. `npm run db:migrate` applies them.
 - `### Breaking`: what an install must do when it takes this release.
 
+## 2.0.56 (2026-11-27)
+
+### Added
+- **Answer from chat.** A question or approval that reaches your Telegram or Slack has buttons (Approve and Reject, or its choices). One press answers it as you, checked as in the app, and the message changes to what happened, or to who got there first. An approval's message says what is approved (its summary and every detail row) above the buttons; when that is too long for one message it comes with a link to approve in the app. In Telegram each choice is its own button row. Slack buttons are a per-connection switch, "Answer buttons in Slack", turned on after pasting the Interactivity Request URL (`answer_buttons` on `PATCH /api/v1/chat/connections/{id}` and MCP `update_chat_connection`); Telegram works on its own. Someone suspended cannot answer from chat.
+- `npm run test:e2e` scenario 8: the screens in a real browser (the system Chrome through `playwright-core`): sign in, answer in Needs you, hire step by step, Access, Trash and Undo. Set `CHROME_PATH` to choose a browser; without one it is skipped.
+
+### Changed
+- **Dialogs are shorter everywhere:** a two to four word title, no intro text, rarely needed fields under Advanced, and one button that names the action beside Cancel.
+- Cards side by side are the same height; a long list scrolls inside its card and any total stays at the bottom.
+- One icon means one thing: Sparkles is only for AI, agents show a robot, What's new shows a gift, and every row menu uses the same horizontal dots.
+- No uppercase labels above headings and no colored left-edge stripes; status chips use the shared pill; one type scale and one card padding across the app.
+- An unticked checkbox is easier to see in light mode.
+- Moving a lead, contact, interaction, proposal, lead field, template or file to Trash happens at once, with Undo.
+- The admin alert for a stopped assistant says plainly that the service that runs it is down.
+- My Tasks question rows lead with the asker's face, like every other Needs you row.
+- A lead field offers Undo only once it really went to Trash. Reviewing an agent session shows its timeline and activity open.
+- Dev dependency `playwright-core` (no browser download).
+
+### Database
+- `20261127004100_chat_answers.sql`: single-use chat answer tokens, and `decided_via` `chat`.
+
+### Breaking
+- `decided_via` can be `chat` on questions and approvals (reads and `question.*` webhooks): treat it as the person's own decision. Keep choices short and at most five so they show as buttons.
+- Slack: paste the Interactivity Request URL into your Slack app, then turn on "Answer buttons in Slack" on the connection; until then the message comes with its link, as before.
+
 ## 2.0.55 (2026-11-27)
 
 ### Added

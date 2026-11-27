@@ -8,6 +8,9 @@ import { TaskSuggestion } from '@/lib/types';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { Pill, sentenceCase, type PillTone } from '@/components/ui/Pill';
+import { PriorityBadge } from '@/components/ui/Badge';
+import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import Modal from '@/components/ui/Modal';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import {
@@ -121,13 +124,6 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
     urgent: 'bg-red-500',
   };
 
-  const priorityColors: Record<string, string> = {
-    low: 'bg-white/[0.06] text-zinc-300',
-    medium: 'bg-blue-500/15 text-blue-300',
-    high: 'bg-orange-500/15 text-orange-300',
-    urgent: 'bg-red-500/15 text-red-300',
-  };
-
   const effortColors: Record<string, string> = {
     small: 'bg-emerald-500/15 text-emerald-300',
     medium: 'bg-amber-500/15 text-amber-300',
@@ -137,12 +133,12 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
   // The tier is what the Owner actually triages by: a bug risk and a feature idea
   // with the same priority are different decisions. Priority alone made every
   // row read as identical urgency.
-  const tierConfig: Record<string, { label: string; classes: string }> = {
-    bug_critical: { label: 'critical bug', classes: 'bg-red-500/15 text-red-300' },
-    bug_risk: { label: 'bug risk', classes: 'bg-orange-500/15 text-orange-300' },
-    improvement: { label: 'improvement', classes: 'bg-blue-500/15 text-blue-300' },
-    feature: { label: 'feature', classes: 'bg-violet-500/15 text-violet-300' },
-    business: { label: 'business', classes: 'bg-emerald-500/15 text-emerald-300' },
+  const tierConfig: Record<string, { label: string; tone: PillTone }> = {
+    bug_critical: { label: 'Critical bug', tone: 'problem' },
+    bug_risk: { label: 'Bug risk', tone: 'waiting' },
+    improvement: { label: 'Improvement', tone: 'info' },
+    feature: { label: 'Feature', tone: 'neutral' },
+    business: { label: 'Business', tone: 'neutral' },
   };
 
   // Chip labels arrive as machine tokens (bug_risk, client-lifecycle-seams,
@@ -313,7 +309,7 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
               >
                 {tab.label}
                 {tab.count > 0 && (
-                  <span className={`min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-semibold px-1 ${
+                  <span className={`min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[11px] font-semibold px-1 ${
                     statusFilter === tab.key
                       ? 'bg-white/20 text-white'
                       : 'bg-white/[0.08] text-zinc-300'
@@ -343,12 +339,13 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
                 const allSelected = pendingIds.every(id => selectedIds.has(id));
                 const someSelected = !allSelected && pendingIds.some(id => selectedIds.has(id));
                 return (
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    ref={(el) => { if (el) el.indeterminate = someSelected; }}
-                    onChange={(e) => {
-                      e.stopPropagation();
+                  <span onClick={(e) => e.stopPropagation()} className="inline-flex flex-shrink-0">
+                    <Checkbox
+                      size="sm"
+                      checked={allSelected}
+                      indeterminate={someSelected}
+                      ariaLabel="Select"
+                      onChange={() => {
                       setSelectedIds(prev => {
                         const next = new Set(prev);
                         if (allSelected) {
@@ -359,9 +356,8 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
                         return next;
                       });
                     }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-3.5 h-3.5 rounded border-white/[0.12] text-brand-300 focus:ring-brand-500 flex-shrink-0 cursor-pointer"
-                  />
+                    />
+                  </span>
                 );
               })()}
               <button
@@ -381,7 +377,7 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
                   />
                 )}
                 <span className="text-xs font-semibold text-zinc-300">{group.projectName}</span>
-                <span className="text-[10px] text-zinc-500">{group.suggestions.length}</span>
+                <span className="text-[11px] text-zinc-500">{group.suggestions.length}</span>
               </button>
             </div>
 
@@ -457,12 +453,13 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
                       >
                         <div className="flex items-start gap-3">
                           {memberIds.length > 0 && statusFilter !== '' && (
-                            <input
-                              type="checkbox"
-                              checked={allSelected}
-                              ref={(el) => { if (el) el.indeterminate = someSelected; }}
-                              onChange={(e) => {
-                                e.stopPropagation();
+                            <span onClick={(e) => e.stopPropagation()} className="inline-flex flex-shrink-0 mt-1">
+                              <Checkbox
+                                size="sm"
+                                checked={allSelected}
+                                indeterminate={someSelected}
+                                ariaLabel="Select"
+                                onChange={() => {
                                 setSelectedIds(prev => {
                                   const next = new Set(prev);
                                   if (allSelected) memberIds.forEach(id => next.delete(id));
@@ -470,22 +467,17 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
                                   return next;
                                 });
                               }}
-                              onClick={(e) => e.stopPropagation()}
-                              className="mt-1 w-4 h-4 rounded border-white/[0.12] text-brand-300 focus:ring-brand-500 flex-shrink-0"
-                            />
+                              />
+                            </span>
                           )}
                           <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${priorityDots[bundleTop] || 'bg-zinc-400'}`} />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <Layers size={13} className="text-brand-300 flex-shrink-0" aria-label="Bundle" />
                               <h3 className="text-sm font-semibold text-white">{label}</h3>
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${priorityColors[bundleTop]}`}>
-                                {bundleTop}
-                              </span>
+                              <PriorityBadge priority={bundleTop} />
                               {sharedTier && tierConfig[sharedTier] && (
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${tierConfig[sharedTier].classes}`}>
-                                  {tierConfig[sharedTier].label}
-                                </span>
+                                <Pill tone={tierConfig[sharedTier].tone}>{tierConfig[sharedTier].label}</Pill>
                               )}
                             </div>
                             <div className="flex items-center gap-1.5 mt-1">
@@ -519,13 +511,11 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
                                 <div key={m.id} className="rounded-lg border border-white/[0.07] bg-surface-raised overflow-hidden">
                                   <div className="px-3.5 py-2.5 flex items-center gap-2 border-b border-white/[0.06]">
                                     <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${priorityDots[m.priority] || 'bg-zinc-400'}`} />
-                                    <h4 className="text-[13px] font-semibold text-white truncate">{m.title}</h4>
+                                    <h4 className="text-sm font-semibold text-white truncate">{m.title}</h4>
                                     {m.status !== 'pending' && (
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-white/[0.06] text-zinc-400 flex-shrink-0">
-                                        {m.status}
-                                      </span>
+                                      <Pill>{sentenceCase(m.status)}</Pill>
                                     )}
-                                    <span className="ml-auto text-[10px] text-zinc-500 flex-shrink-0">{formatTime(m.created_at)}</span>
+                                    <span className="ml-auto text-[11px] text-zinc-500 flex-shrink-0">{formatTime(m.created_at)}</span>
                                   </div>
                                   <div className="px-3.5 py-3 space-y-2.5">
                                     {typeof md.billing_case === 'string' && md.billing_case.trim() && (
@@ -608,13 +598,14 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
                       <div className="flex items-start gap-3">
                         {/* Checkbox for pending (hidden on All tab) */}
                         {suggestion.status === 'pending' && statusFilter !== '' && (
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(suggestion.id)}
-                            onChange={(e) => { e.stopPropagation(); toggleSelect(suggestion.id); }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="mt-1 w-4 h-4 rounded border-white/[0.12] text-brand-300 focus:ring-brand-500 flex-shrink-0"
-                          />
+                          <span onClick={(e) => e.stopPropagation()} className="inline-flex flex-shrink-0 mt-1">
+                            <Checkbox
+                              size="sm"
+                              checked={selectedIds.has(suggestion.id)}
+                              ariaLabel="Select"
+                              onChange={() => { toggleSelect(suggestion.id); }}
+                            />
+                          </span>
                         )}
 
                         {/* Priority dot */}
@@ -624,39 +615,25 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="text-sm font-semibold text-white">{suggestion.title}</h3>
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${priorityColors[suggestion.priority]}`}>
-                              {suggestion.priority}
-                            </span>
+                            <PriorityBadge priority={suggestion.priority} />
                             {suggestion.metadata?.tier && tierConfig[suggestion.metadata.tier] && (
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${tierConfig[suggestion.metadata.tier].classes}`}>
-                                {tierConfig[suggestion.metadata.tier].label}
-                              </span>
+                              <Pill tone={tierConfig[suggestion.metadata.tier].tone}>{tierConfig[suggestion.metadata.tier].label}</Pill>
                             )}
                             {suggestion.status === 'needs_info' && (
                               splitAnswer(suggestion).answer !== null ? (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-emerald-500/15 text-emerald-300">
-                                  Agent answered
-                                </span>
+                                <Pill tone="good">Agent answered</Pill>
                               ) : (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-amber-500/15 text-amber-300">
-                                  Waiting on agent
-                                </span>
+                                <Pill tone="waiting">Waiting on agent</Pill>
                               )
                             )}
                             {suggestion.status === 'approved' && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-emerald-500/15 text-emerald-300">
-                                Approved
-                              </span>
+                              <Pill tone="good">Approved</Pill>
                             )}
                             {suggestion.status === 'rejected' && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-red-500/15 text-red-300">
-                                Rejected
-                              </span>
+                              <Pill tone="problem">Rejected</Pill>
                             )}
                             {suggestion.status === 'declined' && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-white/[0.08] text-zinc-300">
-                                Declined
-                              </span>
+                              <Pill tone="neutral">Declined</Pill>
                             )}
                             {['approved', 'rejected', 'declined'].includes(suggestion.status) && reviewedLine(suggestion) && (
                               <span className="text-[11px] text-zinc-500">{reviewedLine(suggestion)}</span>
@@ -739,11 +716,9 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
                           {typeof suggestion.metadata?.billing_case === 'string' && suggestion.metadata.billing_case.trim() && (
                             <div className="bg-brand-500/10 rounded-lg p-3 border border-brand-500/25">
                               <div className="flex items-center gap-2 mb-1.5">
-                                <p className="text-xs font-semibold text-brand-300 uppercase tracking-wider">Billing Case</p>
+                                <p className="text-xs font-semibold text-brand-300">Billing case</p>
                                 {typeof suggestion.metadata?.value_category === 'string' && suggestion.metadata.value_category && (
-                                  <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-300 bg-surface rounded px-1.5 py-0.5 border border-white/[0.08]">
-                                    {suggestion.metadata.value_category.replace(/_/g, ' ')}
-                                  </span>
+                                  <Pill>{sentenceCase(suggestion.metadata.value_category)}</Pill>
                                 )}
                               </div>
                               <p className="text-sm text-zinc-100 leading-relaxed">{suggestion.metadata.billing_case}</p>
@@ -752,19 +727,19 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
 
                           {suggestion.description && (
                             <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
-                              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">The Finding</p>
+                              <p className="text-xs font-semibold text-zinc-400 mb-1.5">The finding</p>
                               <p className="text-sm text-zinc-100 leading-relaxed whitespace-pre-line">{splitAnswer(suggestion).description}</p>
                             </div>
                           )}
 
                           <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
-                            <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">Why It Matters</p>
+                            <p className="text-xs font-semibold text-zinc-400 mb-1.5">Why it matters</p>
                             <p className="text-sm text-zinc-300 leading-relaxed">{suggestion.reasoning}</p>
                           </div>
 
                           {Array.isArray(suggestion.metadata?.evidence) && suggestion.metadata.evidence.length > 0 && (
                             <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
-                              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
+                              <p className="text-xs font-semibold text-zinc-400 mb-1.5">
                                 Evidence ({suggestion.metadata.evidence.length})
                               </p>
                               <div className="space-y-1.5">
@@ -784,15 +759,15 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
 
                           {typeof suggestion.metadata?.proposed_fix === 'string' && suggestion.metadata.proposed_fix.trim() && (
                             <div className="bg-brand-500/10 rounded-lg p-3 border border-brand-500/25">
-                              <p className="text-xs font-semibold text-brand-300 uppercase tracking-wider mb-1.5">Proposed Fix</p>
+                              <p className="text-xs font-semibold text-brand-300 mb-1.5">Proposed fix</p>
                               <p className="text-sm text-zinc-100 leading-relaxed">{suggestion.metadata.proposed_fix}</p>
                             </div>
                           )}
 
                           {Array.isArray(suggestion.metadata?.acceptance_criteria) && suggestion.metadata.acceptance_criteria.length > 0 && (
                             <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
-                              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
-                                Acceptance Criteria ({suggestion.metadata.acceptance_criteria.length})
+                              <p className="text-xs font-semibold text-zinc-400 mb-1.5">
+                                Acceptance criteria ({suggestion.metadata.acceptance_criteria.length})
                               </p>
                               <ul className="space-y-1.5">
                                 {suggestion.metadata.acceptance_criteria.map((criterion: string, i: number) => (
@@ -807,7 +782,7 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
 
                           {typeof suggestion.metadata?.existing_check === 'string' && suggestion.metadata.existing_check.trim() && (
                             <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
-                              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">Already-Exists Check</p>
+                              <p className="text-xs font-semibold text-zinc-400 mb-1.5">Already exists check</p>
                               <p className="text-sm text-zinc-300 leading-relaxed">{suggestion.metadata.existing_check}</p>
                             </div>
                           )}
@@ -1070,7 +1045,10 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
     })()}
 
     {/* Request Info Modal */}
-    <Modal isOpen={!!infoInputId} onClose={() => setInfoInputId(null)} title="Request Info" size="sm">
+    <Modal isOpen={!!infoInputId} onClose={() => setInfoInputId(null)} title="Request info"
+      size="sm"
+      primaryAction={{ label: 'Send request', onClick: () => handleRequestInfo(infoInputId!), disabled: !infoTarget }}
+    >
       {infoTarget && (
         <div className="space-y-4">
           <div>
@@ -1081,21 +1059,20 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
             label="What info do you need?"
             value={infoText}
             onChange={setInfoText}
-            placeholder="Describe what additional information is needed..."
+            placeholder="Describe what additional information is needed"
             rows={3}
             autoFocus
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleRequestInfo(infoInputId!); }}
           />
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setInfoInputId(null)}>Cancel</Button>
-            <Button size="sm" onClick={() => handleRequestInfo(infoInputId!)}>Send</Button>
-          </div>
         </div>
       )}
     </Modal>
 
     {/* Bulk Manage Modal */}
-    <Modal isOpen={showBulkModal} onClose={() => { setShowBulkModal(false); }} title={`Manage ${selectedIds.size} Suggestion${selectedIds.size !== 1 ? 's' : ''}`} size="md">
+    <Modal isOpen={showBulkModal} onClose={() => { setShowBulkModal(false); }} title={`Review ${selectedIds.size} suggestion${selectedIds.size !== 1 ? 's' : ''}`}
+      size="md"
+      primaryAction={{ label: 'Approve all', onClick: () => { handleBulkApprove(); setShowBulkModal(false); } }}
+    >
       <div className="space-y-4">
         {/* List selected suggestions, grouped exactly the way Approve All
             will treat them: bundle members render inside one framed unit
@@ -1161,7 +1138,7 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
                         <span className="text-xs font-medium text-brand-300 truncate flex-1 min-w-0">
                           {reason ?? 'Bundled suggestions'}
                         </span>
-                        <span className="text-[10px] font-semibold uppercase text-brand-300/80 flex-shrink-0">
+                        <span className="text-[11px] font-medium text-brand-300 flex-shrink-0">
                           One task
                         </span>
                       </div>
@@ -1179,29 +1156,19 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
               </div>
               {bundleGroups.length > 0 && (
                 <p className="text-[11px] text-zinc-500">
-                  Approve All creates {bundleGroups.length + singles.length} task{bundleGroups.length + singles.length === 1 ? '' : 's'}: each bundle becomes one composed task, singles convert individually.
+                  Approve all creates {bundleGroups.length + singles.length} task{bundleGroups.length + singles.length === 1 ? '' : 's'}: each bundle becomes one composed task, singles convert individually.
                 </p>
               )}
             </>
           );
         })()}
 
-        {/* Actions, with what Reject and Decline each mean said in words */}
-        <p className="text-xs text-zinc-400">
-          Reject: no, and the agent learns why it was unwanted. Decline: not now, with no feedback for the agent.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-2 pt-2">
-          <button
-            onClick={() => {
-              handleBulkApprove();
-              setShowBulkModal(false);
-            }}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/15 transition-colors"
-          >
-            <Check size={14} />
-            Approve All
-          </button>
-          <button
+        {/* The other two answers, quiet, with what each means said in words */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.06] pt-3">
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<X size={14} aria-hidden="true" />}
             onClick={async () => {
               const ids = [...selectedIds];
               setSelectedIds(new Set());
@@ -1209,12 +1176,13 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
               const rejected = await bulkRejectSuggestions(ids);
               if (rejected > 0) toast('success', `Rejected ${rejected} suggestion(s)`);
             }}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-red-400 bg-red-500/15 hover:bg-red-500/15 transition-colors"
           >
-            <X size={14} />
             Reject all
-          </button>
-          <button
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Ban size={14} aria-hidden="true" />}
             onClick={async () => {
               const ids = [...selectedIds];
               setSelectedIds(new Set());
@@ -1222,11 +1190,12 @@ export function ReviewQueue({ onApprove, onEdit, onDecline }: ReviewQueueProps) 
               const declined = await bulkDeclineSuggestions(ids);
               if (declined > 0) toast('success', `Declined ${declined} suggestion(s)`);
             }}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-zinc-300 bg-white/[0.06] hover:bg-white/[0.08] transition-colors"
           >
-            <Ban size={14} />
             Decline all
-          </button>
+          </Button>
+          <p className="w-full text-xs text-zinc-400">
+            Reject: no, and the agent learns why. Decline: not now, with no feedback.
+          </p>
         </div>
 
       </div>

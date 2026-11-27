@@ -1,11 +1,12 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { Task } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { StatusBadge, PriorityBadge, TaskTypeBadge } from '@/components/ui/Badge';
 import { AvatarGroup } from '@/components/ui/Avatar';
-import { Calendar, CheckSquare, MessageSquare, MoreVertical, Paperclip, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
+import { Calendar, CheckSquare, MessageSquare, MoreHorizontal, Paperclip, Trash2, Clock, Lock, FileQuestion } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { Popover } from '@/components/ui/Popover';
 import { TaskLinkCountBadges, useTaskLinkCounts } from '@/components/inbox/TaskSourceEmails';
@@ -18,6 +19,7 @@ import { useTaskFileCount } from './task-file-counts';
 import { TaskRepeatIcon } from '@/components/schedules/TaskRepeatIcon';
 import { useMoveTaskMenuAction } from './MoveTaskDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { isDateOverdue } from '@/lib/date-utils';
 import { formatCalendarDay } from '@/lib/time-format';
 import { hasPermission, canEditTask, canManageAllTasks, isModuleEnabled } from '@/lib/access-control';
@@ -121,7 +123,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
               className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] flex-shrink-0"
               aria-label="Task actions"
             >
-              <MoreVertical size={16} />
+              <MoreHorizontal size={16} />
             </button>}
           </div>
 
@@ -139,7 +141,7 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
               {task.tags.slice(0, 3).map((tag) => (
                 <span
                   key={tag}
-                  className="px-1.5 py-0.5 text-[10px] bg-white/[0.06] text-zinc-300 rounded"
+                  className="px-1.5 py-0.5 text-[11px] bg-white/[0.06] text-zinc-300 rounded"
                 >
                   {tag}
                 </span>
@@ -159,16 +161,16 @@ export function TaskRow({ task, onView, onDelete }: TaskRowProps) {
               <TaskTypeBadge taskType={task.task_type} />
             )}
             {isAgentsEnabled && canManageAgents && task.ai_readiness === 'needs_spec' && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
+              <Pill tone="info">
                 <FileQuestion size={10} aria-hidden="true" />
                 Needs spec
-              </span>
+              </Pill>
             )}
             {task.status !== 'done' && (task.blocked_by_ids || []).some(id => tasks.find(t => t.id === id)?.status !== 'done') && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
+              <Pill tone="waiting">
                 <Lock size={10} />
                 Blocked
-              </span>
+              </Pill>
             )}
 
             {dueInfo && (
@@ -313,14 +315,14 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
       {/* Select */}
       <div className="flex items-center">
         {selectable && (
-          <input
-            type="checkbox"
-            checked={selected || false}
-            onChange={(e) => { e.stopPropagation(); onToggleSelect?.(task.id); }}
-            onClick={(e) => e.stopPropagation()}
-            className="w-4 h-4 rounded border-white/[0.12] text-brand-300 outline-none focus:ring-brand-500 cursor-pointer"
-            aria-label={`Select ${task.title}`}
-          />
+          <span onClick={(e) => e.stopPropagation()} className="inline-flex">
+            <Checkbox
+              size="sm"
+              checked={selected || false}
+              onChange={() => onToggleSelect?.(task.id)}
+              ariaLabel={`Select ${task.title}`}
+            />
+          </span>
         )}
       </div>
 
@@ -346,15 +348,15 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
         <span className="min-w-0 flex-shrink"><UnreadLabel task={task} /></span>
         {isBlocked && (
           <Tooltip content="Blocked by another task">
-            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full flex-shrink-0">
+            <Pill tone="waiting">
               <Lock size={10} />
-            </span>
+            </Pill>
           </Tooltip>
         )}
         {showSpecChip && (
           <Tooltip content="Needs spec: meant for the dev agent, spec not written yet">
-            <span role="img" aria-label="Needs spec" className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full flex-shrink-0">
-              <FileQuestion size={10} aria-hidden="true" />
+            <span role="img" aria-label="Needs spec" className="inline-flex flex-shrink-0">
+              <Pill tone="info" icon={<FileQuestion />}>{null}</Pill>
             </span>
           </Tooltip>
         )}
@@ -388,14 +390,14 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
         {task.tags.slice(0, 2).map(tag => (
           <span
             key={tag}
-            className="px-1.5 py-0.5 text-[10px] bg-white/[0.06] text-zinc-400 rounded flex-shrink-0 truncate max-w-[80px]"
+            className="px-1.5 py-0.5 text-[11px] bg-white/[0.06] text-zinc-400 rounded flex-shrink-0 truncate max-w-[80px]"
           >
             {tag}
           </span>
         ))}
         {task.tags.length > 2 && (
           <Tooltip content={task.tags.slice(2).join(', ')}>
-            <span className="text-[10px] text-zinc-500 flex-shrink-0 cursor-default">+{task.tags.length - 2}</span>
+            <span className="text-[11px] text-zinc-500 flex-shrink-0 cursor-default">+{task.tags.length - 2}</span>
           </Tooltip>
         )}
       </div>
@@ -442,7 +444,7 @@ export function TaskRowDesktop({ task, onView, onDelete, selected, onToggleSelec
             className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-all"
             aria-label="Task actions"
           >
-            <MoreVertical size={16} />
+            <MoreHorizontal size={16} />
           </button>
 
           <Popover

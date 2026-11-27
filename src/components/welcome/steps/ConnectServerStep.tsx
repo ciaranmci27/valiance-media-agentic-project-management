@@ -70,7 +70,7 @@ function AppKeyMaker() {
         </div>
       )}
       {copy === 'failed' && <OutcomeLine outcome={{ tone: 'error', text: 'Could not copy. Select the line and copy it yourself.' }} />}
-      <p className="text-amber-200">Keep it safe: if it&apos;s lost, saved passwords and keys can&apos;t be recovered.</p>
+      <p className="text-amber-300">Keep it safe: if it&apos;s lost, saved passwords and keys can&apos;t be recovered.</p>
     </>
   );
 }
@@ -105,7 +105,7 @@ export function ConnectServerStep({ missing }: { missing: ServerCheck[] }) {
         {missing.map((item) => (
           <SettingRow key={item.name} name={item.name} icon={item.name === APP_KEY ? KeyRound : item.name === APP_URL ? Globe : Server}>
             <p className="text-zinc-300">{item.purpose}</p>
-            {item.invalid && <p className="text-amber-200">Set but not valid: must be 64 characters, 0-9 and a-f.</p>}
+            {item.invalid && <p className="text-amber-300">Set but not valid: must be 64 characters, 0-9 and a-f.</p>}
             {item.name === APP_URL && <p>This app&apos;s address, like https://pm.yourcompany.com</p>}
             {item.name === APP_KEY && <AppKeyMaker />}
           </SettingRow>

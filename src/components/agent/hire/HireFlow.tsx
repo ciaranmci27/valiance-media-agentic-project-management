@@ -545,7 +545,7 @@ export function HireFlow() {
       {step === 'projects' && (
         <StepPanel key="projects" stepKey="projects" title="Where does it work?" description="Pick its projects. Each gets its own settings and instructions; it reads each project's brief too.">
           {linkDropped && (
-            <p className="mb-4 rounded-xl bg-amber-500/[0.10] px-4 py-3 text-sm text-amber-200">The project in the link is archived, in Trash or gone, so it was left off. Pick another below.</p>
+            <p className="mb-4 rounded-xl bg-amber-500/[0.10] px-4 py-3 text-sm text-amber-300">The project in the link is archived, in Trash or gone, so it was left off. Pick another below.</p>
           )}
           <ProjectsStep draft={draft} setDraft={setDraft} template={template} projects={openProjects} errors={errors} outside={outside} />
           <StepFooter onBack={() => go(stepIndex - 1)} onNext={next} nextLabel={draft.projectIds.length ? 'Next' : 'Skip for now'} error={serverError} />
@@ -622,9 +622,9 @@ export function HireFlow() {
               : template?.audience === 'managers' ? 'Its owners only' : 'Everyone'}
           />
           {incomplete && (
-            <div role="alert" className="mt-6 rounded-xl bg-amber-500/[0.10] px-4 py-3 text-sm text-amber-100">
+            <div role="alert" className="mt-6 rounded-xl bg-amber-500/[0.10] px-4 py-3 text-sm text-amber-300">
               <p>{incomplete.remains[0] ?? 'The agent stays in Team, suspended.'} Hiring again makes a new agent.</p>
-              <Link href={`/ai/agents/${incomplete.agentId}`} className="mt-1.5 inline-flex items-center gap-1 font-medium text-amber-200 underline-offset-2 hover:underline">
+              <Link href={`/ai/agents/${incomplete.agentId}`} className="mt-1.5 inline-flex items-center gap-1 font-medium text-amber-300 underline-offset-2 hover:underline">
                 Open the suspended agent <ExternalLink size={12} aria-hidden="true" />
               </Link>
             </div>
@@ -825,7 +825,7 @@ function TemplateStep({ templates, selected, onPick, error }: {
   return (
     <div className="space-y-4">
       {templates.failed && (
-        <p role="alert" className="text-sm text-amber-200">Templates did not load. You can start blank, or <button type="button" className="underline" onClick={templates.reload}>try again</button>.</p>
+        <p role="alert" className="text-sm text-amber-300">Templates did not load. You can start blank, or <button type="button" className="underline" onClick={templates.reload}>try again</button>.</p>
       )}
       {list.length > 8 && (
         <div className="w-full sm:w-72"><TextInput type="search" aria-label="Search templates" placeholder="Search templates" value={q} onChange={setQ} leftIcon={Search} clearable /></div>
@@ -833,7 +833,7 @@ function TemplateStep({ templates, selected, onPick, error }: {
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
       <ChoiceGroup label="Templates" className="grid gap-3 sm:grid-cols-2">
         {shown.map((t, index) => {
-          const Icon = TEMPLATE_ICONS[t.key] ?? Sparkles;
+          const Icon = TEMPLATE_ICONS[t.key] ?? Bot;
           const limits = limitsLine(t.limits);
           return (
             <ChoiceCard
@@ -1042,7 +1042,7 @@ function ReviewStep({ draft, template, pictureUrl, ownerNames, groupNames, proje
             <>
               <span>A key with {draft.scopes.length} {draft.scopes.length === 1 ? 'power' : 'powers'}: {listOf(draft.scopes.map(scopeLabel))}.</span>
               {beyondRole.length > 0 && (
-                <span className="mt-1 block text-amber-200">Given to this agent beyond what agents have by default: {listOf(beyondRole.map(scopeLabel))}.</span>
+                <span className="mt-1 block text-amber-300">Given to this agent beyond what agents have by default: {listOf(beyondRole.map(scopeLabel))}.</span>
               )}
             </>
           ) : 'No key yet. You can make one on the next step.'}

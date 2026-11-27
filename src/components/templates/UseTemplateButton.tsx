@@ -1,5 +1,6 @@
 'use client';
 
+import { GroupLabel } from '@/components/ui/GroupLabel';
 import { useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { LayoutTemplate, Search, Settings2 } from 'lucide-react';
@@ -73,7 +74,7 @@ export function TemplatePicker({ projectId, trigger, onPick, onManage }: {
   );
   const group = (label: string, items: TaskTemplateSummary[]) => (items.length ? (
     <div role="group" aria-label={label}>
-      <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
+      <GroupLabel className="px-3 pb-1 pt-2">{label}</GroupLabel>
       {items.map(option)}
     </div>
   ) : null);

@@ -218,7 +218,6 @@ function ChooseAgents({ connection, candidates, onClose }: { connection: ChatCon
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-zinc-400">Company agents that answer here. Each answers for the person who asked, within what that person may do.</p>
       {rows.length === 0 ? (
         <p className="rounded-lg bg-white/[0.03] px-3 py-2 text-sm text-zinc-400">No company agents yet. Hire one from Agents first.</p>
       ) : (
@@ -252,8 +251,8 @@ function ChooseAgents({ connection, candidates, onClose }: { connection: ChatCon
       )}
       {error && <p role="alert" className="rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-300">{error}</p>}
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button onClick={() => { void save(); }} disabled={saving}>{saving ? 'Saving' : 'Save'}</Button>
+        <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button onClick={() => { void save(); }} disabled={saving}>{saving ? 'Saving' : 'Save agents'}</Button>
       </div>
     </div>
   );

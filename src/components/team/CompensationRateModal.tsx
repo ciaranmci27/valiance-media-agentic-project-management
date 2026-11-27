@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadRead, peekRead } from '@/lib/query-cache';
 import { payrollRead } from '@/lib/finance/payroll-read';
 import { CalendarClock, DollarSign } from 'lucide-react';
-import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
 import type { TeamMember, TeamMemberHourlyRate } from '@/lib/types';
 import { DateInput } from '@/components/ui/inputs/DateInput';
@@ -96,19 +95,25 @@ export function CompensationRateModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={member ? `${member.name} · Pay rate` : 'Pay rate'} size="lg">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Set pay rate"
+      size="lg"
+      primaryAction={{ label: saving ? 'Scheduling' : 'Schedule rate', onClick: () => void scheduleRate(), disabled: !member, busy: saving }}
+    >
       <div className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+            <div className="flex items-center gap-2 text-xs font-medium text-zinc-400">
               <DollarSign size={14} /> Current rate
             </div>
             <p className="mt-2 text-2xl font-semibold tabular-nums text-white">
-              {loading ? 'Loading...' : currentRate ? `${money(Number(currentRate.hourly_rate))}/hr` : 'Not set'}
+              {loading ? 'Loading' : currentRate ? `${money(Number(currentRate.hourly_rate))}/hr` : 'Not set'}
             </p>
           </div>
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+            <div className="flex items-center gap-2 text-xs font-medium text-zinc-400">
               <CalendarClock size={14} /> Effective since
             </div>
             <p className="mt-2 text-sm font-medium text-white">
@@ -117,23 +122,15 @@ export function CompensationRateModal({
           </div>
         </div>
 
-        <div className="rounded-xl border border-white/[0.08] p-4">
-          <h3 className="text-sm font-semibold text-white">Schedule a new rate</h3>
-          <p className="mt-1 text-xs text-zinc-400">New time sessions use the rate effective when the session starts. Existing sessions do not change.</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <NumberInput label="Hourly rate" min={0} step={0.01} prefix={affix.position === 'prefix' ? affix.symbol : undefined} suffix={`${affix.position === 'suffix' ? affix.symbol : ''}/hr`} value={amount === '' ? '' : Number(amount)} onChange={(value) => setAmount(value === '' ? '' : String(value))} />
-            <DateInput label="Effective date" value={effectiveDate} onChange={setEffectiveDate} />
-          </div>
-          <div className="mt-4 flex justify-end">
-            <Button onClick={scheduleRate} disabled={saving || !member}>{saving ? 'Scheduling...' : 'Schedule rate'}</Button>
-          </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <NumberInput label="New hourly rate" min={0} step={0.01} prefix={affix.position === 'prefix' ? affix.symbol : undefined} suffix={`${affix.position === 'suffix' ? affix.symbol : ''}/hr`} value={amount === '' ? '' : Number(amount)} onChange={(value) => setAmount(value === '' ? '' : String(value))} />
+          <DateInput label="Effective date" description="Sessions that start from this day use it; earlier ones keep theirs." value={effectiveDate} onChange={setEffectiveDate} />
         </div>
 
-        <div>
-          <h3 className="text-sm font-semibold text-white">Rate history</h3>
-          <div className="mt-2 overflow-hidden rounded-xl border border-white/[0.08]">
+        <ModalAdvanced label="Rate history">
+          <div className="overflow-hidden rounded-xl border border-white/[0.08]">
             {loading ? (
-              <p className="p-4 text-sm text-zinc-400">Loading rate history...</p>
+              <p className="p-4 text-sm text-zinc-400">Loading rate history</p>
             ) : rates.length === 0 ? (
               <p className="p-4 text-sm text-zinc-400">No pay rates have been scheduled.</p>
             ) : rates.map((rate) => (
@@ -143,7 +140,7 @@ export function CompensationRateModal({
               </div>
             ))}
           </div>
-        </div>
+        </ModalAdvanced>
       </div>
     </Modal>
   );

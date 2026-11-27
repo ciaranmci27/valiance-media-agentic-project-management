@@ -88,7 +88,7 @@ export function WebhookEndpointDialog({ isOpen, editing, billingOn, projectOptio
 }) {
   const [busy, setBusy] = useState(false);
   return (
-    <Modal isOpen={isOpen} onClose={() => { if (!busy) onClose(); }} title={editing ? `Edit ${editing.name}` : 'New webhook endpoint'} size="xl">
+    <Modal isOpen={isOpen} onClose={() => { if (!busy) onClose(); }} title={editing ? 'Edit endpoint' : 'New webhook endpoint'} size="xl">
       {isOpen && (
         <EndpointFlow
           key={editing?.id ?? 'new'}

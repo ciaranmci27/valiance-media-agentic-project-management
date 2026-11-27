@@ -81,6 +81,7 @@ export const ASSISTANTS_ENDPOINTS: EndpointDoc[] = [
     body: [
       { name: 'display_name', type: 'string', required: false, description: 'At most 100 characters' },
       { name: 'enabled', type: 'boolean', required: false, description: 'On or off' },
+      { name: 'answer_buttons', type: 'boolean', required: false, description: 'Slack only (422 answer_buttons_slack_only otherwise): answer buttons on the app\'s question and approval messages. Off by default; turn on after pasting actions_url as the Interactivity Request URL in the Slack app, or presses fail. Until then the message comes with its link.' },
     ],
   },
   {

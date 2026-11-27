@@ -184,7 +184,7 @@ export function SecretField({
       </div>
 
       {status.unreadable && (
-        <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-500/[0.1] px-2.5 py-1.5 text-xs text-amber-200">
+        <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-500/[0.1] px-2.5 py-1.5 text-xs text-amber-300">
           <AlertTriangle size={13} className="mt-px flex-shrink-0" aria-hidden="true" />
           <span>
             It was saved under a different app key, so it can&apos;t be read. Save it again.

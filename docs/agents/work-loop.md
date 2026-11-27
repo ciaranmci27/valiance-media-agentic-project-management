@@ -126,7 +126,7 @@ A run can be `waiting`: neither running nor finished. Use it when the next step 
 
 Anything that stops you needs a person in Needs you, where they answer in one tap. A plain comment is the record only: nobody scans comments for blockers.
 
-1. **A decision or an answer:** `ask_human` or `request_approval` with your `run_id`. This is the main path. It lands on the person's Needs you with one-tap choices, and your run waits until it is answered.
+1. **A decision or an answer:** `ask_human` or `request_approval` with your `run_id`. This is the main path. It lands on the person's Needs you with one-tap choices, and your run waits until it is answered. A person with chat notifications on gets it in their own chat too, with buttons for its choices (or Approve and Reject), and may answer there: the answer reaches you the same way (an approval then reads `decided_via: "chat"`). Keep choices short and at most five so they fit as buttons.
 2. **Anything else that stops you** (a missing key, an outage, access you do not have): `update_run` with `blocked: true` (or `status: "blocked"`) and `blocked_reason`, one line a person reads. The run waits, its managers are told, and it shows on Needs you for its managers and the people on its task until it moves.
 3. **It clears when the run moves:** any update from you without `status: "waiting"` (back to running), a finish, or `blocked: false`. Saving `resume_notes` alone keeps it blocked.
 4. **No run to mark?** `add_task_comment` with `blocked: true` (or a comment starting `[BLOCKED]`, the older way) shows on Needs you for the task's assignees and creator and your managers, who answer with a reply on the task. It leaves when a person comments after it, you comment again, or the task's status changes. Prefer 1 and 2: they carry choices, wait your run and come back to you as an answer.
@@ -228,7 +228,7 @@ A task holds one delegation link: handing it on again replaces it. The runs keep
 - `asked_to` may name only your managers, your escalation target, a person on the task's project who is not a guest, your orchestrator (or theirs, up the chain) or an Owner. Anyone else is refused with the list of who you may ask (`422 approver_not_allowed`, `details.allowed`). The same holds for a question that carries an action. Leave it out to reach your escalation target; a default that lands on an agent is refused (`422 approver_not_person`). Never yourself (`422 asked_self`), and never a guest: an agent asks a guest nothing, not even a plain question (`422 asked_guest`).
 - Act only when `decision` is `approved`. `rejected`, expired or cancelled means no.
 - `run_id` holds your run while it waits, as on a question.
-- Whoever the approval names decides it, or the Owner. `decided_via` says how: `app`, `api_key`, `agent` or `act_for`.
+- Whoever the approval names decides it, or the Owner. `decided_via` says how: `app`, `api_key`, `agent`, `act_for` or `chat` (the person, from the app's message in their own chat).
 
 Deciding an approval (`answer_question` with `choice: "approve"` or `"reject"`):
 

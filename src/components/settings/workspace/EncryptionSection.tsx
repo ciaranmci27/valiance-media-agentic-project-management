@@ -64,7 +64,7 @@ export function EncryptionSection() {
   if (status && !needed && moved === null) return null;
 
   return (
-    <section id="encryption" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-6" aria-labelledby="encryption-heading">
+    <section id="encryption" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-5" aria-labelledby="encryption-heading">
       <SettingsSectionHeader icon={ShieldCheck} title="Encryption" headingId="encryption-heading" description={DESCRIPTION} />
 
       {read.failed || !status ? (

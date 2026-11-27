@@ -578,7 +578,7 @@ export function YourAddressesSection() {
   const canAdd = inboxes.length > 0;
 
   return (
-    <section id="email-addresses" aria-labelledby={headingId} className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6">
+    <section id="email-addresses" aria-labelledby={headingId} className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6">
       <SettingsSectionHeader
         icon={AtSign}
         title="Your addresses"
@@ -724,7 +724,7 @@ export function YourAddressesSection() {
         // The list is its own container: columns only once it is wide enough for them.
         <div className="@container border border-white/[0.08] rounded-lg">
           <div
-            className={`${addressLayout(showInbox).header} ${addressLayout(showInbox).grid} px-4 py-2 border-b border-white/[0.06] text-[11px] font-medium uppercase tracking-wide text-zinc-400`}
+            className={`${addressLayout(showInbox).header} ${addressLayout(showInbox).grid} px-4 py-2 border-b border-white/[0.06] text-[11px] font-medium text-zinc-400`}
             aria-hidden="true"
           >
             <span>Address</span>

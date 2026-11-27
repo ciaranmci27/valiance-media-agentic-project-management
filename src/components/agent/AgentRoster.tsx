@@ -374,7 +374,7 @@ function RosterCard({ entry, templateLabel, warm }: { entry: RosterEntry; templa
         <AgentAvatar id={entry.id} name={entry.name} src={entry.avatar} presence={entry.presence} label={entry.sentence} size="md" />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
-            <span className="truncate text-[15px] font-semibold text-white group-hover:text-brand-100">{entry.name}</span>
+            <span className="truncate text-sm font-semibold text-white group-hover:text-brand-100">{entry.name}</span>
           </span>
           {label && <span className="mt-0.5 block truncate text-xs text-zinc-500">{label}</span>}
         </span>
@@ -387,7 +387,7 @@ function RosterCard({ entry, templateLabel, warm }: { entry: RosterEntry; templa
         <span aria-hidden="true">·</span>
         <span>{projectsLine(entry.projectCount, entry.projectsCapped, entry.setUp)}</span>
         {entry.backlog && (
-          <span className={`ml-auto rounded-full px-2 py-0.5 font-medium ${entry.backlog.state === 'stalled' ? 'bg-red-500/[0.14] text-red-200' : 'bg-amber-500/[0.14] text-amber-200'}`}>
+          <span className={`ml-auto rounded-full px-2 py-0.5 font-medium ${entry.backlog.state === 'stalled' ? 'bg-red-500/[0.14] text-red-300' : 'bg-amber-500/[0.14] text-amber-300'}`}>
             {backlogLine(entry.backlog)}
           </span>
         )}

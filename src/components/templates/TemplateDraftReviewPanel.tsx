@@ -146,7 +146,7 @@ function Review({ draft, given, header, onClose }: {
         maxLength={TEMPLATE_DRAFT_NOTE_MAX}
         disabled={!mayReject}
       />
-      {error && <p role="alert" className="rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-200">{error}</p>}
+      {error && <p role="alert" className="rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-300">{error}</p>}
       {!mayDecide && !checking && (
         <p className="flex items-start gap-1.5 text-xs text-zinc-400">
           <Info size={13} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
@@ -178,7 +178,7 @@ function Review({ draft, given, header, onClose }: {
       {draft.note && (
         <div className="px-5 pb-4">
           <div className="rounded-lg bg-white/[0.04] px-3 py-2.5">
-            <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+            <p className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400">
               <Sparkles size={12} className="text-brand-300" aria-hidden="true" />{agent}&apos;s note
             </p>
             <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-200">{draft.note}</p>
@@ -242,7 +242,7 @@ function Review({ draft, given, header, onClose }: {
             </div>
             {preview.errors.length > 0 && (
               <div role="alert" className="rounded-lg bg-red-500/[0.1] px-3 py-2.5">
-                <p className="text-sm font-medium text-red-200">Approving would be refused</p>
+                <p className="text-sm font-medium text-red-300">Approving would be refused</p>
                 <ul className="mt-1 space-y-1">
                   {(preview.errors as ScreenIssue[]).map((issue) => <li key={`${issue.path}:${issue.code}`} className="text-xs text-red-300">{issue.message}</li>)}
                 </ul>

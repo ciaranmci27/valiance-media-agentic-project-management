@@ -83,7 +83,7 @@ export function ProfileIdentity({
       {member.status === 'suspended' && (
         <div role="status" className="rounded-xl bg-red-500/[0.10] px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
           <Ban size={16} className="text-red-300 flex-shrink-0" aria-hidden="true" />
-          <p className="flex-1 min-w-[200px] text-sm text-red-200">
+          <p className="flex-1 min-w-[200px] text-sm text-red-300">
             {isSelf ? 'Your account is suspended.' : 'Suspended'}
             {member.suspended_at ? ` since ${formatDate(member.suspended_at)}` : ''}
             {isSelf ? '' : '. They cannot sign in or be assigned work, and their history stays.'}

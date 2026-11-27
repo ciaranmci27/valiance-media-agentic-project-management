@@ -75,7 +75,7 @@ export function ProjectsStep({ onNext, onSkip, onBack }: WizardStepProps) {
     >
       {live.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-400">Your projects</h2>
+          <h2 className="text-xs font-medium text-zinc-400">Your projects</h2>
           <ul className="mt-3 flex flex-wrap gap-2">
             {live.slice(0, 12).map((project) => (
               <li key={project.id} className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.04] px-3 py-1 text-xs text-zinc-300">

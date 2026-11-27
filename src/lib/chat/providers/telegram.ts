@@ -56,6 +56,21 @@ export const telegramAdapter: ChatAdapter = {
     let update: Loose;
     try { update = JSON.parse(body); } catch { return { kind: 'ignore', reason: 'invalid_json' }; }
     if (typeof update?.update_id !== 'number') return { kind: 'ignore', reason: 'not_an_update' };
+    // A press of one of the app's answer buttons.
+    const press = update.callback_query;
+    if (press && typeof press === 'object') {
+      if (!press.from || press.from.is_bot || typeof press.data !== 'string' || typeof press.id !== 'string') return { kind: 'ignore', reason: 'not_a_press' };
+      return {
+        kind: 'button',
+        dedupeKey: `update:${update.update_id}`,
+        workspaceId: null,
+        userId: String(press.from.id),
+        conversationId: press.message?.chat?.id !== undefined ? String(press.message.chat.id) : null,
+        messageId: press.message?.message_id !== undefined ? String(press.message.message_id) : null,
+        token: press.data.slice(0, 64),
+        callbackId: press.id,
+      };
+    }
     const message = update.message;
     if (!message || typeof message !== 'object') return { kind: 'ignore', reason: 'not_a_message' };
     if (!message.from || message.from.is_bot) return { kind: 'ignore', reason: 'not_a_person' };
@@ -97,14 +112,55 @@ export const telegramAdapter: ChatAdapter = {
         text: message.text.slice(at, at + TELEGRAM_MAX),
         ...(message.threadId ? { message_thread_id: Number(message.threadId) } : {}),
         ...(replyTo !== null && at === 0 ? { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } } : {}),
-        // A link is a button under the message (the last part).
-        ...(message.link && last ? { reply_markup: { inline_keyboard: [[{ text: message.link.label, url: message.link.url }]] } } : {}),
+        // Answer buttons, then a link button, under the message (the last part).
+        ...((message.link || message.buttons?.length) && last ? { reply_markup: { inline_keyboard: [
+          // A question's choices one per row, readable on a phone; Approve and Reject side by side.
+          ...(message.buttons?.length
+            ? (message.buttonsStacked
+              ? message.buttons.map((button) => [{ text: button.label.slice(0, 64), callback_data: button.token }])
+              : [message.buttons.map((button) => ({ text: button.label.slice(0, 64), callback_data: button.token }))])
+            : []),
+          ...(message.link ? [[{ text: message.link.label, url: message.link.url }]] : []),
+        ] } } : {}),
       });
       if (answer.ok !== true) throw refused(answer, 'Telegram refused the message');
       const id = (answer.result as Loose)?.message_id;
       if (first === null && id !== undefined) first = String(id);
     }
     return { externalMessageId: first };
+  },
+
+  supportsButtons: true,
+  buttonTextMax: TELEGRAM_MAX,
+
+  async enableButtons(credentials) {
+    if (credentials.buttons === '1') return null;
+    // A connection from before answer buttons: its webhook asked for messages
+    // only. Same address, same secret; presses come too from now on.
+    const info = await postJson('telegram', botUrl(credentials.bot_token, 'getWebhookInfo'), {});
+    const url = (info.result as Loose)?.url;
+    if (info.ok !== true || typeof url !== 'string' || !url) throw refused(info, 'Telegram did not say where its webhook is');
+    const hook = await postJson('telegram', botUrl(credentials.bot_token, 'setWebhook'), {
+      url, secret_token: credentials.secret_token, allowed_updates: ['message', 'callback_query'],
+    });
+    if (hook.ok !== true) throw refused(hook, 'Telegram did not take the webhook');
+    return { ...credentials, buttons: '1' };
+  },
+
+  async acknowledge(credentials, callbackId, text) {
+    try {
+      await postJson('telegram', botUrl(credentials.bot_token, 'answerCallbackQuery'), { callback_query_id: callbackId, text: text.slice(0, 190) });
+    } catch {
+      // The press is decided either way; the button only keeps spinning a moment longer.
+    }
+  },
+
+  async editMessage(credentials, input) {
+    const answer = await postJson('telegram', botUrl(credentials.bot_token, 'editMessageText'), {
+      chat_id: input.conversationId, message_id: Number(input.messageId), text: input.text.slice(0, TELEGRAM_MAX),
+      reply_markup: { inline_keyboard: [] },
+    });
+    if (answer.ok !== true) throw refused(answer, 'Telegram did not change the message');
   },
 
   async openDirect(_credentials, userId) {
@@ -139,12 +195,12 @@ export const telegramAdapter: ChatAdapter = {
     }
     const secret = newTelegramSecret();
     const hook = await postJson('telegram', botUrl(credentials.bot_token, 'setWebhook'), {
-      url: inboundUrl, secret_token: secret, allowed_updates: ['message'], drop_pending_updates: true,
+      url: inboundUrl, secret_token: secret, allowed_updates: ['message', 'callback_query'], drop_pending_updates: true,
     });
     if (hook.ok !== true) throw refused(hook, 'Telegram did not take the webhook');
     const username = typeof bot?.username === 'string' ? bot.username : null;
     return {
-      credentials: { bot_token: credentials.bot_token, secret_token: secret },
+      credentials: { bot_token: credentials.bot_token, secret_token: secret, buttons: '1' },
       workspaceId: bot?.id !== undefined ? String(bot.id) : null,
       botId: bot?.id !== undefined ? String(bot.id) : null,
       botHandle: username ? `@${username}` : null,

@@ -16,7 +16,7 @@ interface ProjectEmailRoutingModalProps {
   projectId: string;
 }
 
-const GROUP_HEADING = 'text-xs font-medium uppercase tracking-wide text-zinc-400';
+const GROUP_HEADING = 'text-xs font-medium text-zinc-400';
 
 /**
  * How mail finds this project, in two groups: what it is sent to (this
@@ -29,12 +29,8 @@ export function ProjectEmailRoutingModal({ isOpen, onClose, projectId }: Project
   const baseId = useId();
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="How mail finds this project" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title="Mail routing" size="lg">
       <div className="space-y-6">
-        <p className="text-sm text-zinc-300">
-          Mail lands on this project when it is sent to one of its addresses, or sent from one of its senders.
-        </p>
-
         <section aria-labelledby={`${baseId}-to`} className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             <h3 id={`${baseId}-to`} className={GROUP_HEADING}>Sent to</h3>

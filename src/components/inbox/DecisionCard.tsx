@@ -83,7 +83,7 @@ export function DecisionCard({ triage, agentName, canDraft, onSend, onNothing, s
       className={embedded ? 'scroll-mt-4' : 'scroll-mt-4 rounded-xl border border-amber-400/25 bg-amber-500/[0.05] p-3 sm:p-4'}>
       {embedded ? (
         // An h4: inside the agent's card it sits beside the card's own group headings.
-        <h4 id={`${id}-title`} className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+        <h4 id={`${id}-title`} className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-300">
           <HelpCircle size={12} aria-hidden="true" />
           {questions.length > 1 ? `${questions.length} decisions for you` : 'Decision for you'}
         </h4>

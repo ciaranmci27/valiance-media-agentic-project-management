@@ -175,7 +175,7 @@ export function RunFeed({ filters, onChange, onOpenTask, lockAgent = false }: {
     const member = memberById.get(run.agent_id);
     const length = runLengthLabel(run, now);
     return (
-      <div className="glass-card rounded-xl p-3.5">
+      <div className="glass-card rounded-xl p-4">
         <div className="flex items-center gap-2">
           <RunStatusPill run={run} />
           <span className="min-w-0 flex-1 truncate text-xs text-zinc-400">{lockAgent ? '' : member?.name ?? 'Unknown agent'}</span>

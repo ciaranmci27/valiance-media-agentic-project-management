@@ -8,7 +8,7 @@ import {
   Plus,
   AlertCircle,
   FileText,
-  Sparkles,
+  Hand,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
@@ -26,8 +26,8 @@ import { COMM_TYPE_LABELS } from './ClientCommunicationsLogPanel';
 import ClientEmailPreviewModal from './ClientEmailPreviewModal';
 import type { ClientCommType, AlertMode } from '@/lib/types';
 
-const SEND_ACTIONS: { type: ClientCommType; label: string; hint: string; icon: typeof Sparkles }[] = [
-  { type: 'portal_welcome', label: 'Send portal welcome', hint: 'Introduce the portal to the primary client', icon: Sparkles },
+const SEND_ACTIONS: { type: ClientCommType; label: string; hint: string; icon: typeof Hand }[] = [
+  { type: 'portal_welcome', label: 'Send portal welcome', hint: 'Introduce the portal to the primary client', icon: Hand },
   { type: 'project_summary', label: 'Send project summary', hint: 'Share a status update and current balance', icon: FileText },
 ];
 
@@ -72,7 +72,7 @@ export function SendClientEmailButtons({ projectId, onSent }: { projectId: strin
   return (
     <>
       {actions.map(({ type, label, hint, icon: Icon }) => (
-        <ToolbarButton key={type} variant="secondary" icon={<Icon />} label={label} onClick={() => open(type)} title={hint} />
+        <ToolbarButton key={type} variant="secondary" icon={<Icon />} label={label} onClick={() => open(type)} hint={hint} />
       ))}
       {manualType && (
         <ClientEmailPreviewModal

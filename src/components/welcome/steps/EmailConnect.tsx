@@ -433,7 +433,7 @@ function EncryptionFix({ onCheck, checking, onCancel }: { onCheck: () => void; c
               {copy === 'copied' ? 'Copied' : 'Copy'}
             </Button>
           </div>
-          <p className="text-xs leading-relaxed text-amber-200">Keep it safe: if it&apos;s lost, saved passwords and keys can&apos;t be recovered.</p>
+          <p className="text-xs leading-relaxed text-amber-300">Keep it safe: if it&apos;s lost, saved passwords and keys can&apos;t be recovered.</p>
           {copy === 'failed' && <OutcomeLine outcome={{ tone: 'error', text: 'Could not copy. Select the line and copy it yourself.' }} />}
           <ol className="list-decimal space-y-1 pl-4 text-xs leading-relaxed text-zinc-300">
             <li>In your host (on Vercel: Project, Settings, Environment Variables) add the line for Production; running locally, add it to <span className="font-mono text-[11px]">.env.local</span>.</li>

@@ -1,5 +1,6 @@
 'use client';
 
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -15,8 +16,6 @@ import { SectionHeader } from '@/components/ui/SectionHeader';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { Plus, Target, Edit, Trash2, ArrowRightCircle } from 'lucide-react';
 import { Lead, LEAD_FIELD_DEFINITIONS } from '@/lib/types';
-import { toast } from '@/components/ui/Toast';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
 import { appLocale } from '@/lib/region';
@@ -69,7 +68,7 @@ export default function LeadsPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [convertingLead, setConvertingLead] = useState<Lead | null>(null);
-  const [deletingLeadId, setDeletingLeadId] = useState<string | null>(null);
+  const undoTrash = useUndoTrash();
 
   useEffect(() => { setFilters(defaultFilters); }, []);
 
@@ -78,10 +77,9 @@ export default function LeadsPage() {
     setIsFormOpen(true);
   };
 
-  const executeDelete = async () => {
-    if (!deletingLeadId) return;
-    const ok = await deleteLead(deletingLeadId);
-    if (ok) toast('success', 'Lead moved to Trash');
+  // Moving to Trash acts at once, with Undo (DESIGN.md Rule 6).
+  const trashLead = async (id: string) => {
+    if (await deleteLead(id)) undoTrash('leads', id, { message: 'Lead moved to Trash' });
   };
 
   const handleCloseForm = () => {
@@ -106,7 +104,7 @@ export default function LeadsPage() {
     return [
       { label: 'Edit', icon: <Edit size={14} />, onClick: () => handleEdit(l) },
       ...(canConvert ? [{ label: 'Convert', icon: <ArrowRightCircle size={14} />, variant: 'success' as const, onClick: () => setConvertingLead(l) }] : []),
-      { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger' as const, onClick: () => setDeletingLeadId(l.id) },
+      { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger' as const, onClick: () => void trashLead(l.id) },
     ];
   };
 
@@ -263,7 +261,7 @@ export default function LeadsPage() {
         searchPlaceholder="Search leads by name, company, or email..."
         actions={canManageLeads ? (
           <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={16} />}>
-            Add Lead
+            Add lead
           </Button>
         ) : undefined}
       />
@@ -276,7 +274,7 @@ export default function LeadsPage() {
             </div>
             <h3 className="text-lg font-semibold text-white mb-2">No leads yet</h3>
             <p className="text-zinc-400 mb-4">{canManageLeads ? 'Add your first lead to start building your pipeline' : 'No leads are available to you'}</p>
-            {canManageLeads && <Button onClick={() => setIsFormOpen(true)}>Add Lead</Button>}
+            {canManageLeads && <Button onClick={() => setIsFormOpen(true)}>Add lead</Button>}
           </div>
         ) : (
           <>
@@ -304,16 +302,6 @@ export default function LeadsPage() {
         onClose={() => setConvertingLead(null)}
         lead={convertingLead}
       />}
-
-      <ConfirmDialog
-        isOpen={!!deletingLeadId}
-        onClose={() => setDeletingLeadId(null)}
-        onConfirm={executeDelete}
-        title="Move lead to Trash?"
-        message="The lead goes to Trash with its interactions and proposals."
-        variant="danger"
-        trash
-      />
     </div>
   );
 }

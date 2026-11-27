@@ -92,7 +92,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   if (!access) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="glass-card w-full max-w-md rounded-xl p-6 text-center">
+        <div className="glass-card w-full max-w-md rounded-xl p-5 text-center">
           <h1 className="text-lg font-semibold text-white">Workspace access unavailable</h1>
           <p className="mt-2 text-sm text-zinc-400">{accessError || 'Your account is signed in but its team access could not be loaded.'}</p>
           <div className="mt-5 flex justify-center gap-2">

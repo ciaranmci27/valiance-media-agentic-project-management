@@ -86,7 +86,7 @@ export default function BillingCalendarPage() {
         )}
       />
 
-      <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
+      <div className="p-4 lg:p-6 space-y-6">
         {isDemoMode ? (
           <div className="rounded-xl border border-white/[0.08] bg-surface-raised p-8 text-center text-sm text-zinc-400">
             Upcoming invoices are not available in demo mode.

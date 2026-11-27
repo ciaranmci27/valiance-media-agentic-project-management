@@ -379,7 +379,7 @@ export function ProjectSetupFlow() {
               {canBrief && (
                 <>
                   <Textarea label="Rules and constraints" description="One per line. They are saved as one pinned list." value={brief.rules} onChange={(rules) => setBrief({ ...brief, rules })} rows={4} placeholder={'Never deploy on Fridays\nEvery change needs a test'} />
-                  <Textarea label="Links" description="One per line. Agents find them by search." value={brief.links} onChange={(links) => setBrief({ ...brief, links })} rows={3} placeholder={'Repository: https://github.com/acme/site\nDesigns: https://figma.com/...'} />
+                  <Textarea label="Links" description="One per line. Agents find them by search." value={brief.links} onChange={(links) => setBrief({ ...brief, links })} rows={3} placeholder={'Repository: https://github.com/acme/site\nDesigns: https://figma.com/'} />
                 </>
               )}
             </div>

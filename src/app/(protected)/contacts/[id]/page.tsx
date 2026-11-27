@@ -112,8 +112,8 @@ export default function ContactDetailPage() {
 
       <div className="p-4 lg:p-6 space-y-6">
         {/* Contact Info + Leads row; the contact takes the row when Leads is off */}
-        <div className={`grid grid-cols-1 ${canReadLeads ? 'lg:grid-cols-2' : ''} gap-6 items-stretch`}>
-        <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[300px]">
+        <div className={`card-row ${canReadLeads ? 'lg:grid-cols-2' : ''}`}>
+        <div className="glass-card card-fill rounded-xl overflow-hidden">
           <div className="flex-shrink-0 px-6 lg:px-7 pt-6 lg:pt-7">
             <div className="flex items-center gap-4 pb-5 border-b border-white/[0.06]">
               <Avatar name={contact.name} src={contact.avatar_url || undefined} size="lg" />
@@ -170,7 +170,7 @@ export default function ContactDetailPage() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-6 lg:px-7 py-5">
+          <div className="card-fill-grow px-6 lg:px-7 py-5">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-zinc-400 text-sm">
                 <StickyNote size={14} />
@@ -192,7 +192,7 @@ export default function ContactDetailPage() {
                   onChange={setNotesValue}
                   rows={4}
                   autoFocus
-                  placeholder="Add notes about this contact..."
+                  placeholder="Add notes about this contact"
                 />
                 <div className="flex justify-end gap-2">
                   <button
@@ -225,7 +225,7 @@ export default function ContactDetailPage() {
 
         {/* Linked Leads */}
         {canReadLeads && (
-        <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[300px]">
+        <div className="glass-card card-fill rounded-xl overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
             <div className="flex items-center gap-2">
               <Target size={18} className="text-zinc-400" />
@@ -236,7 +236,7 @@ export default function ContactDetailPage() {
           </div>
 
           {linkedLeads.length > 0 ? (
-            <div className="flex-1 overflow-y-auto divide-y divide-white/[0.06]">
+            <div className="card-scroll divide-y divide-white/[0.06]">
               {linkedLeads.map((lead) => {
                 const statusCfg = STATUS_CONFIG[lead.status] || STATUS_CONFIG.new;
                 return (
@@ -302,7 +302,7 @@ export default function ContactDetailPage() {
               </div>
               {leftOut && <p className="px-5 pt-3 text-xs text-zinc-500">{leftOut}</p>}
               {/* Invoice cards */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-2" style={{ maxHeight: '250px' }}>
+              <div className="overflow-y-auto p-4 space-y-2" style={{ maxHeight: '250px' }}>
                 {contactInvoices.map((invoice) => {
                   const project = getProject(invoice.project_id);
                   return (
@@ -335,9 +335,9 @@ export default function ContactDetailPage() {
         })()}
 
         {/* Linked Projects + Files row */}
-        <div className={`grid grid-cols-1 ${canReadFiles ? 'lg:grid-cols-2' : ''} gap-6 items-stretch`}>
+        <div className={`card-row ${canReadFiles ? 'lg:grid-cols-2' : ''}`}>
           {/* Linked Projects */}
-          <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
+          <div className="glass-card card-fill rounded-xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
               <div className="flex items-center gap-2">
                 <FolderKanban size={18} className="text-zinc-400" />
@@ -355,7 +355,7 @@ export default function ContactDetailPage() {
             </div>
 
             {linkedProjects.length > 0 ? (
-              <div className="flex-1 overflow-y-auto p-5">
+              <div className="card-scroll p-5">
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                   {linkedProjects.map((project) => (
                     <ProjectCard

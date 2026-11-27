@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import {
@@ -11,7 +12,7 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import Modal from '@/components/ui/Modal';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
 import { StatStrip } from '@/components/ui/StatStrip';
 import { getWorkedHours } from '@/lib/time-entry-utils';
@@ -883,7 +884,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
             <p className="truncate text-sm font-medium text-white">{member.name}</p>
-            <span className={`flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize ${ROLE_BADGE_CLASSES[member.role]}`}>
+            <span className={`flex-shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium capitalize ${ROLE_BADGE_CLASSES[member.role]}`}>
               {member.role}
             </span>
           </div>
@@ -893,7 +894,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
               <button
                 type="button"
                 onClick={() => openRate(member.id)}
-                className="mt-0.5 rounded text-left text-xs font-medium text-amber-300 hover:text-amber-200 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                className="mt-0.5 rounded text-left text-xs font-medium text-amber-300 hover:text-amber-300 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
               >
                 {text}. Set rate
               </button>
@@ -999,9 +1000,9 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
             <Clock3 size={14} className="text-amber-400" aria-hidden="true" />
             Review hours
             {pending.length > 0 && (
-              <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-amber-300">
+              <Pill tone="waiting" className="tabular-nums">
                 {pending.length}
-              </span>
+              </Pill>
             )}
           </button>
         )}
@@ -1089,9 +1090,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                                 {member?.name || 'Team member'}
                               </span>
                               {isAgentEntry && (
-                                <span className="flex-shrink-0 rounded-full bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-medium text-purple-300">
-                                  AI agent
-                                </span>
+                                <Pill tone="info">AI agent</Pill>
                               )}
                               <span className="flex-shrink-0 text-[11px] text-zinc-500">
                                 {new Date(entry.start_time).toLocaleDateString(payLocale, {
@@ -1148,7 +1147,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
 
               {rejectedRecent.length > 0 && (
                 <div className="border-t border-white/[0.06] pt-3">
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  <p className="mb-2 text-[11px] font-semibold text-zinc-500">
                     Recently rejected
                   </p>
                   <div className="max-h-40 space-y-1.5 overflow-y-auto">
@@ -1167,13 +1166,11 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                                 {member?.name || 'Team member'}
                               </span>
                               {isAgentEntry && (
-                                <span className="flex-shrink-0 rounded-full bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-medium text-purple-300">
-                                  AI agent
-                                </span>
+                                <Pill tone="info">AI agent</Pill>
                               )}
-                              <span className="flex-shrink-0 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-300">
+                              <Pill tone="problem">
                                 Rejected
-                              </span>
+                              </Pill>
                               <span className="flex-shrink-0 text-[11px] text-zinc-500">
                                 {new Date(entry.start_time).toLocaleDateString(payLocale, {
                                   month: 'short',
@@ -1241,10 +1238,11 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
       <Modal
         isOpen={Boolean(ledgerMemberId)}
         onClose={() => setLedgerMemberId(null)}
-        title={`${ledgerMember?.name || 'Team member'} earnings`}
+        title="Member earnings"
         size="4xl"
       >
         <div className="space-y-4">
+          {ledgerMember && <p className="text-sm font-medium text-white">{ledgerMember.name}</p>}
           <StatStrip
             label="Earnings summary"
             stats={[
@@ -1285,7 +1283,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
             </div>
           ) : (
             <div className="overflow-hidden rounded-lg border border-white/[0.08]">
-              <div className="hidden grid-cols-[minmax(0,1fr)_110px_90px_110px] gap-4 border-b border-white/[0.06] bg-white/[0.03] px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500 md:grid">
+              <div className="hidden grid-cols-[minmax(0,1fr)_110px_90px_110px] gap-4 border-b border-white/[0.06] bg-white/[0.03] px-4 py-2 text-[11px] font-medium text-zinc-500 md:grid">
                 <span>Earning</span>
                 <span className="text-right">Time</span>
                 <span className="text-right">Status</span>
@@ -1321,14 +1319,14 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                             {row.description}
                           </p>
                           {row.kind === 'adjustment' && (
-                            <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">
+                            <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[11px] font-medium text-zinc-400">
                               Adjustment
                             </span>
                           )}
                           {row.kind === 'share' && (
-                            <span className="rounded-full bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-300">
+                            <Pill tone="info">
                               Revenue share
-                            </span>
+                            </Pill>
                           )}
                         </div>
                         <p className="mt-0.5 truncate text-xs text-zinc-400">
@@ -1349,7 +1347,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                       </div>
                       <div className="md:text-right">
                         <span
-                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusClass}`}
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusClass}`}
                         >
                           {statusLabel}
                         </span>
@@ -1361,7 +1359,7 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
                           {money(row.amount)}
                         </p>
                         {unpaid && (
-                          <p className="text-[10px] font-medium text-orange-400">
+                          <p className="text-[11px] font-medium text-orange-400">
                             {money(row.remaining)} remaining
                           </p>
                         )}
@@ -1380,11 +1378,9 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
         onClose={() => setPayMemberId(null)}
         title="Record team payment"
         size="sm"
+        primaryAction={{ label: 'Record payment', onClick: () => void recordPayout(), busy: submitting }}
       >
         <div className="space-y-4">
-          <p className="text-sm text-zinc-300">
-            This payment will be allocated against approved earnings in FIFO order.
-          </p>
           <NumberInput
             label="Amount"
             min={0.01}
@@ -1394,26 +1390,20 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
             value={payAmount === '' ? '' : Number(payAmount)}
             onChange={(value) => setPayAmount(value === '' ? '' : String(value))}
           />
-          <TextInput
-            label="Payment method"
-            value={paymentMethod}
-            onChange={setPaymentMethod}
-            placeholder="ACH, check, cash..."
-          />
-          <TextInput
-            label="Reference"
-            value={paymentReference}
-            onChange={setPaymentReference}
-            placeholder="Optional transaction reference"
-          />
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setPayMemberId(null)}>
-              Cancel
-            </Button>
-            <Button onClick={recordPayout} disabled={submitting}>
-              Record payment
-            </Button>
-          </div>
+          <ModalAdvanced defaultOpen={Boolean(paymentMethod || paymentReference)}>
+            <TextInput
+              label="Payment method"
+              value={paymentMethod}
+              onChange={setPaymentMethod}
+              placeholder="ACH, check or cash"
+            />
+            <TextInput
+              label="Reference"
+              value={paymentReference}
+              onChange={setPaymentReference}
+              placeholder="Optional transaction reference"
+            />
+          </ModalAdvanced>
         </div>
       </Modal>
 
@@ -1422,39 +1412,31 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
         onClose={() => setShowReject(false)}
         title="Reject selected time"
         size="sm"
+        primaryAction={{ label: 'Reject time', variant: 'danger', onClick: () => void rejectSelected(), busy: submitting }}
       >
         <div className="space-y-4">
-          <p className="text-sm text-zinc-300">
-            The team member can correct a rejected entry. Saving the correction will submit it for
-            review again.
-          </p>
           <Textarea
             label="Reason"
             value={rejectionReason}
             onChange={setRejectionReason}
             placeholder="Explain what needs to be corrected"
+            description="They can correct it and send it for review again."
             rows={3}
           />
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setShowReject(false)}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={rejectSelected} disabled={submitting}>
-              Reject time
-            </Button>
-          </div>
         </div>
       </Modal>
 
       <Modal
         isOpen={showRate}
         onClose={() => setShowRate(false)}
-        title={`Pay rate for ${rateMember?.name || 'team member'}`}
+        title="Set pay rate"
         size="sm"
+        primaryAction={{ label: 'Schedule rate', onClick: () => void scheduleRate(), busy: submitting }}
       >
         <div className="space-y-4">
           <NumberInput
             label="Hourly rate"
+            description={rateMember ? `For ${rateMember.name}` : undefined}
             min={0}
             step={0.01}
             prefix={amountPrefix}
@@ -1463,25 +1445,19 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
             onChange={(value) => setRateAmount(value === '' ? '' : String(value))}
           />
           <DateInput label="Effective date" value={rateDate} onChange={setRateDate} />
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setShowRate(false)}>
-              Cancel
-            </Button>
-            <Button onClick={scheduleRate} disabled={submitting}>
-              Schedule rate
-            </Button>
-          </div>
         </div>
       </Modal>
       <Modal
         isOpen={showAdjustment}
         onClose={() => setShowAdjustment(false)}
-        title={`Adjust earnings for ${adjustmentMember?.name || 'team member'}`}
+        title="Adjust earnings"
         size="sm"
+        primaryAction={{ label: 'Add adjustment', onClick: () => void addAdjustment(), busy: submitting }}
       >
         <div className="space-y-4">
           <Select
             label="Type"
+            description={adjustmentMember ? `For ${adjustmentMember.name}` : undefined}
             value={adjustmentType}
             onChange={(value) => setAdjustmentType(value as 'bonus' | 'deduction')}
             options={[
@@ -1503,14 +1479,6 @@ export function PayrollPanel({ team, projects, reviewOnly = false }: { team: Tea
             value={adjustmentDescription}
             onChange={setAdjustmentDescription}
           />
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setShowAdjustment(false)}>
-              Cancel
-            </Button>
-            <Button onClick={addAdjustment} disabled={submitting}>
-              Add adjustment
-            </Button>
-          </div>
         </div>
       </Modal>
       {sessionEntryId &&

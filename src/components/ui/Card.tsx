@@ -63,16 +63,32 @@ export interface CardProps extends Omit<CardHeaderProps, 'className' | 'title'> 
   className?: string;
   /** Replaces the body's padding (px-4 pb-4, lg:px-5 lg:pb-5), e.g. for a row list that runs edge to edge (`pb-1`). */
   bodyClassName?: string;
+  /**
+   * In a row of cards (`.card-row`, Rule 14): the card fills its cell and its body is a flex
+   * column, so a `.card-scroll` list inside scrolls in its own area and a `.card-foot` total sits
+   * at the bottom. See `CardRow`.
+   */
+  fill?: boolean;
   children: ReactNode;
 }
 
-export function Card({ title, icon, afterTitle, action, description, as, id, className = '', bodyClassName, children }: CardProps) {
+export function Card({ title, icon, afterTitle, action, description, as, id, className = '', bodyClassName, fill = false, children }: CardProps) {
+  const body = bodyClassName ?? (title !== undefined ? 'px-4 pb-4 lg:px-5 lg:pb-5' : 'p-4 lg:p-5');
   return (
-    <section className={`glass-card rounded-xl ${className}`} aria-labelledby={title && id ? id : undefined}>
+    <section className={`glass-card rounded-xl ${fill ? 'card-fill' : ''} ${className}`} aria-labelledby={title && id ? id : undefined}>
       {title !== undefined && (
         <CardHeader title={title} icon={icon} afterTitle={afterTitle} action={action} description={description} as={as} id={id} />
       )}
-      <div className={bodyClassName ?? (title !== undefined ? 'px-4 pb-4 lg:px-5 lg:pb-5' : 'p-4 lg:p-5')}>{children}</div>
+      <div className={fill ? `card-fill-grow flex flex-col ${body}` : body}>{children}</div>
     </section>
   );
+}
+
+/**
+ * Cards side by side (DESIGN.md Rule 14): one row whose cards stretch to the tallest. Pass the
+ * columns from the breakpoint they start at (`lg:grid-cols-2`); give each card `fill`, a long
+ * list inside one `className="card-scroll"` and a total `className="card-foot"`.
+ */
+export function CardRow({ className = '', children }: { className?: string; children: ReactNode }) {
+  return <div className={`card-row ${className}`}>{children}</div>;
 }

@@ -366,7 +366,7 @@ function RunFlow({ template: t, presetProject, header, onClose, onDone }: {
             </div>
 
             {previewError && !shownPreview && (
-              <div role="alert" className="flex flex-col items-start gap-2 rounded-lg bg-red-500/[0.1] px-3 py-2.5 text-sm text-red-200">
+              <div role="alert" className="flex flex-col items-start gap-2 rounded-lg bg-red-500/[0.1] px-3 py-2.5 text-sm text-red-300">
                 {previewError}
                 <Button variant="secondary" size="sm" icon={<RefreshCw size={13} aria-hidden="true" />} onClick={() => setPreview(null)}>Try again</Button>
               </div>
@@ -377,7 +377,7 @@ function RunFlow({ template: t, presetProject, header, onClose, onDone }: {
               <>
                 {shownPreview.errors.length > 0 && (
                   <div role="alert" className="rounded-lg bg-red-500/[0.1] px-3 py-2.5">
-                    <p className="text-sm font-medium text-red-200">Fix before creating</p>
+                    <p className="text-sm font-medium text-red-300">Fix before creating</p>
                     <ul className="mt-1 space-y-1">
                       {(shownPreview.errors as ScreenIssue[]).map((issue) => {
                         const target = steps.findIndex((s) => s.key === stepOfPath(issue.path));
@@ -385,7 +385,7 @@ function RunFlow({ template: t, presetProject, header, onClose, onDone }: {
                           <li key={`${issue.path}:${issue.code}`} className="flex items-baseline justify-between gap-3 text-xs text-red-300">
                             <span>{issue.message}</span>
                             {target >= 0 && target !== step && (
-                              <button type="button" onClick={() => go(target)} className="flex-shrink-0 rounded font-medium text-red-200 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                              <button type="button" onClick={() => go(target)} className="flex-shrink-0 rounded font-medium text-red-300 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
                                 Go to {steps[target].label}
                               </button>
                             )}
@@ -428,7 +428,7 @@ function RunFlow({ template: t, presetProject, header, onClose, onDone }: {
                 </div>
 
                 {shownPreview.notes.length > 0 && (
-                  <ul className="space-y-1 rounded-lg bg-amber-500/[0.1] px-3 py-2.5 text-xs text-amber-200">
+                  <ul className="space-y-1 rounded-lg bg-amber-500/[0.1] px-3 py-2.5 text-xs text-amber-300">
                     {shownPreview.notes.map((note) => <li key={note} className="flex gap-2"><Info size={13} className="mt-0.5 flex-shrink-0" aria-hidden="true" />{note}</li>)}
                   </ul>
                 )}
@@ -456,7 +456,7 @@ function GuidanceNote({ text }: { text: string }) {
     <div className="flex gap-2 rounded-lg bg-white/[0.04] px-3 py-2.5">
       <Sparkles size={14} className="mt-0.5 flex-shrink-0 text-brand-300" aria-hidden="true" />
       <div className="min-w-0">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">From the template</p>
+        <p className="text-[11px] font-medium text-zinc-400">From the template</p>
         <p className="mt-0.5 whitespace-pre-line text-sm text-zinc-300">{text}</p>
       </div>
     </div>

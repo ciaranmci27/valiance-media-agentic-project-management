@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useRef, useState } from 'react';
 import { Repeat, Undo2 } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -47,7 +48,7 @@ export function TaskRepeatRow({ task, canEdit }: { task: Task; canEdit: boolean 
   const shown = (
     <span className={`flex min-w-0 items-center gap-1.5 ${repeat ? 'text-zinc-200' : 'text-zinc-500'}`}>
       <span className="truncate">{label}</span>
-      {repeat?.status === 'paused' && <span className="flex-shrink-0 rounded-full bg-amber-500/[0.14] px-1.5 py-px text-[10px] font-medium text-amber-300">Paused</span>}
+      {repeat?.status === 'paused' && <Pill tone="waiting">Paused</Pill>}
     </span>
   );
 

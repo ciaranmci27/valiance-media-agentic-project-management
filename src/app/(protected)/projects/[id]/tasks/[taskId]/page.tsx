@@ -72,7 +72,7 @@ export default function TaskPage() {
               value={task.title}
               onChange={(title) => updateTask(task.id, { title })}
               canEdit={canEditTask(access, task, teamMemberId)}
-              className="block text-2xl lg:text-[26px] font-bold text-white tracking-tight leading-tight"
+              className="block text-2xl lg:text-title font-bold text-white tracking-tight leading-tight"
             />
           }
           actions={
@@ -83,7 +83,6 @@ export default function TaskPage() {
                 onClick={goBack}
                 icon={<ArrowLeft size={14} aria-hidden="true" />}
                 aria-label="Back"
-                title="Back"
               >
                 <span className="hidden sm:inline">Back</span>
               </Button>

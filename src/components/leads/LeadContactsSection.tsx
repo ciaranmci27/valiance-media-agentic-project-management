@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -132,7 +133,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
 
   return (
     <>
-      <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[600px]">
+      <div className="glass-card card-fill rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
           <div className="flex items-center gap-2">
             <Users size={18} className="text-zinc-400" />
@@ -145,7 +146,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
           )}
         </div>
 
-        <div className="flex-1 flex flex-col overflow-y-auto">
+        <div className="card-scroll flex flex-col">
           {/* Existing contacts list */}
           {visibleContacts.length > 0 ? (
             <div className="p-3 space-y-1">
@@ -175,10 +176,10 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                             <ExternalLink size={11} className="flex-shrink-0 opacity-50" />
                           </Link>
                           {lc.is_primary_client && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-300 flex-shrink-0">
+                            <Pill tone="waiting">
                               <Star size={10} />
                               Primary
-                            </span>
+                            </Pill>
                           )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-zinc-400">
@@ -285,7 +286,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
           {showAddForm && (
             <div className="p-4 space-y-3 border-t border-white/[0.06]">
               <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium text-white">Add Contact</h4>
+                <h4 className="text-sm font-medium text-white">Add contact</h4>
                 <button
                   onClick={resetAddForm}
                   className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.08] transition-all"
@@ -298,7 +299,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
               <TextInput
                 value={addSearch}
                 onChange={setAddSearch}
-                placeholder="Search contacts..."
+                placeholder="Search contacts"
                 size="sm"
                 leftIcon={Search}
               />
@@ -354,7 +355,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                     value={addRole}
                     onChange={(value) => handleAddRoleChange(value)}
                     options={roleOptions}
-                    placeholder="Select a role..."
+                    placeholder="Select a role"
                   />
                 </div>
                 {addRole === 'Other' && (
@@ -363,7 +364,7 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
                       label="Custom Role"
                       value={addCustomRole}
                       onChange={(e) => setAddCustomRole(e.target.value)}
-                      placeholder="Enter custom role..."
+                      placeholder="Enter custom role"
                     />
                   </div>
                 )}
@@ -408,8 +409,8 @@ export function LeadContactsSection({ leadId, readOnly = false }: LeadContactsSe
         isOpen={!!removingLcId}
         onClose={() => setRemovingLcId(null)}
         onConfirm={executeRemove}
-        title="Remove Contact"
-        message="Remove this contact from the lead? The contact record itself won't be deleted."
+        title="Remove this contact?"
+        message="It comes off this lead. The contact itself stays."
         confirmLabel="Remove"
         variant="danger"
       />

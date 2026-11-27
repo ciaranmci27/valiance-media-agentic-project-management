@@ -64,7 +64,7 @@ export function WebhookRetriesCard() {
   if (read.loading) return null;
 
   return (
-    <section id="webhook-retries" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-6" aria-labelledby="webhook-retries-heading">
+    <section id="webhook-retries" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-5" aria-labelledby="webhook-retries-heading">
       <SettingsSectionHeader icon={Repeat} title="Webhook retries" headingId="webhook-retries-heading" description={DESCRIPTION} />
 
       {read.failed || !state ? (

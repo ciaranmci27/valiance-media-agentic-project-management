@@ -41,6 +41,9 @@ export const chatAppConnectable = (provider: string): provider is ChatProvider =
 export const chatInboundPath = (connectionId: string) => `/api/chat/inbound/${connectionId}`;
 export const chatInboundUrl = (appUrl: string, connectionId: string) => `${appUrl.replace(/\/+$/, '')}${chatInboundPath(connectionId)}`;
 
+/** Where Slack sends button presses (its Interactivity Request URL): answering from chat. */
+export const chatActionsUrl = (appUrl: string, connectionId: string) => `${appUrl.replace(/\/+$/, '')}/api/chat/actions/${connectionId}`;
+
 /**
  * Discord sends ordinary messages only over its Gateway, a websocket a
  * serverless host cannot hold, so a small relay the install runs elsewhere
@@ -137,7 +140,9 @@ export const updateChatConnectionSchema = z.object({
   bot_token: z.string().trim().min(1).max(300).optional(),
   /** Slack only. */
   signing_secret: z.string().trim().min(1).max(200).optional(),
-}).strict().refine((body) => Object.keys(body).length > 0, 'Send display_name, enabled, new_relay_secret, bot_token or signing_secret');
+  /** Slack only: answer buttons, once the Interactivity Request URL is pasted in Slack. */
+  answer_buttons: z.boolean().optional(),
+}).strict().refine((body) => Object.keys(body).length > 0, 'Send display_name, enabled, new_relay_secret, bot_token, signing_secret or answer_buttons');
 export type UpdateChatConnection = z.infer<typeof updateChatConnectionSchema>;
 
 /**
@@ -148,7 +153,9 @@ export type UpdateChatConnection = z.infer<typeof updateChatConnectionSchema>;
 export const apiUpdateChatConnectionSchema = z.object({
   display_name: z.string().trim().min(1, 'Give it a name').max(100).optional(),
   enabled: z.boolean().optional(),
-}).strict().refine((body) => Object.keys(body).length > 0, 'Send display_name or enabled');
+  /** Slack only: answer buttons on the app's question messages, once Interactivity is set up in Slack. */
+  answer_buttons: z.boolean().optional(),
+}).strict().refine((body) => Object.keys(body).length > 0, 'Send display_name, enabled or answer_buttons');
 export type ApiUpdateChatConnection = z.infer<typeof apiUpdateChatConnectionSchema>;
 
 /** The provider's own shape for a bot token or Slack signing secret, said in its words (shared by connect and replace). */
@@ -256,6 +263,14 @@ export interface ChatConnectionView {
   enabled: boolean;
   /** Where the provider sends messages (Slack's Request URL, the Discord relay's PM_INBOUND_URL). */
   inbound_url: string;
+  /** Slack only: where it sends button presses (Interactivity), so people answer questions and approvals from Slack. */
+  actions_url?: string;
+  /**
+   * Slack only: answer buttons go with the app's question and approval
+   * messages. Off until the Owner turns it on after pasting actions_url in
+   * Slack (presses fail without it); until then the message has its link only.
+   */
+  answer_buttons?: boolean;
   /** The last verified request from the provider (Discord: from the relay, its hello included; Slack: its URL check too). Null: nothing heard yet. */
   last_inbound_at: string | null;
   /** The last request that failed the provider's check (a wrong signing secret, an old relay secret), or null. */

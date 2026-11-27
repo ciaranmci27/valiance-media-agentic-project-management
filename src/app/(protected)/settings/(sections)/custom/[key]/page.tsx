@@ -17,7 +17,7 @@ export default function CustomSettingsPage() {
   const Body = section.component;
   return (
     <div id={section.key} className="scroll-mt-6">
-      <section className="glass-card rounded-xl p-4 lg:p-6">
+      <section className="glass-card rounded-xl p-4 lg:p-5">
         <SettingsSectionHeader icon={section.icon} title={section.label} description={section.description} />
         <Body />
       </section>

@@ -116,7 +116,7 @@ export function PersonalInboxesSection() {
   };
 
   return (
-    <section id="personal-inboxes" className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6">
+    <section id="personal-inboxes" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6">
       <SettingsSectionHeader
         icon={Users}
         title="Personal inboxes"

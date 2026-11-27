@@ -16,6 +16,7 @@ AI > Setup > **Chat** > **Add chat** > **Company AI (channels and DMs)**. Owners
 4. In the app, choose Slack, paste the Bot User OAuth Token and the Signing Secret, and press **Connect**.
 5. Copy the **Request URL**. In Event Subscriptions, paste it and subscribe to the bot events `message.im`, `message.channels` and `message.groups`.
 6. Invite the bot to each channel it should hear: `/invite @your-bot`.
+7. Optional, to answer questions and approvals from Slack: under Interactivity & Shortcuts, turn Interactivity on and paste the **Interactivity Request URL** the connection shows. Then turn on **Answer buttons in Slack** on the connection (or `PATCH /api/v1/chat/connections/{id}` with `answer_buttons: true`). Until then the message comes with its link only.
 
 `chat:write.customize` lets each reply carry the agent's own name and avatar. `im:write` lets a reply go privately by DM. `channels:read` lets you map a channel by its name.
 
@@ -168,3 +169,15 @@ If the agent is on hold (paused on its agent page, or every agent paused), the a
 If it is suspended, never connected, or its host stopped reporting: "Ops AI can't answer right now. Try again later." A suspended agent is never sent the message.
 
 In a channel the line goes in the message's thread.
+
+## Answering from chat
+
+A person who turned on chat in Settings > Notifications gets each question or approval asked of them as a message from the workspace bot, with buttons: **Approve** and **Reject**, or the question's choices (up to five). Pressing one answers it as that person, checked exactly as in the app, and the message changes to what happened ("Approved: Deploy 214 redirect rules"), or to "Already answered by Mia." when someone got there first.
+
+- Telegram: works on every connection (a connection made before buttons asks Telegram for presses the first time it sends some). Slack: only once **Answer buttons in Slack** is on (after the Interactivity Request URL is pasted); off by default, and until then the message comes with its link only. Discord: the message comes with a link, no buttons.
+- Each button works once, for the person it was sent to, from their own linked account, for 7 days or until the question closes. Telegram presses are checked with the connection's secret token, Slack's with the signing secret and Slack's five-minute window.
+- An approval's message says what is approved, its summary and every detail row whole, above Approve and Reject. When that does not fit one message (Telegram 4096 characters, Slack 3000), it comes with its link only and is approved in the app.
+- A question's choices are one button per row in Telegram, so they read on a phone.
+- No buttons for a written answer, more than five choices or a template draft to review: those open in the app.
+- Someone suspended cannot answer from chat, whatever is still open.
+- An approval decided this way reads `decided_via: "chat"`.

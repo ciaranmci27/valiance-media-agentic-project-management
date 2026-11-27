@@ -1,7 +1,8 @@
 'use client';
 
+import { Tooltip } from '@/components/ui/Tooltip';
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, Eye, ExternalLink, MessageCircleQuestion, ShieldCheck, Zap } from 'lucide-react';
+import { Check, CornerDownRight, Eye, ExternalLink, MessageCircleQuestion, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -285,7 +286,7 @@ export function QuestionCard({ question, variant = 'panel', dense = false, place
             onClick={() => setShowAllDetails((open) => !open)}
             className="rounded font-medium text-brand-300 hover:text-brand-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
           >
-            {showAllDetails ? 'Show less' : `Show all ${detailCount}`}
+            {showAllDetails ? 'Show less' : `Show ${detailCount} details`}
           </button>
         </p>
       )}
@@ -301,16 +302,17 @@ export function QuestionCard({ question, variant = 'panel', dense = false, place
           <span className="truncate">{approvalTypeLabel(question.action.type)}</span>
         </span>
         {externalHost && (
-          <a
-            href={question.action.external_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={question.action.external_id ? `${question.action.external_id} in ${externalHost}` : undefined}
-            className={`inline-flex max-w-full items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-brand-300 hover:bg-white/[0.08] hover:text-brand-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${compact ? 'text-[11px]' : 'text-xs'}`}
-          >
-            <span className="truncate">Open in {externalHost}</span>
-            <ExternalLink size={12} aria-hidden="true" className="flex-shrink-0" />
-          </a>
+          <Tooltip content={question.action.external_id ? `${question.action.external_id} in ${externalHost}` : ''} disabled={!question.action.external_id}>
+            <a
+              href={question.action.external_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`inline-flex max-w-full items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-brand-300 hover:bg-white/[0.08] hover:text-brand-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${compact ? 'text-[11px]' : 'text-xs'}`}
+            >
+              <span className="truncate">Open in {externalHost}</span>
+              <ExternalLink size={12} aria-hidden="true" className="flex-shrink-0" />
+            </a>
+          </Tooltip>
         )}
       </div>
       {detailList && (compact ? (
@@ -336,7 +338,7 @@ export function QuestionCard({ question, variant = 'panel', dense = false, place
 
   const actionLine = actWords && (
     <p id={actionLineId} className={`flex items-start gap-1.5 ${compact ? 'mt-2 text-[11px]' : 'mt-2 text-xs'} ${actOff ? 'text-zinc-400' : 'text-zinc-200'}`}>
-      <Zap size={compact ? 12 : 13} className={`mt-px flex-shrink-0 ${actOff ? 'text-zinc-500' : 'text-amber-300'}`} aria-hidden="true" />
+      <CornerDownRight size={compact ? 12 : 13} className={`mt-px flex-shrink-0 ${actOff ? 'text-zinc-500' : 'text-amber-300'}`} aria-hidden="true" />
       <span className="min-w-0 break-words">{actWords}</span>
     </p>
   );

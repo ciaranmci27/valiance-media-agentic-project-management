@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useId, useState } from 'react';
 import { Task } from '@/lib/types';
 import { InitiativeTag, useTaskInitiativeName } from '@/components/initiatives/InitiativeBits';
@@ -254,18 +255,12 @@ export function TaskCard({ task, onView, onDelete, onMove }: TaskCardProps) {
           {loudPriority && <PriorityBadge priority={task.priority} />}
           {needsSpec && (
             <Tooltip content="Meant for an agent; needs a spec before it can start">
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-full">
-                <FileQuestion size={10} aria-hidden="true" />
-                Needs spec
-              </span>
+              <Pill tone="info" icon={<FileQuestion />}>Needs spec</Pill>
             </Tooltip>
           )}
           {repeats && (
             <Tooltip content="The same problem was reported again while this task was open">
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] lg:text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full">
-                <Repeat size={10} aria-hidden="true" />
-                {repeats}
-              </span>
+              <Pill tone="waiting" icon={<Repeat />}>{repeats}</Pill>
             </Tooltip>
           )}
         </div>

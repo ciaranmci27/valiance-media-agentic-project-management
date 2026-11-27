@@ -344,7 +344,7 @@ export function WebhooksPanel() {
   ];
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="webhooks-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="webhooks-heading">
       <SettingsSectionHeader
         icon={Webhook}
         title="Webhooks"
@@ -542,7 +542,7 @@ export function WebhooksPanel() {
               >
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 z-[1] bg-surface-raised">
-                    <tr className="border-b border-white/[0.06] text-left text-[11px] uppercase tracking-wide text-zinc-400">
+                    <tr className="border-b border-white/[0.06] text-left text-[11px] text-zinc-400">
                       <th className="px-3 py-2 font-medium">Event</th>
                       {!deliveriesFor && <th className="px-3 py-2 font-medium">Endpoint</th>}
                       <th className="px-3 py-2 font-medium">Status</th>
@@ -636,7 +636,7 @@ export function WebhooksPanel() {
         variant="danger"
       />
 
-      <Modal isOpen={!!newSecret} onClose={() => {}} title={newSecret ? `New secret for ${newSecret.endpoint.name}` : 'New signing secret'} size="md">
+      <Modal isOpen={!!newSecret} onClose={() => {}} title="New signing secret" size="md">
         {newSecret && (
           <div className="space-y-4">
             <SecretOnce

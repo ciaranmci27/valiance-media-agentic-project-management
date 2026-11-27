@@ -326,7 +326,7 @@ export function BrandSection() {
   const failed = !local && read.failed;
 
   return (
-    <section className="glass-card @container rounded-xl p-4 lg:p-6" onKeyDown={onKeyDown}>
+    <section className="glass-card @container rounded-xl p-4 lg:p-5" onKeyDown={onKeyDown}>
       <SettingsSectionHeader icon={Palette} title="Brand" description={DESCRIPTION} />
 
       {local && <p className="-mt-3 mb-6 text-xs text-zinc-400">Demo workspace: changes last until you reload.</p>}

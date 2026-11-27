@@ -64,6 +64,7 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
   const nameId = `${fieldId}-name`;
   const scopesId = `${fieldId}-scopes`;
   const topId = `${fieldId}-top`;
+  const formId = `${fieldId}-form`;
   /** Brings a field's problem into view: the dialog scrolls, and Save at its foot would otherwise seem to do nothing. */
   const showProblem = (elementId: string) => requestAnimationFrame(() => {
     const element = document.getElementById(elementId);
@@ -166,8 +167,8 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
       : 'Tick only what this tool needs.';
 
   return (
-    <Modal isOpen={!!apiKey} onClose={close} title={forAgent ? 'Edit key name' : 'Edit key'} size={forAgent ? 'md' : 'lg'}>
-      <form onSubmit={save} noValidate className="space-y-4">
+    <Modal isOpen={!!apiKey} onClose={close} title={forAgent ? 'Edit key name' : 'Edit key'} size={forAgent ? 'md' : 'lg'} primaryAction={{ label: 'Save key', form: formId, disabled: !available, busy: saving }}>
+      <form id={formId} onSubmit={save} noValidate className="space-y-4">
         {(loadError || error) && (
           <p id={topId} role="alert" className="rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-400">
             {loadError || error}
@@ -200,7 +201,7 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
             )}
             {unheld.length > 0 && (
               <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg bg-amber-500/[0.14] px-3.5 py-2.5">
-                <p className="min-w-0 flex-1 text-sm text-amber-200">
+                <p className="min-w-0 flex-1 text-sm text-amber-300">
                   No longer allowed for {memberName ?? 'you'}: {unheld.map(permissionLabel).join(', ')}
                 </p>
                 <Button type="button" size="sm" variant="secondary" disabled={saving} onClick={() => { setScopes(scopes.filter((scope) => !unheld.includes(scope))); setScopesError(''); }}>
@@ -235,14 +236,6 @@ export function EditApiKeyModal({ apiKey, memberName, onClose }: EditApiKeyModal
           )
         )}
 
-        <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="secondary" onClick={close} disabled={saving}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={saving || !available}>
-            {saving ? 'Saving' : 'Save'}
-          </Button>
-        </div>
       </form>
     </Modal>
   );

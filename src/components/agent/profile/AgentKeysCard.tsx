@@ -203,12 +203,15 @@ export function AgentKeysCard({ detail, powers, suspended, held }: {
       )}
 
       {/* Already has a key: replacing keeps one secret per host. A short decision, so a small dialog. */}
-      <Modal isOpen={askReplace} onClose={() => setAskReplace(false)} title="Replace its key?" size="sm">
-        <p className="text-sm text-zinc-300">{name} already has a key. Replace it instead? The new one keeps its name and powers, and the old one works for another hour.</p>
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <Button variant="ghost" onClick={() => { setAskReplace(false); setMaking(true); }}>Make another key</Button>
-          <Button onClick={() => { setAskReplace(false); if (firstLive) void replace(firstLive); }} icon={<RefreshCw size={14} aria-hidden="true" />}>Replace key</Button>
-        </div>
+      <Modal
+        isOpen={askReplace}
+        onClose={() => setAskReplace(false)}
+        title="Replace its key?"
+        size="sm"
+        primaryAction={{ label: 'Replace key', onClick: () => { setAskReplace(false); if (firstLive) void replace(firstLive); } }}
+      >
+        <p className="text-sm text-zinc-300">{name} already has a key. The new one keeps its name and powers, and the old one works for another hour.</p>
+        <Button className="mt-3" size="sm" variant="ghost" onClick={() => { setAskReplace(false); setMaking(true); }}>Make another key instead</Button>
       </Modal>
 
       {/* The copy-once moment: only Done closes it. */}
@@ -251,7 +254,7 @@ export function AgentKeysCard({ detail, powers, suspended, held }: {
 
 function RenameKeyDialog({ apiKey, onClose, onSave }: { apiKey: AgentKeyView | null; onClose: () => void; onSave: (name: string) => Promise<void> }) {
   return (
-    <Modal isOpen={!!apiKey} onClose={onClose} title="Edit key name" size="sm">
+    <Modal isOpen={!!apiKey} onClose={onClose} title="Edit key name" size="sm" primaryAction={{ label: 'Save name', form: 'rename-agent-key-form' }}>
       {apiKey && <RenameForm key={apiKey.id} initial={apiKey.name} onClose={onClose} onSave={onSave} />}
     </Modal>
   );
@@ -263,6 +266,7 @@ function RenameForm({ initial, onClose, onSave }: { initial: string; onClose: ()
   const [error, setError] = useState('');
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (busy) return;
     const trimmed = value.trim();
     if (!trimmed) { setError('Give the key a name.'); return; }
     if (trimmed === initial) { onClose(); return; }
@@ -277,12 +281,8 @@ function RenameForm({ initial, onClose, onSave }: { initial: string; onClose: ()
     }
   };
   return (
-    <form onSubmit={submit} noValidate className="space-y-4">
+    <form id="rename-agent-key-form" onSubmit={submit} noValidate className="space-y-4" aria-busy={busy || undefined}>
       <TextInput label="Name" value={value} onChange={(next) => { setValue(next); if (error) setError(''); }} error={error || undefined} maxLength={100} autoFocus placeholder="Atlas on the build server" />
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button type="submit" disabled={busy}>{busy ? 'Saving' : 'Save'}</Button>
-      </div>
     </form>
   );
 }

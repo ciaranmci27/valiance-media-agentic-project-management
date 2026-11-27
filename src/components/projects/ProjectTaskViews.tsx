@@ -1,5 +1,6 @@
 'use client';
 
+import { GroupLabel } from '@/components/ui/GroupLabel';
 import { useMemo, useRef, useState } from 'react';
 import { ChevronRight, FolderInput, LayoutGrid, LayoutTemplate, Plus } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -343,7 +344,7 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
                     Clear selection
                   </button>
                 </div>
-                <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Set Status</p>
+                <GroupLabel className="px-3 py-1.5">Set status</GroupLabel>
                 <div className="grid grid-cols-2 gap-1 px-2 pb-1">
                   {(['backlog', 'todo', 'in_progress', 'in_review', 'done'] as const).map(s => (
                     <button key={s} onClick={() => bulkUpdateStatus(s)} className="text-left px-2 py-1.5 text-sm text-zinc-300 rounded-md hover:bg-white/[0.06]">
@@ -352,7 +353,7 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
                   ))}
                 </div>
                 <div className="border-t border-white/[0.06] my-1" />
-                <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Set Priority</p>
+                <GroupLabel className="px-3 py-1.5">Set priority</GroupLabel>
                 <div className="grid grid-cols-2 gap-1 px-2 pb-1">
                   {(['low', 'medium', 'high', 'urgent'] as const).map(p => (
                     <button key={p} onClick={() => bulkUpdatePriority(p)} className="text-left px-2 py-1.5 text-sm text-zinc-300 rounded-md hover:bg-white/[0.06]">
@@ -362,7 +363,7 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
                 </div>
                 {canManageTasks && <>
                   <div className="border-t border-white/[0.06] my-1" />
-                  <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Assign To</p>
+                  <GroupLabel className="px-3 py-1.5">Assign to</GroupLabel>
                   {team.filter(m => canBeAssignedInProject(m, project)).map(member => (
                     <button key={member.id} onClick={() => bulkAssign(member.id)} className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
                       <Avatar name={member.name} src={member.avatar || undefined} size="xs" />
@@ -375,7 +376,7 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
                 </>}
                 {!scoped && liveInitiatives.length > 0 && <>
                   <div className="border-t border-white/[0.06] my-1" />
-                  <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{INITIATIVE_LABEL.singular}</p>
+                  <GroupLabel className="px-3 py-1.5">{INITIATIVE_LABEL.singular}</GroupLabel>
                   {liveInitiatives.map(initiative => (
                     <button key={initiative.id} onClick={() => bulkSetInitiative(initiative.id)} className="w-full truncate text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.03]">
                       {initiative.name}
@@ -386,7 +387,7 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
                   </button>
                 </>}
                 <div className="border-t border-white/[0.06] my-1" />
-                <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Due Date</p>
+                <GroupLabel className="px-3 py-1.5">Due date</GroupLabel>
                 <div className="px-3 pb-1.5">
                   <DateInput value="" onChange={v => { if (v) bulkSetDueDate(v); }} />
                 </div>
@@ -515,7 +516,7 @@ export function ProjectTaskViews({ projectId, taskFilter, newTaskInitiativeId = 
           setConfirmClearDueDates(false);
           bulkSetDueDate(null);
         }}
-        title="Clear Due Dates"
+        title="Clear due dates?"
         message={`This will remove the due date from ${selectedTaskIds.size} selected ${selectedTaskIds.size === 1 ? 'task' : 'tasks'}.`}
         confirmLabel="Clear due dates"
         variant="default"

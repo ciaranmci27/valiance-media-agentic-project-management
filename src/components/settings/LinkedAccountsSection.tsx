@@ -106,7 +106,7 @@ export function LinkedAccountsSection() {
   const identities = read.data ?? [];
 
   return (
-    <section id="chat-accounts" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-6" aria-labelledby="linked-accounts-heading">
+    <section id="chat-accounts" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-5" aria-labelledby="linked-accounts-heading">
       {/* The section's name before it was Chat accounts: old links still land here. */}
       <span id="linked-accounts" className="block scroll-mt-6" aria-hidden="true" />
       <SettingsSectionHeader

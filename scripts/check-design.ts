@@ -39,6 +39,8 @@ export const RULES: Record<string, DesignRule> = {
   'placeholder-dots': { id: 'placeholder-dots', ref: 'Rule 12', hint: 'Placeholders end without dots ("Search contacts").' },
   'card-padding': { id: 'card-padding', ref: 'Rule 17', hint: 'A glass card is padded p-4, with lg:p-5 on wide cards (or use <Card>); cards at one level share one padding.' },
   'section-gap': { id: 'section-gap', ref: 'Rule 17', hint: 'Sections and cards on a page sit 24px apart: space-y-6 or gap-6 on the page body.' },
+  'dialog-title': { id: 'dialog-title', ref: 'Rule 15', hint: 'A dialog title is two to four words ("Edit contact", "Record payment"); the action button names the rest.' },
+  eyebrow: { id: 'eyebrow', ref: 'Rule 2', hint: 'No uppercase eyebrow labels: sentence case (text-xs font-medium text-zinc-400), or <GroupLabel> for a group inside a list.' },
 };
 
 export type RuleId = keyof typeof RULES;
@@ -72,7 +74,13 @@ const RE = {
   /** The page body wrapper under Header (p-4 lg:p-6 or px-4 lg:px-6). */
   pageBody: /(?<![\w:-])p(x?)-4 lg:p\1-6(?![\w-])/,
   sectionGap: /(?<![\w:-])(?:space-y|gap)-(\d+(?:\.\d+)?)(?![\w-])/g,
+  /** The eyebrow recipe: uppercase with wide tracking in one class string. */
+  upper: /(?<![\w:-])uppercase(?![\w-])/,
+  tracking: /(?<![\w:-])tracking-(?:wide|wider|widest)(?![\w-])/,
 };
+
+/** The shared pieces that own the one uppercase label: GroupLabel and the Select's group headers. */
+const EYEBROW_OK = new Set(['src/components/ui/GroupLabel.tsx', 'src/components/ui/inputs/Select.tsx']);
 
 /** A glass card's padding: p-4, or p-5 and lg:p-5 for a wide card (p-0 for one that pads its rows). */
 const CARD_PADDING = new Set(['p-0', 'p-4', 'p-5', 'lg:p-5']);
@@ -143,6 +151,29 @@ export function stringAttr(attrs: string, name: string): string | null {
   return m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? null;
 }
 
+/** Every fixed title a Modal can show: a plain string, or each quoted string in a title={...} without ${}. */
+export function dialogTitles(attrs: string): string[] {
+  const plain = stringAttr(attrs, 'title');
+  if (plain !== null) return [plain];
+  const start = /(?:^|\s)title=\{/.exec(attrs);
+  if (!start) return [];
+  let depth = 1;
+  let i = start.index + start[0].length;
+  for (; i < attrs.length && depth > 0; i++) {
+    if (attrs[i] === '{') depth++;
+    else if (attrs[i] === '}') depth--;
+  }
+  // Template strings that fill in a value read as a title of their own length, so they are left
+  // out; of the rest, only strings in a result position (start, after ? : ( ?? ||) are titles,
+  // not the ones a condition compares with (kind === 'email').
+  const expr = attrs.slice(start.index + start[0].length, i - 1).replace(/`[^`]*\$\{[^`]*`/g, '0');
+  return [...expr.matchAll(/(^|\?\?|\|\||[?:(])\s*(?:'([^']*)'|"([^"]*)"|`([^`]*)`)/g)]
+    .map((m) => m[2] ?? m[3] ?? m[4])
+    .filter((t) => /\p{L}/u.test(t));
+}
+
+const words = (title: string) => title.trim().split(/\s+/).filter(Boolean).length;
+
 /** The banned markup in one file. `file` is relative to the app folder, with forward slashes. */
 export function scanSource(file: string, source: string): Finding[] {
   const findings: Finding[] = [];
@@ -165,6 +196,7 @@ export function scanSource(file: string, source: string): Finding[] {
     for (const card of text.matchAll(RE.glassCard)) {
       for (const p of card[0].matchAll(RE.padding)) if (!CARD_PADDING.has(p[0])) add('card-padding', line, `glass-card ${p[0]}`);
     }
+    if (!EYEBROW_OK.has(file) && RE.upper.test(text) && RE.tracking.test(text)) add('eyebrow', line, text);
     if (isPageFile(file) && RE.pageBody.test(text)) {
       for (const g of text.matchAll(RE.sectionGap)) if (g[1] !== '6') add('section-gap', line, g[0]);
     }
@@ -176,6 +208,12 @@ export function scanSource(file: string, source: string): Finding[] {
     if (tag.name === 'Modal' || tag.name === 'ConfirmDialog') {
       const title = stringAttr(tag.attrs, 'title');
       if (title && isTitleCase(title)) add('title-case-dialog', tag.line, `${tag.name} title="${title}"`);
+    }
+    if (tag.name === 'Modal') {
+      for (const title of dialogTitles(tag.attrs)) {
+        const n = words(title);
+        if (n < 2 || n > 4) add('dialog-title', tag.line, `Modal title "${title}" (${n} word${n === 1 ? '' : 's'})`);
+      }
     }
   }
   return findings;

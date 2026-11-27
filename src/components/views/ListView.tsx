@@ -1,5 +1,6 @@
 'use client';
 
+import { GroupLabel } from '@/components/ui/GroupLabel';
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { Task } from '@/lib/types';
 import { TaskRow, TaskRowDesktop, LIST_GRID_COLS } from '@/components/tasks/TaskRow';
@@ -243,7 +244,7 @@ export function ListView({ tasks, onViewTask, onDeleteTask, selectedIds, onToggl
 
   if (tasks.length === 0) {
     return (
-      <div className="glass-card rounded-xl flex flex-col items-center justify-center p-8 text-center">
+      <div className="glass-card rounded-xl flex flex-col items-center justify-center p-5 py-10 text-center">
         <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
           <LayoutGrid size={18} className="text-zinc-500" />
         </div>
@@ -265,7 +266,7 @@ export function ListView({ tasks, onViewTask, onDeleteTask, selectedIds, onToggl
       <button
         type="button"
         onClick={() => handleSort(field)}
-        className={`flex items-center gap-1 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-400 hover:text-zinc-300 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 rounded ${className}`}
+        className={`flex items-center gap-1 text-left text-[11px] font-semibold text-zinc-400 hover:text-zinc-300 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 rounded ${className}`}
       >
         {children}
         <SortIcon field={field} />
@@ -281,7 +282,7 @@ export function ListView({ tasks, onViewTask, onDeleteTask, selectedIds, onToggl
         <div />
         <SortHeader field="title" hint="Sort alphabetically by title; third click returns to your manual order">Task</SortHeader>
         <Tooltip content="Who the task is assigned to">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 cursor-default">Assignees</span>
+          <span className="text-[11px] font-semibold text-zinc-400 cursor-default">Assignees</span>
         </Tooltip>
         <SortHeader field="priority" hint="Sort by priority, urgent first">Priority</SortHeader>
         <div className="hidden xl:block">
@@ -330,7 +331,7 @@ export function ListView({ tasks, onViewTask, onDeleteTask, selectedIds, onToggl
               aria-hidden="true"
             />
             <span className={`w-2 h-2 rounded-full ${group.dot}`} aria-hidden="true" />
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{group.label}</span>
+            <GroupLabel as="span" className="">{group.label}</GroupLabel>
             <span className="text-xs text-zinc-500 tabular-nums">{group.tasks.length}</span>
           </button>
 

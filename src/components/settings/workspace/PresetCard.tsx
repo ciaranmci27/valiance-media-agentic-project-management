@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { Loader2 } from 'lucide-react';
 import { MODULE_IDS, PRESETS, type PresetId } from '@/lib/modules/registry';
 import { moduleList } from './workspace-modules';
@@ -43,7 +44,7 @@ export function PresetCard({ id, current = false, compact = false, busy = false,
         <span className="text-sm font-medium text-zinc-100">{preset.label}</span>
         {busy && <Loader2 size={14} className="flex-shrink-0 animate-spin text-zinc-400" aria-hidden="true" />}
         {current && !busy && (
-          <span className="flex-shrink-0 rounded-full bg-brand-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-brand-300">Current</span>
+          <Pill tone="info">Current</Pill>
         )}
       </span>
       <span className={`mt-1 text-xs leading-relaxed text-zinc-400 ${compact ? 'line-clamp-2' : ''}`}>{preset.description}</span>

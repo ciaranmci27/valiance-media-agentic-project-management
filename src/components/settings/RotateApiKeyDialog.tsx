@@ -32,7 +32,7 @@ export function RotateApiKeyDialog({ apiKey, onClose, agent = false }: { apiKey:
     onClose();
   };
   return (
-    <Modal isOpen={!!apiKey} onClose={() => { if (!holdOpen) close(); }} title={apiKey ? `Rotate ${apiKey.name}` : 'Rotate key'} size="md">
+    <Modal isOpen={!!apiKey} onClose={() => { if (!holdOpen) close(); }} title="Rotate key" size="md">
       {apiKey && <RotateFlow key={apiKey.id} apiKey={apiKey} agent={agent} onClose={close} onHoldOpen={setHoldOpen} />}
     </Modal>
   );
@@ -83,9 +83,6 @@ function RotateFlow({ apiKey, agent, onClose, onHoldOpen }: { apiKey: ApiKey; ag
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-zinc-300">
-        You get a new secret with the same name and access. The old one keeps working for the time you pick, so you can swap the new one in first.
-      </p>
       <p className="text-xs text-zinc-400">{rotationLifetimeNote(apiKey, agent)}</p>
       <Select
         label="Keep the old key working for"
@@ -94,7 +91,7 @@ function RotateFlow({ apiKey, agent, onClose, onHoldOpen }: { apiKey: ApiKey; ag
         options={OPTIONS}
         disabled={rotating}
       />
-      {error && <p role="alert" className="rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-200">{error}</p>}
+      {error && <p role="alert" className="rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-300">{error}</p>}
       <div className="flex justify-end gap-2 pt-1">
         <Button variant="secondary" onClick={onClose} disabled={rotating}>Cancel</Button>
         <Button

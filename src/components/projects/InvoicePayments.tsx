@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Plus, Trash2, Loader2 } from 'lucide-react';
-import Modal from '@/components/ui/Modal';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { DateInput } from '@/components/ui/inputs/DateInput';
@@ -68,7 +68,7 @@ export function InvoicePayments({ invoice, taxRate, keyNames, canRecord, today, 
   return (
     <div>
       <div className="flex items-center justify-between gap-2 mb-1.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+        <p className="text-[11px] font-semibold text-zinc-400">
           Payments
           {total !== invoice.amount && (
             <span className="normal-case tracking-normal text-zinc-400"> (total with tax {money.exact(total, currency)})</span>
@@ -194,8 +194,15 @@ function RecordPaymentModal({ invoiceNumber, outstanding, currency, today, onClo
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={`Record payment on ${invoiceNumber}`} size="sm">
+    <Modal
+      isOpen
+      onClose={onClose}
+      title="Record payment"
+      size="sm"
+      primaryAction={{ label: saving ? 'Recording' : 'Record payment', form: 'record-payment-form', disabled: !canSave, busy: saving }}
+    >
       <form
+        id="record-payment-form"
         className="space-y-3"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
@@ -215,11 +222,12 @@ function RecordPaymentModal({ invoiceNumber, outstanding, currency, today, onClo
           prefix={affix.position === 'prefix' ? affix.symbol : undefined}
           suffix={affix.position === 'suffix' ? affix.symbol : undefined}
           error={amountError}
-          description={`Outstanding: ${money.exact(outstanding, currency)}`}
+          description={`${invoiceNumber}, outstanding ${money.exact(outstanding, currency)}`}
           required
           autoFocus
         />
         <DateInput label="Paid on" value={paidDate} onChange={setPaidDate} maxDate={today} required />
+        <ModalAdvanced defaultOpen={Boolean(method || reference)}>
         <Select
           label="Method"
           value={method}
@@ -236,14 +244,7 @@ function RecordPaymentModal({ invoiceNumber, outstanding, currency, today, onClo
           placeholder="Check number or bank reference"
           maxLength={200}
         />
-        <div className="flex items-center justify-end gap-2 pt-1">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary" disabled={!canSave} icon={saving ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : undefined}>
-            Record payment
-          </Button>
-        </div>
+        </ModalAdvanced>
       </form>
     </Modal>
   );

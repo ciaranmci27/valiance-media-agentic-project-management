@@ -1,5 +1,6 @@
 'use client';
 
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown, ArrowUp, CalendarClock, ChevronDown, ChevronRight, CornerDownRight, LayoutTemplate, Plus, RefreshCw, Sparkles, Trash2, X,
@@ -21,7 +22,6 @@ import {
   canWriteTemplateIn, daysOfParts, duePartsOf, freshItemKey, localTemplateIssues, uniqueKey, type DueWhen, type ScreenIssue,
 } from '@/lib/template-ui';
 import { Button } from '@/components/ui/Button';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { MultiSelect } from '@/components/ui/inputs/MultiSelect';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
@@ -268,7 +268,7 @@ function TemplateEditor({ template, starter, presetProject, onClose, onUse, onSc
   const [attempted, setAttempted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [trashing, setTrashing] = useState(false);
+  const undoTrash = useUndoTrash();
   const runs = useRead(template ? taskTemplateRunsRead(template.id, isDemoMode) : null);
 
   const doc = useMemo(() => documentOf(draft), [draft]);
@@ -411,12 +411,10 @@ function TemplateEditor({ template, starter, presetProject, onClose, onUse, onSc
     try {
       await workspaceApi(`/api/workspace/task-templates/${template.id}`, { method: 'DELETE' });
       invalidateTables([...TEMPLATE_TABLES]);
-      toast('success', `${template.name} moved to Trash`);
+      undoTrash('task_templates', template.id, { message: `${template.name} moved to Trash`, onRestored: () => invalidateTables([...TEMPLATE_TABLES]) });
       onClose();
     } catch (error) {
       toast('error', error instanceof Error ? error.message : 'Could not move it to Trash');
-    } finally {
-      setTrashing(false);
     }
   };
 
@@ -446,7 +444,7 @@ function TemplateEditor({ template, starter, presetProject, onClose, onUse, onSc
         <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3">
           <div className="flex min-w-0 items-center gap-1">
             {template && !isDemoMode && (
-              <button type="button" onClick={() => setTrashing(true)} aria-label={`Move ${template.name} to Trash`} className={`${ICON_BUTTON} p-1.5`}>
+              <button type="button" onClick={() => void trash()} aria-label={`Move ${template.name} to Trash`} className={`${ICON_BUTTON} p-1.5`}>
                 <Trash2 size={15} aria-hidden="true" />
               </button>
             )}
@@ -482,16 +480,6 @@ function TemplateEditor({ template, starter, presetProject, onClose, onUse, onSc
       }
       after={
         <>
-          {template && (
-            <ConfirmDialog
-              isOpen={trashing}
-              onClose={() => setTrashing(false)}
-              onConfirm={() => void trash()}
-              title={`Move ${template.name} to Trash?`}
-              trash
-              message="It leaves the library for everyone. Tasks it already made stay as they are, and it can be restored from Trash."
-            />
-          )}
           {discardDialog}
         </>
       }
@@ -754,7 +742,7 @@ function TemplateEditor({ template, starter, presetProject, onClose, onUse, onSc
 
         {stray.length > 0 && (
           <div role="alert" className="rounded-lg bg-red-500/[0.08] px-3 py-2">
-            <p className="text-xs font-medium text-red-200">Also fix</p>
+            <p className="text-xs font-medium text-red-300">Also fix</p>
             <ul className="mt-1 space-y-0.5 text-xs text-red-300">{stray.map((issue) => <li key={`${issue.path}:${issue.code}`}>{issue.message}</li>)}</ul>
           </div>
         )}
@@ -884,7 +872,7 @@ function TemplateReadView({ template, onClose, onUse, onSchedule, runs }: {
                     {task.subtasks.map((subtask) => (
                       <li key={subtask.key} className="flex items-start gap-1.5">
                         <CornerDownRight size={12} className="mt-0.5 flex-shrink-0 text-zinc-500" aria-hidden="true" />
-                        <span className="min-w-0 text-[13px] text-zinc-200">{subtask.title}<span className="block text-[11px] text-zinc-400">{line(subtask)}</span></span>
+                        <span className="min-w-0 text-sm text-zinc-200">{subtask.title}<span className="block text-[11px] text-zinc-400">{line(subtask)}</span></span>
                       </li>
                     ))}
                   </ul>

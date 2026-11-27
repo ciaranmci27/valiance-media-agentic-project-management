@@ -15,7 +15,7 @@ const WORKSPACE_SCOPE = { scope_type: 'workspace' as const, scope_id: null };
  */
 export function CompanyKnowledgeSection() {
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6">
+    <section className="glass-card rounded-xl p-4 lg:p-5">
       <SettingsSectionHeader
         icon={BookOpen}
         title="Company knowledge"

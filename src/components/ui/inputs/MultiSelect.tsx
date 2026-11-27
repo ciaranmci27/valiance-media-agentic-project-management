@@ -385,7 +385,7 @@ export const MultiSelect = forwardRef<HTMLButtonElement, MultiSelectProps>(funct
                       setSearch(e.target.value);
                       setHighlightedIndex(-1);
                     }}
-                    placeholder="Search..."
+                    placeholder="Search"
                     aria-activedescendant={highlightedOptionId}
                     aria-controls={listboxId}
                     className="w-full pl-8 pr-3 py-1.5 text-xs bg-input-bg-hover border border-input-border rounded-input-sm outline-none focus:border-input-border-focus focus:ring-1 focus:ring-input-ring text-input-text placeholder:text-input-text-placeholder"

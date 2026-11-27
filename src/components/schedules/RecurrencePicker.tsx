@@ -218,7 +218,7 @@ export function RecurrencePicker({ value, onChange, startDate, timeZone, endDate
                 </ul>
               </>
             ) : (
-              <p className="mt-1 text-xs text-amber-200">No dates left before the end date.</p>
+              <p className="mt-1 text-xs text-amber-300">No dates left before the end date.</p>
             )}
           </>
         )}

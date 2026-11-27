@@ -295,7 +295,7 @@ export function SmtpSection() {
 
   if (loading) {
     return (
-      <section className="glass-card rounded-xl p-4 lg:p-6">
+      <section className="glass-card rounded-xl p-4 lg:p-5">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-cyan-500/15 rounded-lg">
             <Mail className="text-cyan-400" size={20} />
@@ -316,7 +316,7 @@ export function SmtpSection() {
 
   if (!encryptionConfigured) {
     return (
-      <section className="glass-card rounded-xl p-4 lg:p-6">
+      <section className="glass-card rounded-xl p-4 lg:p-5">
         <div className="flex items-center gap-3 mb-6">
           <div className="p-2 bg-cyan-500/15 rounded-lg">
             <Mail className="text-cyan-400" size={20} />
@@ -371,7 +371,7 @@ export function SmtpSection() {
 
   return (
     <>
-      <section className="glass-card rounded-xl p-4 lg:p-6">
+      <section className="glass-card rounded-xl p-4 lg:p-5">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-cyan-500/15 rounded-lg">
@@ -588,7 +588,7 @@ export function SmtpSection() {
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-medium text-white truncate">{account.label}</p>
                           {account.is_default && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-500/15 text-brand-300 flex-shrink-0">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-brand-500/15 text-brand-300 flex-shrink-0">
                               Default
                             </span>
                           )}
@@ -649,7 +649,7 @@ export function SmtpSection() {
                         type="email"
                         value={testTo}
                         onChange={setTestTo}
-                        placeholder="Recipient email..."
+                        placeholder="Recipient email"
                         size="sm"
                         onKeyDown={(e) => e.key === 'Enter' && handleSendTest(account.id)}
                       />
@@ -679,7 +679,7 @@ export function SmtpSection() {
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
-        title="Delete SMTP Account"
+        title="Delete this SMTP account?"
         message={`This will permanently delete "${deleteTarget?.label}". Any features using this account for email delivery will stop working.`}
         confirmLabel="Delete"
         variant="danger"

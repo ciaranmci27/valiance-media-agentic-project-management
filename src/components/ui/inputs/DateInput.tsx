@@ -331,7 +331,7 @@ export const DateInput = forwardRef<HTMLButtonElement, DateInputProps>(function 
     }
   };
 
-  const displayLabel = parsedValue ? toDisplay(parsedValue, locale) : placeholder || 'Select date...';
+  const displayLabel = parsedValue ? toDisplay(parsedValue, locale) : placeholder || 'Select date';
 
   const sizeClasses = `${fieldSize(size)} ${size === 'sm' ? 'px-2.5' : size === 'lg' ? 'px-3.5' : 'px-3'}`;
   const calIconSize = size === 'sm' ? 14 : size === 'lg' ? 20 : 16;

@@ -833,7 +833,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         const gapLabel = showGap ? (
           <li key={`gap-${i}`} className="flex items-center gap-1.5 pl-[3px] select-none">
             <span className="w-px h-2.5 bg-white/[0.08] ml-[2px]" />
-            <span className="text-[10px] italic text-zinc-500">Paused for {formatGap(gapMs)}</span>
+            <span className="text-[11px] italic text-zinc-500">Paused for {formatGap(gapMs)}</span>
           </li>
         ) : null;
         if (isEditingThisSegment && editingSegment) {
@@ -853,7 +853,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                 </div>
                 {seg.end !== null ? (
                   <>
-                    <span className="text-[10px] text-zinc-600 select-none">–</span>
+                    <span className="text-[11px] text-zinc-600 select-none">–</span>
                     <div className="w-[88px]">
                       <TimeInput
                         size="sm"
@@ -863,7 +863,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
                     </div>
                   </>
                 ) : (
-                  <span className="text-[10px] text-zinc-500 select-none">– now</span>
+                  <span className="text-[11px] text-zinc-500 select-none">– now</span>
                 )}
                 <button
                   aria-label="Save segment changes"
@@ -894,7 +894,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               <span className="text-[11px] font-medium text-zinc-300 tabular-nums">
                 {formatTime(seg.start, tz)} – {seg.end ? formatTime(seg.end, tz) : 'now'}
               </span>
-              <span className="text-[10px] text-zinc-500 tabular-nums">
+              <span className="text-[11px] text-zinc-500 tabular-nums">
                 {seg.end ? formatHM(segDurationHours) : formatGap(liveSegMs(seg.start))}
               </span>
               {canModify ? (
@@ -1472,13 +1472,13 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
               <p className={`text-sm text-zinc-200 break-words ${longDescription && !descriptionOpen ? 'line-clamp-2' : ''}`}>
                 {entry.description || <span className="text-zinc-500 italic">No description</span>}
                 {entry.work_type === 'internal' && (
-                  <span className="ml-2 align-middle rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+                  <span className="ml-2 align-middle rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium text-sky-300">
                     Internal
                   </span>
                 )}
                 {entry.approval_status && entry.approval_status !== 'approved' && (
                   <span
-                    className={`ml-2 align-middle rounded px-1.5 py-0.5 text-[10px] font-medium ${entry.approval_status === 'rejected' ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'}`}
+                    className={`ml-2 align-middle rounded px-1.5 py-0.5 text-[11px] font-medium ${entry.approval_status === 'rejected' ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'}`}
                   >
                     {entry.approval_status === 'pending' ? 'Awaiting approval' : entry.approval_status}
                   </span>
@@ -1604,7 +1604,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
           <div className="glass-card rounded-xl"><NoMatches>No sessions match.</NoMatches></div>
         ) : dateGroups.length > 0 ? (
           <section className="@container glass-card rounded-xl overflow-hidden" aria-label="Sessions">
-            <div className="hidden @4xl:grid grid-cols-[minmax(0,1fr)_190px_84px_120px_84px] gap-4 pl-[60px] pr-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+            <div className="hidden @4xl:grid grid-cols-[minmax(0,1fr)_190px_84px_120px_84px] gap-4 pl-[60px] pr-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold text-zinc-400">
               <span>Session</span>
               <span>Who and when</span>
               <span className="text-right">Duration</span>
@@ -1640,7 +1640,7 @@ export function TimeTrackingPanel({ projectId, projectColor: rawColor }: TimeTra
         isOpen={!!deleteSegmentTarget}
         onClose={() => setDeleteSegmentTarget(null)}
         onConfirm={executeDeleteSegment}
-        title="Delete Segment"
+        title="Delete this segment?"
         message="Remove this worked interval from the entry? The entry's total time will shrink by the segment's duration."
         confirmLabel="Delete"
         variant="danger"

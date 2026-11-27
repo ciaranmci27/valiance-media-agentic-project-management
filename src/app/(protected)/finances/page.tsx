@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { Suspense, useMemo, useState, useRef, useEffect } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useApp } from '@/lib/store';
@@ -353,7 +354,7 @@ function LiveTickIndicator({
           <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 motion-safe:animate-ping" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
         </span>
-        <span className="text-xs font-semibold uppercase tracking-wide text-emerald-400">Live</span>
+        <span className="text-xs font-semibold text-emerald-400">Live</span>
       </span>
     </Tooltip>
   );
@@ -1133,9 +1134,9 @@ function CompanyOverview() {
               <DollarSign size={18} className="text-zinc-400" />
               <h2 className="font-semibold text-white">Overview</h2>
               {sourceLabel && (
-                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-brand-500/15 text-brand-300">
+                <Pill tone="info">
                   {sourceLabel}
-                </span>
+                </Pill>
               )}
               <LiveTickIndicator
                 timerCount={runningCount}
@@ -1273,7 +1274,7 @@ function CompanyOverview() {
                     className="bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg overflow-hidden"
                   >
                       <div className="px-2.5 py-2 border-b border-white/[0.06] flex items-center justify-between">
-                        <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-400">
+                        <span className="text-[11px] font-semibold text-zinc-400">
                           Projects
                         </span>
                         <button
@@ -1366,7 +1367,7 @@ function CompanyOverview() {
                     className="bg-surface-raised border border-white/[0.08] rounded-lg shadow-lg overflow-hidden"
                   >
                     <div className="px-2.5 py-2 border-b border-white/[0.06]">
-                      <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-400">Earnings source</span>
+                      <span className="text-[11px] font-semibold text-zinc-400">Earnings source</span>
                     </div>
                     <div className="p-1">
                       {sourceOptions.map(opt => {
@@ -1393,7 +1394,7 @@ function CompanyOverview() {
                       })}
                     </div>
                     <div className="border-t border-white/[0.06]">
-                      <p className="px-2.5 pt-2 pb-1 text-[10px] uppercase tracking-wider font-semibold text-zinc-400">Individual contributor</p>
+                      <p className="px-2.5 pt-2 pb-1 text-[11px] font-semibold text-zinc-400">Individual contributor</p>
                       <div className="max-h-[240px] overflow-y-auto pb-1 px-1">
                         {members.map(m => {
                           const active = sourceFilter === 'member' && sourceMemberId === m.id;
@@ -1415,7 +1416,7 @@ function CompanyOverview() {
                               <Avatar name={m.name} src={m.avatar || undefined} size="xs" />
                               <span className="truncate flex-1 min-w-0">{m.name}</span>
                               {m.role === 'agent' && (
-                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-300 flex-shrink-0">AI</span>
+                                <Pill tone="info">AI</Pill>
                               )}
                             </button>
                           );
@@ -1491,7 +1492,7 @@ function CompanyOverview() {
         </div>
 
         {/* ── Main Grid ───────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 items-stretch">
+        <div className="card-row lg:grid-cols-3">
 
           {/* ── Daily earnings chart (2/3) ──────────────────── */}
           {/* An empty chart stays short on phones instead of a tall blank card. */}
@@ -1564,7 +1565,7 @@ function CompanyOverview() {
                       {[...axisTicks].reverse().map((tick) => (
                         <span
                           key={tick}
-                          className="text-[10px] text-zinc-500 font-medium leading-none text-right"
+                          className="text-[11px] text-zinc-500 font-medium leading-none text-right"
                           style={{ minWidth: 36 }}
                         >
                           {money.compact(tick)}
@@ -1732,7 +1733,7 @@ function CompanyOverview() {
                                       anchors (which day, what's the day's total) stay visible
                                       no matter how many projects are on the bar. */}
                                   <div
-                                    className="bg-surface-overlay border border-white/[0.08] text-white text-[10px] leading-relaxed px-2.5 py-1.5 rounded-md whitespace-nowrap shadow-lg max-w-[300px] max-h-[60vh] flex flex-col pointer-events-auto"
+                                    className="bg-surface-overlay border border-white/[0.08] text-white text-[11px] leading-relaxed px-2.5 py-1.5 rounded-md whitespace-nowrap shadow-lg max-w-[300px] max-h-[60vh] flex flex-col pointer-events-auto"
                                     /* Stop clicks on the tooltip body from bubbling up to the
                                        bar's onClick - otherwise tapping inside the tooltip
                                        (e.g. trying to scroll on mobile) would drill the bar
@@ -1831,7 +1832,7 @@ function CompanyOverview() {
                                               <div key={section.key} className={idx > 0 ? 'mt-1.5' : ''}>
                                                 {isMultiCategory && (
                                                   <div className="flex items-baseline gap-1">
-                                                    <span className="uppercase tracking-wider text-[9px] text-zinc-500 font-semibold">{section.label}</span>
+                                                    <span className="text-[11px] text-zinc-500 font-semibold">{section.label}</span>
                                                     {section.rows.length > 1 && (
                                                       <span className="text-[9px] text-zinc-600">({money(section.totalAmount)})</span>
                                                     )}
@@ -1848,7 +1849,7 @@ function CompanyOverview() {
                                               even when the body above is scrolling. */}
                                           {showGrandTotal && (
                                             <div className="mt-1.5 pt-1.5 border-t border-white/10 flex items-center justify-between gap-3 text-zinc-100 flex-shrink-0">
-                                              <span className="uppercase tracking-wider text-[9px] text-zinc-500">Total earned</span>
+                                              <span className="text-[11px] text-zinc-500">Total earned</span>
                                               <span className="font-semibold">{money(totalEarnedDay)}</span>
                                             </div>
                                           )}
@@ -1888,7 +1889,7 @@ function CompanyOverview() {
                         : i === 0 || i === total - 1 || i % labelStep === 0;
                       return (
                         <div key={`lbl-${day.dateKey}`} className="flex-1 text-center">
-                          <span className="text-[9px] lg:text-[10px] text-zinc-500 font-medium truncate block">
+                          <span className="text-[11px] text-zinc-500 font-medium truncate block">
                             {showLabel ? day.label : ''}
                           </span>
                         </div>
@@ -1961,7 +1962,7 @@ function CompanyOverview() {
           </div>
 
           {/* ── Invoices (1/3) ──────────────────────── */}
-          <div className="glass-card rounded-xl overflow-hidden flex flex-col max-h-[500px]">
+          <div className="glass-card card-fill rounded-xl overflow-hidden">
             <div className="px-5 py-4 flex items-center justify-between border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2">
                 <Receipt size={18} className="text-zinc-400" />
@@ -1976,7 +1977,7 @@ function CompanyOverview() {
             </div>
 
             {data.allInvoices.length > 0 ? (
-              <div className="divide-y divide-white/[0.06] flex-1 overflow-y-auto">
+              <div className="card-scroll divide-y divide-white/[0.06]">
                 {data.allInvoices.map((inv) => {
                   const project = projects.find(p => p.id === inv.project_id);
                   const items = ensureLineItems(inv);
@@ -1991,10 +1992,10 @@ function CompanyOverview() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-white">{inv.invoice_number}</span>
-                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full capitalize ${STATUS_COLORS[inv.status] || ''}`}>
+                          <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full capitalize ${STATUS_COLORS[inv.status] || ''}`}>
                             {inv.status}
                           </span>
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-white/[0.06] text-zinc-300 capitalize">
+                          <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-white/[0.06] text-zinc-300 capitalize">
                             {isMulti ? `${items.length} items` : (singleItemType ?? inv.invoice_type)}
                           </span>
                         </div>
@@ -2039,7 +2040,7 @@ function CompanyOverview() {
               <>
             {/* Desktop table */}
             <div className="hidden md:block">
-              <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-6 px-5 py-2.5 text-[10px] uppercase tracking-wider font-medium text-zinc-500 border-b border-white/[0.06]">
+              <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-6 px-5 py-2.5 text-[11px] font-medium text-zinc-500 border-b border-white/[0.06]">
                 <span>Project</span>
                 <span className="text-right w-24">Earned</span>
                 <span className="text-right w-24">Received</span>
@@ -2216,7 +2217,7 @@ function FinancesTabs() {
         ) : undefined}
       />
 
-      <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
+      <div className="p-4 lg:p-6 space-y-6">
         {views.tabs.length > 1 && active && (
           <ProjectTabs
             label={views.entry.label}

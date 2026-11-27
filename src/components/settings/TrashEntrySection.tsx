@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 /** Everyone: what you deleted (and may restore) waits in Trash. */
 export function TrashEntrySection() {
   return (
-    <section id="trash" className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6">
+    <section id="trash" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-brand-500/15 rounded-lg">

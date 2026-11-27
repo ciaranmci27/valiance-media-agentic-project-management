@@ -73,7 +73,7 @@ export function StepFrame({
 
   return (
     <form ref={form} onSubmit={submit} noValidate className="flex flex-col">
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-semibold tracking-tight text-white focus:outline-none sm:text-[28px] sm:leading-tight">
+      <h1 ref={heading} tabIndex={-1} className="text-2xl font-semibold tracking-tight text-white focus:outline-none sm:text-title">
         {title}
       </h1>
       {description && <p className="mt-2 max-w-lg text-sm leading-relaxed text-zinc-400">{description}</p>}

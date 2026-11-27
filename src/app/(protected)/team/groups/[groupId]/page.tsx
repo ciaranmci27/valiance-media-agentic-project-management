@@ -20,7 +20,7 @@ import {
 } from '@/lib/demo-project-agents';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
-import Modal from '@/components/ui/Modal';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -381,22 +381,26 @@ function EditGroupModal({ group, onClose }: { group: GroupView; onClose: () => v
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={`Edit ${group.name}`} size="md">
-      <form onSubmit={save} className="space-y-4">
+    <Modal
+      isOpen
+      onClose={onClose}
+      title="Edit group"
+      size="md"
+      primaryAction={{ label: busy ? 'Saving' : 'Save group', form: 'edit-group-form', busy }}
+    >
+      <form id="edit-group-form" onSubmit={save} className="space-y-4">
         <TextInput label="Name *" value={name} onChange={setName} maxLength={GROUP_NAME_MAX} autoFocus />
         <Textarea label="About" value={description} onChange={setDescription} rows={3} maxLength={GROUP_DESCRIPTION_MAX} />
-        <TextInput
-          label="Short name for chat tools"
-          description="How chat tools and the API name it. Lowercase letters, numbers and dashes."
-          value={slug}
-          onChange={(v) => setSlug(v.toLowerCase())}
-          maxLength={63}
-        />
+        <ModalAdvanced>
+          <TextInput
+            label="Short name for chat tools"
+            description="How chat tools and the API name it. Lowercase letters, numbers and dashes."
+            value={slug}
+            onChange={(v) => setSlug(v.toLowerCase())}
+            maxLength={63}
+          />
+        </ModalAdvanced>
         {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
-        <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={busy}>{busy ? 'Saving' : 'Save'}</Button>
-        </div>
       </form>
     </Modal>
   );
@@ -463,7 +467,13 @@ function AddMembersModal({ isOpen, groupId, groupName, known, usagePhrases, owns
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={close} title={`Add to ${groupName}`} size="md">
+    <Modal
+      isOpen={isOpen}
+      onClose={close}
+      title="Add members"
+      size="md"
+      primaryAction={{ label: busy ? 'Adding' : picked.length ? `Add ${picked.length}` : 'Add', onClick: () => void add(), busy }}
+    >
       <div className="space-y-4">
         <MultiSelect
           label="People and agents"
@@ -483,13 +493,15 @@ function AddMembersModal({ isOpen, groupId, groupName, known, usagePhrases, owns
             { value: 'lead', label: 'Lead (named first when one person is needed)' },
           ]}
         />
-        <Toggle
-          size="sm"
-          checked={changeRoles}
-          onChange={setChangeRoles}
-          label="Also change the role of anyone already in it"
-          description={pickedInIt.length ? `${pickedInIt.length} of the people picked ${pickedInIt.length === 1 ? 'is' : 'are'} already in. Off, they keep their role.` : 'Off, anyone already in keeps their role.'}
-        />
+        <ModalAdvanced defaultOpen={changeRoles}>
+          <Toggle
+            size="sm"
+            checked={changeRoles}
+            onChange={setChangeRoles}
+            label="Also change the role of anyone already in it"
+            description={pickedInIt.length ? `${pickedInIt.length} of the people picked ${pickedInIt.length === 1 ? 'is' : 'are'} already in. Off, they keep their role.` : 'Off, anyone already in keeps their role.'}
+          />
+        </ModalAdvanced>
         <p className="text-xs text-zinc-500">
           They get questions asked to {groupName}.{usagePhrases.length ? ` They also ${joinPhrases(usagePhrases)}.` : ''}
         </p>
@@ -499,10 +511,6 @@ function AddMembersModal({ isOpen, groupId, groupName, known, usagePhrases, owns
           </p>
         )}
         {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="ghost" onClick={close}>Cancel</Button>
-          <Button onClick={add} disabled={busy}>{busy ? 'Adding' : picked.length ? `Add ${picked.length}` : 'Add'}</Button>
-        </div>
       </div>
     </Modal>
   );

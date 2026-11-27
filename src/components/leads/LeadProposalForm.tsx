@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { LeadProposal, LEAD_PROPOSAL_STATUSES } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/inputs/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
@@ -91,10 +90,11 @@ export function LeadProposalForm({ isOpen, onClose, leadId, proposal }: LeadProp
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={proposal ? 'Edit Proposal' : 'Add proposal'}
+      title={proposal ? 'Edit proposal' : 'Add proposal'}
       size="lg"
+      primaryAction={{ label: proposal ? 'Save proposal' : 'Add proposal', form: 'lead-proposal-form', busy: saving }}
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form id="lead-proposal-form" onSubmit={handleSubmit} className="space-y-4">
         <Input
           label="Title"
           value={title}
@@ -108,13 +108,13 @@ export function LeadProposalForm({ isOpen, onClose, leadId, proposal }: LeadProp
           label="Description"
           value={description}
           onChange={setDescription}
-          placeholder="Proposal details..."
+          placeholder="Proposal details"
           rows={3}
         />
 
         <div className="grid grid-cols-2 gap-4">
           <Input
-            label={`Estimated Value (${currencySymbol})`}
+            label={`Estimated value (${currencySymbol})`}
             type="number"
             value={estimatedValue}
             onChange={(e) => setEstimatedValue(e.target.value)}
@@ -131,14 +131,6 @@ export function LeadProposalForm({ isOpen, onClose, leadId, proposal }: LeadProp
           />
         </div>
 
-        <div className="flex justify-end gap-3 pt-4">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? 'Saving...' : proposal ? 'Save changes' : 'Add proposal'}
-          </Button>
-        </div>
       </form>
     </Modal>
   );

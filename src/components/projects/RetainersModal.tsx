@@ -572,7 +572,7 @@ export default function RetainersModal({
 
         {canManageSplits ? (
           <fieldset className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-            <legend className="px-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Revenue split</legend>
+            <legend className="px-1 text-[11px] font-semibold text-zinc-400">Revenue split</legend>
             <p className="text-xs text-zinc-400">
               A percent of each line, earned by the member when the client pays. Only people who manage compensation see this.
             </p>
@@ -642,7 +642,7 @@ export default function RetainersModal({
 
         {!editing && linkableLines.length > 0 ? (
           <fieldset className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-            <legend className="px-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Already invoiced</legend>
+            <legend className="px-1 text-[11px] font-semibold text-zinc-400">Already invoiced</legend>
             <p className="text-xs text-zinc-400">
               Tick any line you already billed for this retainer. Its month counts as billed, and a paid line earns the split right away.
             </p>
@@ -689,7 +689,7 @@ export default function RetainersModal({
               />
               {editing ? (
                 <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Amount history</p>
+                  <p className="text-[11px] font-semibold text-zinc-400">Amount history</p>
                   <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
                     <DateInput label="Effective date" value={newAmountDate} onChange={setNewAmountDate} size="sm" className="flex-1" />
                     <NumberInput label="Monthly amount" value={newAmount} onChange={setNewAmount} min={0} step={50} {...moneyAdornment(editing?.currency)} size="sm" className="flex-1" />
@@ -746,7 +746,7 @@ export default function RetainersModal({
           {content}
         </div>
       ) : (
-        <Modal isOpen={isOpen} onClose={onClose} title={view === 'form' ? (editing ? 'Edit retainer' : 'New retainer') : 'Retainers'} size="2xl">
+        <Modal isOpen={isOpen} onClose={onClose} title={view === 'form' ? (editing ? 'Edit retainer' : 'New retainer') : 'Project retainers'} size="2xl">
           <p className="sr-only">
             Recurring monthly billing for this project. Each retainer drafts its invoice line before the bill date.
           </p>

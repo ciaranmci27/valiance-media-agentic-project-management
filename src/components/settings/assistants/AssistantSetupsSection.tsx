@@ -104,7 +104,7 @@ export function AssistantSetupsSection() {
   const enabledCount = setups.filter((setup) => setup.enabled).length;
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="assistant-setups-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="assistant-setups-heading">
       <SettingsSectionHeader
         icon={UsersRound}
         headingId="assistant-setups-heading"

@@ -41,7 +41,7 @@ export function HourApprovalsSection() {
   const countsToward = isInvoicingOn && isPayOn ? 'invoices and pay' : isInvoicingOn ? 'invoices' : 'pay';
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6">
+    <section className="glass-card rounded-xl p-4 lg:p-5">
       <SettingsSectionHeader
         icon={ClipboardCheck}
         title="Hour approvals"

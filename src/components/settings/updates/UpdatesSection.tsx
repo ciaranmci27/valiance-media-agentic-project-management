@@ -241,7 +241,7 @@ export function UpdatesSection() {
 
 function DemoPanel() {
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="updates-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="updates-heading">
       <SettingsSectionHeader
         icon={CircleArrowUp}
         title="Updates"
@@ -260,7 +260,7 @@ function DemoPanel() {
 
 function LoadError({ onRetry }: { onRetry: () => void }) {
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="updates-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="updates-heading">
       <SettingsSectionHeader icon={CircleArrowUp} title="Updates" headingId="updates-heading" />
       <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg bg-red-500/[0.1] px-3.5 py-3">
         <p className="min-w-0 flex-1 text-sm text-zinc-200">Couldn&apos;t check for updates. Your app is fine; this page just couldn&apos;t load.</p>
@@ -274,7 +274,7 @@ function LoadError({ onRetry }: { onRetry: () => void }) {
 function UpdatesSkeleton() {
   return (
     <div aria-busy="true" aria-label="Loading updates" className="space-y-6">
-      <div className="glass-card rounded-xl p-4 lg:p-6">
+      <div className="glass-card rounded-xl p-4 lg:p-5">
         <div className="mb-6 flex items-start gap-3">
           <div className="hidden h-9 w-9 rounded-lg bg-white/[0.05] sm:block" />
           <div className="flex-1 space-y-2">
@@ -290,7 +290,7 @@ function UpdatesSkeleton() {
           <div className="h-7 w-24 rounded-lg bg-white/[0.05]" />
         </div>
       </div>
-      <div className="glass-card rounded-xl p-4 lg:p-6">
+      <div className="glass-card rounded-xl p-4 lg:p-5">
         <div className="mb-6 h-4 w-28 rounded bg-white/[0.06]" />
         <div className="space-y-5">
           {[0, 1, 2, 3].map((row) => (

@@ -128,6 +128,49 @@ async function answer(
   });
 }
 
+/**
+ * A press sent to a provider's separate interactivity address (Slack sends
+ * button presses there, form encoded, signed like every Slack request).
+ * Verified with the connection's own secret before anything is read, then
+ * answered as its person (lib/chat/answers.ts). Telegram presses come
+ * through handleChatInbound with its messages.
+ */
+export async function handleChatAction(
+  service: SupabaseClient,
+  connectionId: string,
+  request: { headers: Headers; body: string },
+): Promise<InboundResult> {
+  let connection: Row | null;
+  try {
+    connection = await loadConnection(service, connectionId);
+  } catch (error) {
+    if (missingAssistantSchema(error as { code?: string })) return refused();
+    throw error;
+  }
+  if (!connection || connection.enabled === false) return refused();
+  const adapter = chatAdapter(connection.provider);
+  if (!adapter?.parseAction) return refused();
+  let credentials: ChatCredentials;
+  try {
+    credentials = openCredentials(connection as { id: string; credentials: string });
+  } catch {
+    return refused();
+  }
+  if (!adapter.verify({ headers: request.headers, body: request.body, credentials })) {
+    await stampRefused(service, connection.id);
+    return refused();
+  }
+  const parsed = adapter.parseAction(request.body);
+  if (parsed.kind !== 'button') return done({ status: 'ignored', reason: parsed.kind === 'ignore' ? parsed.reason : 'not_a_press' });
+  if (adapter.hasWorkspaces && connection.external_workspace_id && parsed.workspaceId !== connection.external_workspace_id) {
+    return done({ status: 'ignored', reason: 'other_workspace' });
+  }
+  const { handleAnswerButton } = await import('./answers');
+  const result = await handleAnswerButton(service, connection, adapter, credentials, parsed);
+  await stampHeard(service, connection.id);
+  return done({ status: result.outcome });
+}
+
 /** One message against a rate window; a function that returns a table answers rows. */
 async function allowed(service: SupabaseClient, connectionId: string, subject: string, limit: number): Promise<boolean> {
   const { data, error } = await service.rpc('consume_chat_rate_limit', {
@@ -181,6 +224,13 @@ export async function handleChatInbound(
   // Another workspace's event (a Slack app installed twice): not this connection's.
   if (adapter.hasWorkspaces && connection.external_workspace_id && parsed.workspaceId !== connection.external_workspace_id) {
     return done({ status: 'ignored', reason: 'other_workspace' });
+  }
+  // A press of one of the app's answer buttons (lib/chat/answers.ts): answered as its person, never recorded as a message.
+  if (parsed.kind === 'button') {
+    const { handleAnswerButton } = await import('./answers');
+    const result = await handleAnswerButton(service, connection, adapter, credentials, parsed);
+    await stampHeard(service, connection.id);
+    return done({ status: result.outcome });
   }
 
   // A retry of what is already recorded: nothing more to do.

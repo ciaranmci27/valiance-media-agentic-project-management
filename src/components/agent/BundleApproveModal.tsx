@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useApp } from '@/lib/store';
 import { TaskSuggestion } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/inputs/Select';
 
@@ -55,7 +54,22 @@ export function BundleApproveModal({
   const topPriority = priorities.find((p) => suggestions.some((s) => s.priority === p)) || 'medium';
 
   return (
-    <Modal isOpen onClose={onClose} title={`Approve ${suggestions.length} as one task`} size="sm">
+    <Modal isOpen onClose={onClose} title="Approve as one task"
+      size="sm"
+      primaryAction={{
+        label: 'Create task',
+        onClick: () =>
+          onApprove(
+            suggestions.map((s) => s.id),
+            {
+              title: title.trim() || undefined,
+              priority: topPriority,
+              ai_readiness: readiness,
+              ...(readiness === 'ai_ready' && devAgent ? { assigned_to: devAgent.id } : {}),
+            },
+          ),
+      }}
+    >
       <div className="space-y-4">
         <ul className="space-y-1">
           {suggestions.map((s) => (
@@ -86,28 +100,6 @@ export function BundleApproveModal({
             { value: 'human_only', label: 'Human task' },
           ]}
         />
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            onClick={() =>
-              onApprove(
-                suggestions.map((s) => s.id),
-                {
-                  title: title.trim() || undefined,
-                  priority: topPriority,
-                  ai_readiness: readiness,
-                  ...(readiness === 'ai_ready' && devAgent ? { assigned_to: devAgent.id } : {}),
-                },
-              )
-            }
-          >
-            Create task
-          </Button>
-        </div>
       </div>
     </Modal>
   );

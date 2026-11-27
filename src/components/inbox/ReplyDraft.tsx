@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AlignLeft, Check, ChevronDown, ChevronUp, Copy, Loader2, PenLine, RotateCcw } from 'lucide-react';
+import { AlignLeft, Check, ChevronDown, ChevronUp, Copy, Loader2, PenLine, RefreshCw } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
@@ -21,7 +21,7 @@ const DRAFT_STATUS: Record<DraftPurpose, Record<InboxReplyDraft['status'], strin
 };
 
 /** Ask the agent for a reply draft (or a meeting's follow-up email), optionally saying what it should say. */
-export function DraftRequestDialog({ isOpen, onClose, agentName, onAsk, purpose = 'reply' }: {
+export function DraftRequestDialog({ isOpen, onClose, onAsk, purpose = 'reply' }: {
   isOpen: boolean;
   onClose: () => void;
   agentName: string;
@@ -40,13 +40,11 @@ export function DraftRequestDialog({ isOpen, onClose, agentName, onAsk, purpose 
     }
   };
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={purpose === 'follow_up' ? 'Draft a follow-up email' : 'Draft a reply'} size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={purpose === 'follow_up' ? 'Draft a follow-up' : 'Draft a reply'}
+      size="lg"
+      primaryAction={{ label: 'Ask for a draft', onClick: () => void ask(), busy: asking }}
+    >
       <div className="space-y-4">
-        <p className="text-sm text-zinc-300">
-          {purpose === 'follow_up'
-            ? `${agentName} drafts a recap email to the attendees in your voice, from the transcript and notes. You copy it into your own mail; nothing is sent from here.`
-            : `${agentName} drafts a reply to the newest email in your voice. You copy it into your own mail; nothing is sent from here.`}
-        </p>
         <Textarea
           label="What should it say? (optional)"
           value={instructions}
@@ -54,10 +52,6 @@ export function DraftRequestDialog({ isOpen, onClose, agentName, onAsk, purpose 
           rows={3}
           placeholder="Thank her, confirm Friday, and ask for the logo files."
         />
-        <div className="flex justify-end gap-2 border-t border-white/[0.08] pt-4">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => void ask()} disabled={asking} icon={<PenLine size={14} aria-hidden="true" />}>{asking ? 'Asking...' : 'Ask for a draft'}</Button>
-        </div>
       </div>
     </Modal>
   );
@@ -221,7 +215,7 @@ export function ReplyDraftCard({ draft, agentName, viewerId = null, triage = nul
                 </button>
               )}
               {draft.status !== 'requested' && onAskAgain && (
-                <Button size="sm" variant="ghost" onClick={onAskAgain} icon={<RotateCcw size={13} aria-hidden="true" />}>Ask again</Button>
+                <Button size="sm" variant="ghost" onClick={onAskAgain} icon={<RefreshCw size={13} aria-hidden="true" />}>Ask again</Button>
               )}
               {draft.status === 'ready' && (
                 <Button size="sm" onClick={() => void copy()} icon={copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}>

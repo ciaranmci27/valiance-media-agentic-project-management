@@ -783,7 +783,7 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
               </button>
               <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                 {cred.submitted_by_client && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-teal-500/15 text-teal-300">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-semibold rounded bg-teal-500/15 text-teal-300">
                     <UserIcon size={9} aria-hidden="true" />
                     {cred.submitted_by_name || 'Client'}
                   </span>
@@ -942,11 +942,11 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
         onClose={() => setShareTarget(null)}
         title="Share credential"
         size="sm"
+        primaryAction={{ label: sharing ? 'Saving' : 'Save access', onClick: () => void saveSharing(), busy: sharing }}
       >
         <div className="space-y-4">
           <p className="text-sm text-zinc-300">
-            Choose assigned project members who can reveal{' '}
-            <span className="font-medium text-white">{shareTarget?.label}</span>.
+            Who can reveal <span className="font-medium text-white">{shareTarget?.label}</span>
           </p>
           <div className="rounded-lg border border-white/[0.08] divide-y divide-white/[0.06] max-h-64 overflow-y-auto">
             {shareableMembers.map((member) => (
@@ -977,14 +977,6 @@ export function CredentialsPanel({ projectId }: CredentialsPanelProps) {
                 Assign another team member to this project before sharing credentials.
               </p>
             )}
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setShareTarget(null)}>
-              Cancel
-            </Button>
-            <Button onClick={saveSharing} disabled={sharing}>
-              {sharing ? 'Saving...' : 'Save access'}
-            </Button>
           </div>
         </div>
       </Modal>

@@ -35,7 +35,7 @@ export function ReleaseNotes({ notes, version, installed = false }: { notes: str
         return (
           <div key={index}>
             {section.title && (
-              <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-400">{section.title}</h4>
+              <h4 className="mb-1.5 text-[11px] font-medium text-zinc-400">{section.title}</h4>
             )}
             <Markdown markdown={section.body} />
           </div>

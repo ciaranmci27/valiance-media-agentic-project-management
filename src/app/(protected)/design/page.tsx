@@ -7,7 +7,9 @@ import {
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
+import { Card, CardRow } from '@/components/ui/Card';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
+import { ICONS, ICON_MEANINGS, type IconMeaning } from '@/lib/icons';
 import { CardLink } from '@/components/projects/TabLayout';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
 import { PanelHeader } from '@/components/ui/PanelHeader';
@@ -132,6 +134,9 @@ export default function DesignPatternsPage() {
           <ListsBlock now={now} />
           <DataBlock now={now} />
           <RhythmBlock />
+          <CardRowBlock />
+          <DialogBlock />
+          <IconBlock />
           <EmptyBlock />
           <UndoBlock />
           <PillBlock />
@@ -505,6 +510,88 @@ function RhythmBlock() {
       <p className="text-xs text-zinc-400">
         The filter, the date range and See runs sit in the header of the card they act on and wrap together on a phone; never a row of their own under it. 24px between cards, 16px inside (20px from lg on wide cards), 12px between rows of controls.
       </p>
+    </Block>
+  );
+}
+
+function CardRowBlock() {
+  const [many, setMany] = useState(true);
+  const rows = (many ? TASK_WORDS.concat(TASK_WORDS) : TASK_WORDS.slice(0, 2)).map((t, i) => ({ id: i, title: t, hours: 1 + (i % 4) * 0.5 }));
+  const total = rows.reduce((sum, r) => sum + r.hours, 0);
+  return (
+    <Block title="Cards side by side" components="CardRow, Card fill, .card-scroll, .card-foot" rule="Rule 14">
+      <div className="flex items-center gap-3">
+        <Toggle checked={many} onChange={setMany} label="Long list" />
+      </div>
+      <CardRow className="lg:grid-cols-2">
+        <Card fill title="This week" icon={<Clock />} bodyClassName="px-0 pb-0">
+          <ul className="card-scroll divide-y divide-white/[0.06]">
+            {rows.map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-3 px-4 py-2.5 lg:px-5">
+                <span className="min-w-0 truncate text-sm text-zinc-200">{r.title}</span>
+                <span className="text-xs tabular-nums text-zinc-400">{r.hours} h</span>
+              </li>
+            ))}
+          </ul>
+          <div className="card-foot flex items-center justify-between px-4 py-3 lg:px-5">
+            <span className="text-xs text-zinc-400">Total</span>
+            <span className="text-sm font-semibold tabular-nums text-white">{total} h</span>
+          </div>
+        </Card>
+        <Card fill title="Project" icon={<FolderKanban />}>
+          <dl className="space-y-3 text-sm">
+            {[['Client', 'Northwind'], ['Owner', 'Maya Chen'], ['Due', 'Dec 12'], ['Budget', '40 h'], ['Status', 'In progress'], ['Started', 'Nov 3']].map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-3"><dt className="text-zinc-400">{k}</dt><dd className="text-zinc-200">{v}</dd></div>
+            ))}
+          </dl>
+        </Card>
+      </CardRow>
+      <p className="text-xs text-zinc-400">Both cards share the row&apos;s height. The list keeps normal row height and scrolls in its own area, with the total pinned at its bottom; rows never spread out to fill the card.</p>
+    </Block>
+  );
+}
+
+function DialogBlock() {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [note, setNote] = useState('');
+  return (
+    <Block title="Dialogs" components="Modal primaryAction, ModalAdvanced" rule="Rule 15">
+      <Card title="A short dialog" icon={<Pencil />} action={<Button size="sm" variant="secondary" onClick={() => setOpen(true)}>Open dialog</Button>}>
+        <p className="text-sm text-zinc-400">Two to four words in the title, no subtitle, only the fields the action needs (the rest under Advanced), and one primary button that names the action beside Cancel.</p>
+      </Card>
+      <Modal
+        isOpen={open}
+        onClose={() => setOpen(false)}
+        title="New contact"
+        size="sm"
+        primaryAction={{ label: 'Add contact', disabled: !name.trim(), onClick: () => { setOpen(false); toast('success', `Added ${name.trim()}`); } }}
+      >
+        <div className="space-y-4">
+          <TextInput label="Name" placeholder="Maya Chen" value={name} onChange={setName} />
+          <ModalAdvanced>
+            <Textarea label="Note" placeholder="Met at the Q4 review" value={note} onChange={setNote} />
+          </ModalAdvanced>
+        </div>
+      </Modal>
+    </Block>
+  );
+}
+
+function IconBlock() {
+  const meanings = Object.entries(ICONS) as [IconMeaning, (typeof ICONS)[IconMeaning]][];
+  return (
+    <Block title="Icons" components="src/lib/icons.ts" rule="Rule 11">
+      <Card title="One icon, one meaning" icon={<LayoutGrid />}>
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {meanings.map(([meaning, Icon]) => (
+            <li key={meaning} className="flex items-center gap-2 text-sm text-zinc-300">
+              <Icon size={16} className="flex-shrink-0 text-zinc-400" aria-hidden="true" />
+              <span className="min-w-0 truncate">{ICON_MEANINGS[meaning]}</span>
+            </li>
+          ))}
+        </ul>
+      </Card>
     </Block>
   );
 }

@@ -348,7 +348,7 @@ function ScheduleForm({ template: t, schedule, onOpen, onClose }: {
               {schedule.status === 'paused' ? <Pause size={15} /> : <CalendarClock size={15} />}
             </span>
             <div className="min-w-0 flex-1">
-              <p className={`text-sm font-medium ${schedule.status === 'paused' ? 'text-amber-200' : 'text-white'}`}>{statusLine}</p>
+              <p className={`text-sm font-medium ${schedule.status === 'paused' ? 'text-amber-300' : 'text-white'}`}>{statusLine}</p>
               <p className="line-clamp-2 text-[11px] text-zinc-400">
                 {schedule.recurrence_label}{schedule.project_name ? ` in ${schedule.project_name}` : ''}{schedule.run_as_name ? `, runs as ${schedule.run_as === teamMemberId ? 'you' : schedule.run_as_name}` : ''}
               </p>

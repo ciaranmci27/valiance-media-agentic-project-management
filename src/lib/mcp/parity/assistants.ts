@@ -186,12 +186,13 @@ export const ASSISTANTS_TOOLS: PmTool[] = [
   routeTool({
     name: 'update_chat_connection',
     lead: 'Rename a chat connection or switch it on or off.',
-    detail: "An Owner's key with team.manage. display_name, enabled, or both. A bot token, signing secret or relay secret is never changed here: that is done in the app. Answers the connection with its health.",
+    detail: "An Owner's key with team.manage. display_name, enabled, answer_buttons (Slack only: Approve, Reject and choices on the app's question messages; turn on only after the Interactivity Request URL, actions_url, is pasted in the Slack app, or presses fail), or any of them. A bot token, signing secret or relay secret is never changed here: that is done in the app. Answers the connection with its health.",
     input: z.object({
       connection_id: id('connection_id'),
       display_name: z.string().min(1).max(100).optional(),
       enabled: z.boolean().optional(),
-    }).strict().refine(atLeastOne(['display_name', 'enabled']), 'Send display_name or enabled'),
+      answer_buttons: z.boolean().optional(),
+    }).strict().refine(atLeastOne(['display_name', 'enabled', 'answer_buttons']), 'Send display_name, enabled or answer_buttons'),
     permission: 'team.manage',
     module: 'agents',
     method: 'PATCH',

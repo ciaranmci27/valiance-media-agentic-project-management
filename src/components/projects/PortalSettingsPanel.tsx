@@ -449,7 +449,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
           setShowPinConfirm(false);
           setTimeout(() => pinInputRef.current?.focus(), 50);
         }}
-        title="Set Portal PIN"
+        title="Set a portal PIN?"
         message="Enter a 4-digit PIN to require clients to authenticate before accessing the portal. You can remove it later to restore open access."
         confirmLabel="Continue"
         variant="default"
@@ -464,7 +464,7 @@ export function PortalSettingsPanel({ projectId }: PortalSettingsPanelProps) {
           setShowDeletePinConfirm(false);
           toast('success', 'PIN removed, portal is now open access');
         }}
-        title="Remove Portal PIN"
+        title="Remove the portal PIN?"
         message="This will remove the PIN requirement. Anyone with the portal link will be able to access it without authentication."
         confirmLabel="Remove PIN"
         variant="default"

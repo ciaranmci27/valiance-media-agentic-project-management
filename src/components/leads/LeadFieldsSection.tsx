@@ -1,12 +1,12 @@
 'use client';
 
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { useState, useEffect } from 'react';
 import { useApp } from '@/lib/store';
 import { LEAD_FIELD_DEFINITIONS, LeadFieldDefinition, LeadFieldCategory } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
 import {
@@ -20,35 +20,30 @@ const CATEGORY_CONFIG: Record<LeadFieldCategory, {
   icon: React.ReactNode;
   iconBg: string;
   iconText: string;
-  border: string;
   tagBg: string;
 }> = {
   'Business Identity': {
     icon: <Globe size={13} />,
     iconBg: 'bg-white/[0.06]',
     iconText: 'text-zinc-400',
-    border: 'border-l-zinc-300',
     tagBg: 'bg-white/[0.06] text-zinc-300 border-white/[0.08]',
   },
   'Opportunity': {
     icon: <Briefcase size={13} />,
     iconBg: 'bg-white/[0.06]',
     iconText: 'text-zinc-400',
-    border: 'border-l-zinc-300',
     tagBg: 'bg-white/[0.06] text-zinc-300 border-white/[0.08]',
   },
   'Assessment': {
     icon: <BarChart3 size={13} />,
     iconBg: 'bg-white/[0.06]',
     iconText: 'text-zinc-400',
-    border: 'border-l-zinc-300',
     tagBg: 'bg-white/[0.06] text-zinc-300 border-white/[0.08]',
   },
   'Strategy': {
     icon: <Lightbulb size={13} />,
     iconBg: 'bg-white/[0.06]',
     iconText: 'text-zinc-400',
-    border: 'border-l-zinc-300',
     tagBg: 'bg-white/[0.06] text-zinc-300 border-white/[0.08]',
   },
 };
@@ -66,6 +61,7 @@ interface LeadFieldsSectionProps {
 
 export function LeadFieldsSection({ leadId, readOnly = false }: LeadFieldsSectionProps) {
   const { getFieldsByLead, setLeadField, deleteLeadField } = useApp();
+  const undoTrash = useUndoTrash();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingKey, setEditingKey] = useState<string | null>(null);
 
@@ -87,12 +83,12 @@ export function LeadFieldsSection({ leadId, readOnly = false }: LeadFieldsSectio
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-white">Lead Details</h2>
+        <h2 className="font-semibold text-white">Lead details</h2>
         {!readOnly && <Button
           onClick={() => setIsAddOpen(true)}
           icon={<Plus size={16} />}
         >
-          Add Field
+          Add field
         </Button>}
       </div>
 
@@ -108,14 +104,14 @@ export function LeadFieldsSection({ leadId, readOnly = false }: LeadFieldsSectio
             return (
               <div
                 key={category}
-                className={`glass-card rounded-xl border-l-4 ${config.border} overflow-hidden`}
+                className="glass-card rounded-xl overflow-hidden"
               >
                 {/* Category header */}
                 <div className="flex items-center gap-2.5 px-4 py-2.5 bg-white/[0.03] border-b border-white/[0.06]">
                   <span className={`flex items-center justify-center w-6 h-6 rounded-md ${config.iconBg} ${config.iconText}`}>
                     {config.icon}
                   </span>
-                  <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">{category}</span>
+                  <span className="text-sm font-semibold text-white">{category}</span>
                 </div>
 
                 {/* Compact fields in 2-col grid */}
@@ -143,7 +139,7 @@ export function LeadFieldsSection({ leadId, readOnly = false }: LeadFieldsSectio
                               setLeadField(leadId, def.key, val);
                               setEditingKey(null);
                             }}
-                            onRemove={() => deleteLeadField(field.id, leadId)}
+                            onRemove={async () => { if (await deleteLeadField(field.id, leadId)) undoTrash('lead_fields', field.id, { message: 'Field moved to Trash' }); }}
                             categoryConfig={config}
                             readOnly={readOnly}
                           />
@@ -173,7 +169,7 @@ export function LeadFieldsSection({ leadId, readOnly = false }: LeadFieldsSectio
                             setLeadField(leadId, def.key, val);
                             setEditingKey(null);
                           }}
-                          onRemove={() => deleteLeadField(field.id, leadId)}
+                          onRemove={async () => { if (await deleteLeadField(field.id, leadId)) undoTrash('lead_fields', field.id, { message: 'Field moved to Trash' }); }}
                           categoryConfig={config}
                           readOnly={readOnly}
                         />
@@ -186,7 +182,7 @@ export function LeadFieldsSection({ leadId, readOnly = false }: LeadFieldsSectio
           })}
         </div>
       ) : (
-        <div className="glass-card rounded-xl flex flex-col items-center justify-center p-8 text-center">
+        <div className="glass-card rounded-xl flex flex-col items-center justify-center p-5 py-10 text-center">
           <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center mb-3">
             <Briefcase size={18} className="text-zinc-500" />
           </div>
@@ -225,7 +221,6 @@ interface LeadFieldItemProps {
 
 function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, onSave, onRemove, categoryConfig, readOnly }: LeadFieldItemProps) {
   const [editValue, setEditValue] = useState(value);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (isEditing) {
@@ -251,7 +246,7 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
     return (
       <div className="flex items-start justify-between px-4 py-3 group hover:bg-white/[0.03] transition-colors">
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-medium uppercase tracking-wider mb-1.5 text-zinc-500">{definition.label}</p>
+          <p className="text-[11px] font-medium mb-1.5 text-zinc-500">{definition.label}</p>
           <FieldValueDisplay definition={definition} value={value} categoryConfig={categoryConfig} />
         </div>
         {!readOnly && <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity ml-2 flex-shrink-0">
@@ -262,21 +257,13 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
             <Edit size={14} />
           </button>
           <button
-            onClick={() => setShowDeleteConfirm(true)}
+            onClick={onRemove}
+            aria-label={`Move ${definition.label} to Trash`}
             className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/15 transition-all"
           >
             <Trash2 size={14} />
           </button>
         </div>}
-        {!readOnly && <ConfirmDialog
-          isOpen={showDeleteConfirm}
-          onClose={() => setShowDeleteConfirm(false)}
-          onConfirm={onRemove}
-          title="Move field to Trash?"
-          message={`The "${definition.label}" field on this lead goes to Trash with its value.`}
-          variant="danger"
-          trash
-        />}
       </div>
     );
   }
@@ -284,7 +271,7 @@ function LeadFieldItem({ definition, value, isEditing, onStartEdit, onStopEdit, 
   // Edit mode
   return (
     <div className="px-4 py-3 bg-brand-500/15">
-      <p className="text-[11px] font-medium uppercase tracking-wider mb-1.5 text-zinc-500">{definition.label}</p>
+      <p className="text-[11px] font-medium mb-1.5 text-zinc-500">{definition.label}</p>
       {definition.type === 'text' || definition.type === 'url' ? (
         <div className="flex items-center gap-2">
           <TextInput
@@ -570,7 +557,7 @@ function MultiSelectEditor({
             value={customInput}
             onChange={setCustomInput}
             onKeyDown={handleCustomKeyDown}
-            placeholder="Add custom tag..."
+            placeholder="Add custom tag"
             size="sm"
             className="flex-1"
           />
@@ -622,7 +609,7 @@ function AddFieldDropdown({
   })).filter(g => g.definitions.length > 0);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Add Field" size="sm">
+    <Modal isOpen={isOpen} onClose={onClose} title="Add field" size="sm">
       {grouped.length > 0 ? (
         <div className="space-y-3 max-h-[60vh] overflow-y-auto -mx-2 px-2">
           {grouped.map(({ category, definitions }) => {
@@ -633,7 +620,7 @@ function AddFieldDropdown({
                   <span className={`flex items-center justify-center w-5 h-5 rounded ${config.iconBg} ${config.iconText}`}>
                     {config.icon}
                   </span>
-                  <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">{category}</span>
+                  <span className="text-sm font-semibold text-white">{category}</span>
                 </div>
                 <div className="space-y-0.5">
                   {definitions.map(def => (

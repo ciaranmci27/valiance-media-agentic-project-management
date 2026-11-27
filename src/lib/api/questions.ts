@@ -59,6 +59,12 @@ export interface QuestionsContext {
    * it from the request (withApi and the MCP server set it in process).
    */
   connection?: boolean;
+  /**
+   * The app channel reached through the person's own chat (an answer button
+   * on the app's message, lib/chat/answers.ts): checked as in the app, recorded
+   * as decided_via chat.
+   */
+  via?: 'chat';
 }
 
 const SELECT = '*';
@@ -384,7 +390,7 @@ function approvalDecision(ctx: QuestionsContext, row: QuestionRow, principal: Pr
   const named = !(!!row.asked_to_group && row.asked_by === ctx.memberId) && (row.asked_to === ctx.memberId
     || (!!row.asked_to_group && row.to_reader === true) || ctx.access.role === 'owner');
   if (!named) return notNamed();
-  if (ctx.channel === 'app') return { by: ctx.memberId, via: 'app' };
+  if (ctx.channel === 'app') return { by: ctx.memberId, via: ctx.via ?? 'app' };
   if (viaConnection(ctx)) {
     return needsPerson(
       'A connected AI tool cannot decide an approval for a person.',

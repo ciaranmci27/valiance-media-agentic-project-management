@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill, sentenceCase } from '@/components/ui/Pill';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useApp } from '@/lib/store';
@@ -8,6 +9,7 @@ import { Activity, ChevronDown, ExternalLink } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Avatar } from '@/components/ui/Avatar';
 import Modal from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
 import { Bone, GroupLabel, RailCard, SubNav } from '@/components/projects/TabLayout';
 import { AgentActivity, TeamActivity } from '@/lib/types';
 import { isTelemetryEvent } from '@/lib/agent-events';
@@ -231,7 +233,7 @@ export function ActivityTimeline({
                         <span className="text-zinc-400">{activityAfterName(withinTask(entry.description, taskTitle))}</span>
                       </p>
                       {(projectName || detail) && (
-                        <p className="text-[10px] text-zinc-500 mt-0.5 truncate">
+                        <p className="text-[11px] text-zinc-500 mt-0.5 truncate">
                           {[projectName, detail].filter(Boolean).join(' · ')}
                         </p>
                       )}
@@ -239,7 +241,7 @@ export function ActivityTimeline({
                     <time
                       dateTime={entry.created_at}
                       title={formatFullTimestamp(entry.created_at)}
-                      className="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5"
+                      className="text-[11px] text-zinc-600 flex-shrink-0 mt-0.5"
                     >
                       {formatTime(entry.created_at)}
                     </time>
@@ -291,7 +293,7 @@ export function ActivityTimeline({
                       <span className="text-zinc-400">{withinTask(entry.title, taskTitle)}</span>
                     </p>
                     {(projectName || description || unverified) && (
-                      <p className="text-[10px] text-zinc-500 mt-0.5 truncate">
+                      <p className="text-[11px] text-zinc-500 mt-0.5 truncate">
                         {unverified && (
                           <span className="text-amber-400 font-semibold">Unverified · </span>
                         )}
@@ -302,7 +304,7 @@ export function ActivityTimeline({
 
                   {/* Time (hover for the exact timestamp) */}
                   <Tooltip content={formatFullTimestamp(entry.created_at)}>
-                    <span className="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5 cursor-default" tabIndex={0}>
+                    <span className="text-[11px] text-zinc-600 flex-shrink-0 mt-0.5 cursor-default" tabIndex={0}>
                       {formatTime(entry.created_at)}
                     </span>
                   </Tooltip>
@@ -395,7 +397,7 @@ export function ActivityTimeline({
           .filter(([, v]) => ['string', 'number', 'boolean'].includes(typeof v))
           .slice(0, 8);
         return (
-          <Modal isOpen onClose={() => setSelected(null)} title="Activity" size="md">
+          <Modal isOpen onClose={() => setSelected(null)} title="Activity details" size="md">
             <div className="space-y-4">
               <div className="flex items-center gap-3">
                 <Avatar name={agentName} src={member?.avatar || undefined} size="md" />
@@ -403,9 +405,7 @@ export function ActivityTimeline({
                   <p className="text-sm font-semibold text-white">{agentName}</p>
                   <p className="text-xs text-zinc-500">{formatFullTimestamp(selected.created_at)}</p>
                 </div>
-                <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-white/[0.06] text-zinc-300 flex-shrink-0">
-                  {selected.activity_type.replace(/_/g, ' ')}
-                </span>
+                <Pill className="ml-auto">{sentenceCase(selected.activity_type)}</Pill>
               </div>
 
               <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
@@ -416,21 +416,13 @@ export function ActivityTimeline({
               </div>
 
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                {projectName && (
-                  <span className="px-2 py-0.5 rounded-full font-medium bg-white/[0.06] text-zinc-300">{projectName}</span>
-                )}
-                {verification && (
-                  <span className={`px-2 py-0.5 rounded-full font-medium ${
-                    verification === 'Verified' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
-                  }`}>
-                    {verification}
-                  </span>
-                )}
+                {projectName && <Pill>{projectName}</Pill>}
+                {verification && <Pill tone={verification === 'Verified' ? 'good' : 'waiting'}>{verification}</Pill>}
               </div>
 
               {metaRows.length > 0 && (
                 <div className="bg-surface-raised rounded-lg p-3 border border-white/[0.08]">
-                  <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">Details</p>
+                  <p className="text-xs font-semibold text-zinc-400 mb-1.5">Details</p>
                   <dl className="space-y-1">
                     {metaRows.map(([key, value]) => (
                       <div key={key} className="flex items-start gap-2 text-xs">
@@ -449,24 +441,13 @@ export function ActivityTimeline({
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-1">
+              <div className="flex justify-end gap-3 border-t border-white/[0.08] pt-3">
+                <Button type="button" variant="secondary" onClick={() => setSelected(null)}>Close</Button>
                 {jumpHref && (
-                  <Link
-                    href={jumpHref}
-                    onClick={() => setSelected(null)}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-brand-300 bg-brand-500/15 hover:bg-brand-500/25 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500"
-                  >
-                    <ExternalLink size={14} aria-hidden="true" />
+                  <Button href={jumpHref} onClick={() => setSelected(null)} icon={<ExternalLink size={14} aria-hidden="true" />}>
                     {jumpLabel}
-                  </Link>
+                  </Button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => setSelected(null)}
-                  className="px-3 py-2 rounded-lg text-sm font-medium text-zinc-300 bg-white/[0.06] hover:bg-white/[0.08] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500"
-                >
-                  Close
-                </button>
               </div>
             </div>
           </Modal>

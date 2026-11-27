@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Loader2 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/inputs/Select';
@@ -77,7 +76,13 @@ export default function InviteMemberModal({
   const firstName = (sent?.name ?? '').split(' ')[0] || sent?.name || '';
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title={sent ? `${sent.name} is invited` : 'Invite to the team'} size="md">
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={sent ? 'Invite sent' : 'Invite a person'}
+      size="md"
+      primaryAction={sent ? undefined : { label: loading ? 'Sending invite' : 'Send invite', form: 'invite-member-form', busy: loading }}
+    >
       {sent ? (
         <div className="space-y-4">
           {sent.invite ? (
@@ -101,7 +106,7 @@ export default function InviteMemberModal({
           </div>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        <form id="invite-member-form" onSubmit={handleSubmit} className="space-y-4" noValidate>
           {errors.form && <OutcomeLine outcome={{ tone: 'error', text: errors.form }} />}
 
           <Input
@@ -136,14 +141,10 @@ export default function InviteMemberModal({
           />
 
           {role === 'owner' && (
-            <p className="rounded-lg bg-amber-500/[0.12] px-3 py-2 text-xs leading-5 text-amber-200">
+            <p className="rounded-lg bg-amber-500/[0.12] px-3 py-2 text-xs leading-5 text-amber-300">
               Owners have unrestricted access to billing, credentials, permissions, API scopes and team management.
             </p>
           )}
-
-          <p className="text-xs text-zinc-400">
-            They get an email with a link to choose their own password. If email is not set up, you get the link to send yourself.
-          </p>
 
           {/* Agents are hired, not invited: their own guided setup (template, projects, powers, a key). */}
           {canAssignOwner && (
@@ -151,15 +152,6 @@ export default function InviteMemberModal({
               Adding an AI agent? <Link href="/ai/agents/new" className="font-medium text-brand-300 hover:text-brand-200" onClick={handleClose}>Hire one</Link> instead.
             </p>
           )}
-
-          <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="ghost" onClick={handleClose} disabled={loading}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading} icon={loading ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : undefined}>
-              {loading ? 'Sending invite' : 'Send invite'}
-            </Button>
-          </div>
         </form>
       )}
     </Modal>

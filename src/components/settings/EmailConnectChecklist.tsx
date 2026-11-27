@@ -65,7 +65,7 @@ function StepNumber({ n }: { n: number }) {
   return (
     <span
       aria-hidden="true"
-      className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-[10px] font-medium text-zinc-300"
+      className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-[11px] font-medium text-zinc-300"
     >
       {n}
     </span>

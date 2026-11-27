@@ -22,7 +22,7 @@ export function ReceivingSection() {
   const locked = state?.appKey !== 'set';
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="receiving-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="receiving-heading">
       <SettingsSectionHeader icon={MailOpen} title="Receiving" headingId="receiving-heading" description={DESCRIPTION} />
 
       {read.loading ? (
@@ -41,7 +41,7 @@ export function ReceivingSection() {
               label="Resend API key"
               hint="A read-only key from Resend, under API Keys. Starts with re_."
               envName="RESEND_API_KEY"
-              placeholder="re_..."
+              placeholder="re_"
               locked={locked}
             />
             <SecretField
@@ -49,7 +49,7 @@ export function ReceivingSection() {
               label="Webhook signing secret"
               hint="From your inbound webhook in Resend, under Webhooks. Starts with whsec_."
               envName="RESEND_INBOUND_WEBHOOK_SECRET"
-              placeholder="whsec_..."
+              placeholder="whsec_"
               validate={(value) => (value.startsWith('whsec_') ? null : 'A signing secret starts with whsec_.')}
               locked={locked}
             />

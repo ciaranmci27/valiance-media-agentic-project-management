@@ -264,8 +264,10 @@ export function ProfileSection() {
         onClose={() => { if (!profileLoading) { setShowEmailConfirm(false); setCurrentPassword(''); setProofError(null); } }}
         title="Change your email?"
         size="sm"
+        primaryAction={{ label: 'Change email', form: 'profile-email-confirm', busy: profileLoading }}
       >
         <form
+          id="profile-email-confirm"
           className="space-y-4"
           noValidate
           onSubmit={(event) => { event.preventDefault(); void handleConfirmEmailChange(); }}
@@ -294,10 +296,6 @@ export function ProfileSection() {
               <Button type="button" variant="secondary" size="sm" onClick={() => void signOut()} className="self-start">Sign in again</Button>
             </div>
           )}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => { setShowEmailConfirm(false); setCurrentPassword(''); setProofError(null); }} disabled={profileLoading}>Cancel</Button>
-            <Button type="submit" disabled={profileLoading}>{profileLoading ? 'Changing' : 'Change email'}</Button>
-          </div>
         </form>
       </Modal>
     </>

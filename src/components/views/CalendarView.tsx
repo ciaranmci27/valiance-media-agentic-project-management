@@ -25,11 +25,11 @@ const PRIORITY_DOT: Record<string, string> = {
   low: 'bg-zinc-600',
 };
 
-const STATUS_STYLE: Record<string, { bg: string; text: string; border: string }> = {
-  done: { bg: 'bg-emerald-500/15', text: 'text-emerald-300', border: 'border-l-emerald-500' },
-  in_progress: { bg: 'bg-brand-500/15', text: 'text-brand-300', border: 'border-l-brand-500' },
-  in_review: { bg: 'bg-amber-500/15', text: 'text-amber-300', border: 'border-l-amber-500' },
-  todo: { bg: 'bg-white/[0.03]', text: 'text-zinc-300', border: 'border-l-zinc-400' },
+const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
+  done: { bg: 'bg-emerald-500/15', text: 'text-emerald-300' },
+  in_progress: { bg: 'bg-brand-500/15', text: 'text-brand-300' },
+  in_review: { bg: 'bg-amber-500/15', text: 'text-amber-300' },
+  todo: { bg: 'bg-white/[0.03]', text: 'text-zinc-300' },
 };
 
 export function CalendarView({ tasks: allTasks, onViewTask, onAddTask }: CalendarViewProps) {
@@ -205,18 +205,18 @@ export function CalendarView({ tasks: allTasks, onViewTask, onAddTask }: Calenda
             </Tooltip>
           )}
           {dueToday && !overdue && (
-            <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/15 px-1 rounded">
+            <span className="text-[11px] font-semibold text-amber-400 bg-amber-500/15 px-1 rounded">
               Due today
             </span>
           )}
           {dueTomorrow && !overdue && !dueToday && dayTasks.length > 0 && (
-            <span className={`text-[10px] font-medium text-zinc-400`}>
+            <span className={`text-[11px] font-medium text-zinc-400`}>
               {dayTasks.length}
             </span>
           )}
           {dayTasks.length > 0 && !overdue && !dueToday && !dueTomorrow && (
             <Tooltip content={`${dayTasks.length} task${dayTasks.length === 1 ? '' : 's'} due this day`}>
-              <span className={`text-[10px] font-medium cursor-default ${past ? 'text-zinc-500' : 'text-zinc-400'}`}>
+              <span className={`text-[11px] font-medium cursor-default ${past ? 'text-zinc-500' : 'text-zinc-400'}`}>
                 {dayTasks.length}
               </span>
             </Tooltip>
@@ -247,12 +247,12 @@ export function CalendarView({ tasks: allTasks, onViewTask, onAddTask }: Calenda
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onViewTask?.(task); }}
-                  className={`w-full min-w-0 flex items-center gap-1 text-[10px] lg:text-[11px] px-1.5 py-0.5 rounded border-l-2 text-left cursor-pointer hover:shadow-sm transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-brand-500 ${
+                  className={`w-full min-w-0 flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded text-left cursor-pointer hover:shadow-sm transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-brand-500 ${
                     taskOverdue
-                      ? 'bg-red-500/15 text-red-300 border-l-red-500'
+                      ? 'bg-red-500/15 text-red-300'
                       : taskDueToday
-                      ? 'bg-amber-500/15 text-amber-300 border-l-amber-500 font-medium'
-                      : `${style.bg} ${style.text} ${style.border}`
+                      ? 'bg-amber-500/15 text-amber-300 font-medium'
+                      : `${style.bg} ${style.text}`
                   } ${isDone ? 'line-through opacity-60' : ''}`}
                 >
                   <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PRIORITY_DOT[task.priority] || PRIORITY_DOT.medium}`} aria-hidden="true" />
@@ -264,7 +264,7 @@ export function CalendarView({ tasks: allTasks, onViewTask, onAddTask }: Calenda
           {!isExpanded && hiddenCount > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); setExpandedDay(day); }}
-              className="text-[10px] text-brand-300 hover:text-brand-300 font-medium pl-1 hover:underline"
+              className="text-[11px] text-brand-300 hover:text-brand-300 font-medium pl-1 hover:underline"
             >
               +{hiddenCount} more
             </button>
@@ -272,7 +272,7 @@ export function CalendarView({ tasks: allTasks, onViewTask, onAddTask }: Calenda
           {isExpanded && hiddenCount > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); setExpandedDay(null); }}
-              className="text-[10px] text-zinc-400 hover:text-zinc-300 font-medium pl-1 hover:underline"
+              className="text-[11px] text-zinc-400 hover:text-zinc-300 font-medium pl-1 hover:underline"
             >
               show less
             </button>
@@ -353,19 +353,19 @@ export function CalendarView({ tasks: allTasks, onViewTask, onAddTask }: Calenda
 
         {/* Legend */}
         <div className="flex items-center gap-4 px-3 lg:px-4 py-2 border-t border-white/[0.06] bg-white/[0.03] flex-wrap">
-          <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+          <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
             <span className="w-2 h-2 rounded-full bg-red-500" /> Urgent
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+          <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
             <span className="w-2 h-2 rounded-full bg-amber-500" /> High
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+          <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
             <span className="w-2 h-2 rounded-full bg-zinc-400" /> Medium
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+          <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
             <span className="w-2 h-2 rounded-full bg-zinc-600" /> Low
           </div>
-          <div className="hidden lg:flex items-center gap-3 text-[10px] text-zinc-400 ml-auto">
+          <div className="hidden lg:flex items-center gap-3 text-[11px] text-zinc-400 ml-auto">
             <span className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-amber-500" /> Due today
             </span>
@@ -404,7 +404,7 @@ export function CalendarView({ tasks: allTasks, onViewTask, onAddTask }: Calenda
                 <div
                   key={task.id}
                   onClick={() => onViewTask?.(task)}
-                  className={`flex items-center gap-2 text-xs px-2.5 py-2 rounded-lg border-l-2 cursor-pointer hover:shadow-sm transition-shadow ${style.bg} ${style.text} ${style.border}`}
+                  className={`flex items-center gap-2 text-xs px-2.5 py-2 rounded-lg cursor-pointer hover:shadow-sm transition-shadow ${style.bg} ${style.text}`}
                 >
                   <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PRIORITY_DOT[task.priority] || PRIORITY_DOT.medium}`} />
                   <span className="truncate">{task.title}</span>

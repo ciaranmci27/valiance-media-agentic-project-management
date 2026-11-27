@@ -53,7 +53,7 @@ export function AssistantStatusSection() {
   const broken = rows.filter((row) => row.state === 'broken' || row.host_down).length;
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="assistant-status-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="assistant-status-heading">
       <SettingsSectionHeader
         icon={Activity}
         headingId="assistant-status-heading"

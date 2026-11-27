@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { MoreVertical } from 'lucide-react';
+import { MoreHorizontal } from 'lucide-react';
 
 export interface RowAction {
   label: string;
@@ -87,7 +87,7 @@ export function RowActionsMenu({ actions, label = 'Row actions', triggerClassNam
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(v => !v); }}
         className={`p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--color-surface)] ${triggerClassName}`}
       >
-        {icon ?? <MoreVertical size={16} />}
+        {icon ?? <MoreHorizontal size={16} />}
       </button>
 
       {open && createPortal(

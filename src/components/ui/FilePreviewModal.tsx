@@ -341,7 +341,7 @@ export function FilePreviewModal({ isOpen, onClose, file, onEdit }: FilePreviewM
           className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
         >
           <Download size={14} />
-          Download File
+          Download file
         </button>
       </div>
     );

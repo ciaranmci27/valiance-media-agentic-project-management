@@ -128,7 +128,7 @@ export function ChangeDatesPanel({ run, initiativeName, initiativeId, onClose, o
 
   const footer = (
     <div className="border-t border-white/[0.06] px-5 py-3">
-      {applyError && <p role="alert" className="mb-3 rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-200">{applyError}</p>}
+      {applyError && <p role="alert" className="mb-3 rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-300">{applyError}</p>}
       <div className="flex items-center justify-end gap-2">
         {applied && !hasChange ? (
           <Button size="sm" onClick={onClose}>Done</Button>
@@ -186,7 +186,7 @@ export function ChangeDatesPanel({ run, initiativeName, initiativeId, onClose, o
         {!hasChange ? (
           <p className="rounded-lg bg-white/[0.03] px-3 py-3 text-sm text-zinc-400">Pick a new date to see which tasks move.</p>
         ) : previewError && !shown ? (
-          <div role="alert" className="flex flex-col items-start gap-2 rounded-lg bg-red-500/[0.1] px-3 py-2.5 text-sm text-red-200">
+          <div role="alert" className="flex flex-col items-start gap-2 rounded-lg bg-red-500/[0.1] px-3 py-2.5 text-sm text-red-300">
             {previewError}
             <Button variant="secondary" size="sm" icon={<RefreshCw size={13} aria-hidden="true" />} onClick={() => { setPreview(null); setRetry((n) => n + 1); }}>Try again</Button>
           </div>
@@ -270,7 +270,7 @@ function MoveRow({ task }: { task: ReflowTask }) {
     <li className={`flex items-start gap-1.5 rounded-lg bg-white/[0.03] px-3 py-2 ${task.parent_task_id ? 'ml-4' : ''}`}>
       {task.parent_task_id && <CornerDownRight size={13} className="mt-0.5 flex-shrink-0 text-zinc-500" aria-hidden="true" />}
       <div className="min-w-0 flex-1">
-        <p className={`break-words text-zinc-100 ${task.parent_task_id ? 'text-[13px]' : 'text-sm'}`}>{task.title}</p>
+        <p className={`break-words text-zinc-100 ${task.parent_task_id ? 'text-sm' : 'text-sm'}`}>{task.title}</p>
         <p className="mt-0.5 text-[11px]"><DateChange from={task.from} to={task.to} /></p>
       </div>
     </li>

@@ -176,9 +176,6 @@ export function SenderRulesManager({ isOpen, onClose, onChanged }: { isOpen: boo
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Mail rules" size="2xl">
-      <p className="mb-4 text-sm text-zinc-300">
-        What happens to mail from a sender as it arrives. Make one from any thread with Filter mail like this. Rules apply to new mail; switching one off keeps its history.
-      </p>
       <SenderRulesList
         rules={rules}
         loadError={loadError}

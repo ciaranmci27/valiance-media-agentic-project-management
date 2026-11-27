@@ -1,9 +1,10 @@
 'use client';
 
+import { Pill, sentenceCase } from '@/components/ui/Pill';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { PriorityBadge } from '@/components/ui/Badge';
-import { ExternalLink, PanelRight, Check, Minus, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { PanelRight, Check, Minus, ShieldCheck, ShieldAlert } from 'lucide-react';
 import type { Task } from '@/lib/types';
 import type { ReviewProfile } from '@/lib/autonomy';
 
@@ -47,16 +48,21 @@ export function MergeReviewModal({
   }[profile.reviewDepth];
 
   return (
-    <Modal isOpen={open} onClose={onClose} title="Review changes" size="lg">
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      title="Review changes"
+      size="lg"
+      cancelLabel="Close"
+      primaryAction={profile.prUrl ? { label: 'Open pull request', onClick: () => window.open(profile.prUrl!, '_blank', 'noopener,noreferrer') } : undefined}
+    >
       <div className="space-y-4">
         <div>
           <h3 className="text-base font-semibold text-white leading-snug">{task.title}</h3>
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
             <PriorityBadge priority={task.priority} />
             {chips.map(chip => (
-              <span key={chip} className="text-[10px] font-medium uppercase tracking-wider text-zinc-300 bg-white/[0.06] rounded-full px-2 py-0.5">
-                {chip}
-              </span>
+              <Pill key={chip}>{sentenceCase(chip)}</Pill>
             ))}
             {projectName && <span className="text-xs text-zinc-500 ml-1">{projectName}</span>}
           </div>
@@ -64,7 +70,7 @@ export function MergeReviewModal({
 
         {/* The review ask, in one breath */}
         <div className="bg-amber-500/[0.07] border border-amber-500/20 rounded-lg p-3">
-          <p className="text-sm text-amber-200 font-medium">{profile.reviewDepth}</p>
+          <p className="text-sm text-amber-300 font-medium">{profile.reviewDepth}</p>
           <p className="text-xs text-zinc-300 mt-1 leading-relaxed">{heldLine} {depthGuidance}</p>
         </div>
 
@@ -75,7 +81,7 @@ export function MergeReviewModal({
             <div className="bg-emerald-500/[0.07] border border-emerald-500/20 rounded-lg p-3 flex items-start gap-2">
               <ShieldCheck size={15} className="text-emerald-300 mt-0.5 flex-shrink-0" aria-hidden="true" />
               <div>
-                <p className="text-sm text-emerald-200 font-medium">
+                <p className="text-sm text-emerald-300 font-medium">
                   Approved by the reviewer · round {profile.reviewerVerdict.round}
                 </p>
                 {profile.reviewerVerdict.summary && (
@@ -87,7 +93,7 @@ export function MergeReviewModal({
             <div className="bg-red-500/[0.07] border border-red-500/20 rounded-lg p-3 flex items-start gap-2">
               <ShieldAlert size={15} className="text-red-300 mt-0.5 flex-shrink-0" aria-hidden="true" />
               <div>
-                <p className="text-sm text-red-200 font-medium">
+                <p className="text-sm text-red-300 font-medium">
                   The reviewer requested changes · round {profile.reviewerVerdict.round}
                 </p>
                 {profile.reviewerVerdict.summary && (
@@ -105,7 +111,7 @@ export function MergeReviewModal({
         {/* What must be true: the criteria the agent was gated on */}
         {profile.criteriaTotal > 0 && (
           <div className="bg-surface-raised rounded-lg border border-white/[0.08] p-3">
-            <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">
+            <p className="text-xs font-semibold text-zinc-400 mb-2">
               Acceptance criteria · {profile.criteriaDone}/{profile.criteriaTotal} verified
             </p>
             <ul className="space-y-1.5">
@@ -123,7 +129,7 @@ export function MergeReviewModal({
 
         {/* Why the client is paying for this */}
         {profile.billingCase && (
-          <p className="text-xs text-zinc-400 leading-relaxed border-l-2 border-brand-500/40 pl-3">
+          <p className="text-xs text-zinc-400 leading-relaxed rounded-lg bg-white/[0.04] px-3 py-2">
             {profile.billingCase}
           </p>
         )}
@@ -136,11 +142,7 @@ export function MergeReviewModal({
             <Button variant="ghost" icon={<PanelRight size={14} />} onClick={() => { onClose(); onOpenTask(task); }}>
               Open task
             </Button>
-            {profile.prUrl ? (
-              <a href={profile.prUrl} target="_blank" rel="noopener noreferrer">
-                <Button icon={<ExternalLink size={14} />}>Open the pull request</Button>
-              </a>
-            ) : (
+            {!profile.prUrl && (
               // The agent posts the link on the task when it opens one; until then there is nothing to merge here.
               <span className="text-xs text-zinc-400">No pull request link yet</span>
             )}

@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -61,9 +62,9 @@ function CustomWidgets({ placement }: { placement: 'top' | 'bottom' }) {
   const widgets = useCustomDashboardWidgets(placement);
   if (!widgets.length) return null;
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6">
+    <div className="card-row lg:grid-cols-2">
       {widgets.map(({ key, title, icon: Icon, href, size, component: Body }) => (
-        <section key={key} className={`${size === 'half' ? '' : 'lg:col-span-2'} glass-card rounded-xl overflow-hidden min-w-0`}>
+        <section key={key} className={`${size === 'half' ? '' : 'lg:col-span-2'} glass-card card-fill rounded-xl overflow-hidden min-w-0`}>
           <div className="flex items-center gap-2 p-4 border-b border-white/[0.06]">
             {Icon && <Icon size={16} className="text-zinc-400" aria-hidden="true" />}
             <h2 className="font-semibold text-white flex-1 min-w-0 truncate">{title}</h2>
@@ -73,7 +74,7 @@ function CustomWidgets({ placement }: { placement: 'top' | 'bottom' }) {
               </Link>
             )}
           </div>
-          <div className="p-4 lg:p-5">
+          <div className="card-fill-grow p-4 lg:p-5">
             <Body />
           </div>
         </section>
@@ -258,7 +259,7 @@ export default function DashboardPage() {
         }
       />
 
-      <div className="p-4 lg:p-6 space-y-5 lg:space-y-6">
+      <div className="p-4 lg:p-6 space-y-6">
         {/* After first-run setup: what the Owner skipped, until done or hidden. */}
         <GettingStartedCard />
 
@@ -304,7 +305,7 @@ export default function DashboardPage() {
                       <p className="text-xs text-zinc-400 truncate">{project?.name}</p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs font-medium text-red-300/90 bg-red-500/[0.12] px-2 py-0.5 rounded-full">{daysOverdue}d overdue</span>
+                      <Pill tone="problem">{daysOverdue}d overdue</Pill>
                       <PriorityBadge priority={task.priority} />
                     </div>
                   </Link>
@@ -316,7 +317,7 @@ export default function DashboardPage() {
         )}
 
         {/* Activity chart + Leads pipeline */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+        <div className="card-row lg:grid-cols-3">
           <div className={`${showPipeline ? 'lg:col-span-2' : 'lg:col-span-3'} glass-card rounded-xl p-4 lg:p-5`}>
             <div className="flex items-start justify-between">
               <div>
@@ -380,13 +381,13 @@ export default function DashboardPage() {
         </div>
 
         {/* Recent Tasks + right rail */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
-          <div className="lg:col-span-2 glass-card rounded-xl overflow-hidden flex flex-col">
+        <div className="card-row lg:grid-cols-3">
+          <div className="lg:col-span-2 glass-card card-fill rounded-xl overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b border-white/[0.06] flex-shrink-0">
               <h2 className="font-semibold text-white">Recent tasks</h2>
               <Link href="/projects" className="text-sm text-brand-300 hover:text-brand-200 flex items-center gap-1">View all <ArrowRight size={14} /></Link>
             </div>
-            <div className="divide-y divide-white/[0.06] flex-1 flex flex-col">
+            <div className="card-scroll divide-y divide-white/[0.06]">
               {recentTasks.length > 0 ? recentTasks.map((task) => {
                 const project = projects.find(p => p.id === task.project_id);
                 return (
@@ -409,7 +410,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="space-y-4 lg:space-y-6">
+          <div className="card-fill gap-6">
             <div className="glass-card rounded-xl p-4 lg:p-5">
               <h2 className="font-semibold text-white mb-4">Quick actions</h2>
               <div className="space-y-2">
@@ -421,12 +422,12 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="glass-card rounded-xl overflow-hidden">
+            <div className="glass-card card-fill card-fill-grow rounded-xl overflow-hidden">
               <div className="p-4 border-b border-white/[0.06]">
                 <h2 className="font-semibold text-white">Due this week</h2>
                 <p className="text-sm text-zinc-400">{dueThisWeek.length} task{dueThisWeek.length !== 1 ? 's' : ''}</p>
               </div>
-              <div className="divide-y divide-white/[0.06] max-h-64 overflow-y-auto">
+              <div className="card-scroll divide-y divide-white/[0.06]">
                 {dueThisWeek.length > 0 ? dueThisWeek.slice(0, 5).map((task) => {
                   const project = projects.find(p => p.id === task.project_id);
                   return (
@@ -520,8 +521,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Project Picker Modal */}
-      {canCreateTasks && <Modal isOpen={showProjectPicker} onClose={() => setShowProjectPicker(false)} title="Add Task to Project" size="sm">
-        <p className="text-sm text-zinc-400 mb-4">Select a project to add a task to:</p>
+      {canCreateTasks && <Modal isOpen={showProjectPicker} onClose={() => setShowProjectPicker(false)} title="Pick a project" size="sm">
         <div className="space-y-1 max-h-64 overflow-y-auto">
           {activeProjects.map((p) => (
             <button key={p.id} onClick={() => { setShowProjectPicker(false); setQuickAddProjectId(p.id); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-white/[0.03] transition-colors">

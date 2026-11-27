@@ -1,5 +1,7 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
+import { GroupLabel } from '@/components/ui/GroupLabel';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { loadRead, peekRead, setReadData } from '@/lib/query-cache';
 import { inboxThreadRead } from '@/lib/reads';
@@ -7,7 +9,7 @@ import { appLocale } from '@/lib/region';
 import Link from 'next/link';
 import {
   AlertTriangle, ArrowDown, ArrowLeft, AlignLeft, Bell, Bot, Check, CheckCircle2, ChevronDown, Copy, Download, ExternalLink, Eye, FileText, Filter, Flame, Forward, Hash, HelpCircle, Image as ImageIcon, Inbox, MoreHorizontal,
-  CircleSlash, FolderInput, Link2, ListChecks, Loader2, MessageSquare, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, Sparkles, Square, SquareCheck, SquarePlus, Tag, Trash2, Undo2, Unlink, Video, X,
+  CircleSlash, CornerUpLeft, FolderInput, Link2, ListChecks, Loader2, MessageSquare, MessageSquareReply, Paperclip, PenLine, Plus, RefreshCw, RotateCcw, ShieldOff, Sparkles, Square, SquareCheck, SquarePlus, Tag, Trash2, Undo2, Unlink, Video, X,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
@@ -893,7 +895,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
     ...(canManageRules && !isMeeting ? [{ label: 'Filter mail like this', icon: <Filter size={14} aria-hidden="true" />, onClick: () => setRuleFor(latest) }] : []),
     // The newest message's id: the API and pm-tasks read the whole conversation from any of its messages.
     { label: 'Copy thread ID', icon: <Hash size={14} aria-hidden="true" />, onClick: () => void copyText(latest.id, 'Thread ID') },
-    ...(canSendBack ? [{ label: `Send back to ${agentName}`, icon: <RotateCcw size={14} aria-hidden="true" />, onClick: () => void after(() => sendBackNow(null), `Sent back to ${agentName}. Waiting for a new plan.`, 'send_back') }] : []),
+    ...(canSendBack ? [{ label: `Send back to ${agentName}`, icon: <CornerUpLeft size={14} aria-hidden="true" />, onClick: () => void after(() => sendBackNow(null), `Sent back to ${agentName}. Waiting for a new plan.`, 'send_back') }] : []),
   ];
   let lastDay = '';
   // The decision the agent waits on, answered inside the reply that asked it. A meeting's card speaks
@@ -1060,7 +1062,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
         {meeting && <MeetingDetails meeting={meeting} />}
 
         {detail.summary && (
-          <p className="mt-2.5 flex items-start gap-2 text-[13px] leading-snug text-zinc-300">
+          <p className="mt-2.5 flex items-start gap-2 text-sm leading-snug text-zinc-300">
             <Avatar name={agentName} src={agentAvatar} size="xs" className="mt-px flex-shrink-0" />
             <span><span className="sr-only">Where it stands, by {agentName}: </span>{detail.summary}</span>
           </p>
@@ -1084,7 +1086,7 @@ export function ThreadView({ threadId, focusMessageId, onMissing, onBack }: Thre
                 {showDay && (
                   <div className="my-3 flex items-center gap-3" aria-hidden="true">
                     <div className="h-px flex-1 bg-white/[0.06]" />
-                    <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">{day}</span>
+                    <GroupLabel as="span" className="">{day}</GroupLabel>
                     <div className="h-px flex-1 bg-white/[0.06]" />
                   </div>
                 )}
@@ -1575,7 +1577,7 @@ function MessageCard({ message, agentName, focused, busy, viewUrl, onSendToAgent
                 Move to Inbox
               </Button>
             ) : onSendToAgent && (
-              <Button size="sm" variant="ghost" disabled={busy} onClick={onSendToAgent} icon={<RotateCcw size={12} aria-hidden="true" />}>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={onSendToAgent} icon={<RefreshCw size={12} aria-hidden="true" />}>
                 Send to {agentName}
               </Button>
             )}
@@ -1679,15 +1681,16 @@ function AttachmentList({ attachments, agentName, viewUrl, onDownload, onPreview
               )}
               <div className="min-w-0 flex-1">
                 {previewable ? (
-                  <button
-                    type="button"
-                    onClick={() => onPreview!(attachment)}
-                    aria-label={`Preview ${attachment.filename}`}
-                    title={attachment.filename}
-                    className="block max-w-full truncate rounded text-left text-xs font-medium text-zinc-100 underline decoration-white/20 underline-offset-2 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-                  >
-                    {attachment.filename}
-                  </button>
+                  <Tooltip content={attachment.filename} className="max-w-full">
+                    <button
+                      type="button"
+                      onClick={() => onPreview!(attachment)}
+                      aria-label={`Preview ${attachment.filename}`}
+                      className="block max-w-full truncate rounded text-left text-xs font-medium text-zinc-100 underline decoration-white/20 underline-offset-2 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                    >
+                      {attachment.filename}
+                    </button>
+                  </Tooltip>
                 ) : (
                   <p className="truncate text-xs font-medium text-zinc-200" title={attachment.filename}>{attachment.filename}</p>
                 )}
@@ -2123,10 +2126,10 @@ function AgentCard({ cardKey, scope, triage, agentName, items, tasks, reminders,
               label={handled ? 'Question' : answer ? 'Answered' : 'Question for you'}
               icon={<HelpCircle size={11} aria-hidden="true" />}
               width={420}
-              className={handled || answer ? '' : '!bg-amber-500/[0.14] !text-amber-200 hover:!bg-amber-500/[0.22]'}
+              className={handled || answer ? '' : '!bg-amber-500/[0.14] !text-amber-300 hover:!bg-amber-500/[0.22]'}
             >
               <NoteCardHeader name={who} avatar={avatar} at={triage.created_at} />
-              <p className={`mb-1 text-[11px] font-semibold uppercase tracking-wider ${handled ? 'text-zinc-400' : 'text-amber-300'}`}>
+              <p className={`mb-1 text-[11px] font-semibold ${handled ? 'text-zinc-400' : 'text-amber-300'}`}>
                 {handled ? 'Question (handled)' : 'Question for you'}
               </p>
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">{question}</p>
@@ -2180,7 +2183,7 @@ function CardRowShell({ icon, struck = false, title, meta, tag, action }: {
     <li className="flex min-h-10 min-w-0 items-center gap-2.5 px-3 py-2">
       <span className="flex w-4 flex-shrink-0 justify-center" aria-hidden="true">{icon}</span>
       <div className="min-w-0 flex-1">
-        <div className={`line-clamp-2 break-words text-[13px] font-medium leading-snug [overflow-wrap:anywhere] ${struck ? 'text-zinc-400 line-through' : 'text-zinc-100'}`}>{title}</div>
+        <div className={`line-clamp-2 break-words text-sm font-medium leading-snug [overflow-wrap:anywhere] ${struck ? 'text-zinc-400 line-through' : 'text-zinc-100'}`}>{title}</div>
         {meta && <p className="mt-0.5 text-[11px] leading-snug text-zinc-400">{meta}</p>}
       </div>
       {tag}
@@ -2200,7 +2203,7 @@ function TaskLink({ href, children }: { href: string | null; children: ReactNode
 }
 
 function DoneTag() {
-  return <span className="flex-shrink-0 rounded-full bg-emerald-500/[0.12] px-2 py-0.5 text-[11px] font-semibold text-emerald-300">Done</span>;
+  return <Pill tone="good">Done</Pill>;
 }
 
 /** A row's own action: a quiet button, its spinner while it runs. */
@@ -2354,7 +2357,7 @@ function PlanItemRow({ item }: { item: InboxPlanItem }) {
           : ITEM_ICON[itemGroup(item)](finished ? 'text-zinc-500' : '')}
       title={<TaskLink href={href}>{title}</TaskLink>}
       meta={meta || undefined}
-      tag={finished ? <DoneTag /> : unsure ? <span className="flex-shrink-0 rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-semibold text-amber-200">Unsure</span> : undefined}
+      tag={finished ? <DoneTag /> : unsure ? <Pill tone="waiting">Unsure</Pill> : undefined}
       action={(() => {
         // A task the agent made can go to the right project from here.
         const move = moveTask && item.type === 'create_task' && (item.state === 'done' || item.state === 'accepted') && !!item.task_id && !!item.project_id ? (

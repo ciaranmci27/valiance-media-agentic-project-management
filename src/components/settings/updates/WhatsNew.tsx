@@ -1,7 +1,8 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useState } from 'react';
-import { AlertTriangle, ChevronDown, Database, Sparkles } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Database, Gift } from 'lucide-react';
 import type { ReleaseInfo } from '@/lib/updates/types';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { SettingsSectionHeader } from '@/components/settings/SettingsSectionHeader';
@@ -14,10 +15,10 @@ export function ReleaseChips({ release }: { release: ReleaseInfo }) {
   return (
     <>
       {release.breaking && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-300">
+        <Pill tone="waiting">
           <AlertTriangle size={11} aria-hidden="true" />
           Needs your attention
-        </span>
+        </Pill>
       )}
       {release.hasMigrations && (
         <Tooltip content="This release updates your database when you apply it.">
@@ -90,8 +91,8 @@ export function WhatsNew({
       : `Everything since ${current} that this update brings, newest first.`;
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="whats-new-heading">
-      <SettingsSectionHeader icon={Sparkles} title={title} headingId="whats-new-heading" description={description} />
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="whats-new-heading">
+      <SettingsSectionHeader icon={Gift} title={title} headingId="whats-new-heading" description={description} />
       <ul className="divide-y divide-white/[0.06]">
         {releases.map((release, index) => (
           <ReleaseSection key={release.version} release={release} initiallyOpen={openNewest && index === 0} />

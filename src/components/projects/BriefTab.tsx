@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, Archive, Bot, CalendarDays, Check, CornerDownRight, Pencil, Pin, PinOff, Plus, RefreshCw, Search, Target, Trash2,
@@ -353,7 +354,7 @@ function SectionBlock({ pageRead, section, hint, emptyText, rowProps, canAdd = r
     <section id={`brief-${section.key}`} aria-labelledby={`brief-h-${section.key}`} className="scroll-mt-6">
       <div className="flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <h3 id={`brief-h-${section.key}`} className="text-[15px] font-semibold text-white">{section.label}</h3>
+          <h3 id={`brief-h-${section.key}`} className="text-sm font-semibold text-white">{section.label}</h3>
           {hint && <p className="mt-0.5 text-xs text-zinc-500">{hint}</p>}
         </div>
         {canAdd && !adding && (
@@ -464,15 +465,15 @@ function EntryRow({ entry, canEdit, actions, reach, onDelete, sections, words }:
             <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-500">
               {entry.pinned && !beyond && <span className="inline-flex items-center gap-1 text-brand-300"><Pin size={11} aria-hidden="true" />Pinned</span>}
               {beyond && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/[0.14] px-1.5 py-0.5 text-amber-300">
+                <Pill tone="waiting">
                   <Pin size={11} aria-hidden="true" />Pinned, past the newest {PINNED_REACH.perScope}: {reader} find it by search
-                </span>
+                </Pill>
               )}
               {cut && <span className="text-amber-300">Long: {reader} see the first {PINNED_REACH.entry} characters</span>}
               {byAgent && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/[0.14] px-1.5 py-0.5 text-sky-300">
+                <Pill tone="info">
                   <Bot size={11} aria-hidden="true" />Written by an agent, check it
-                </span>
+                </Pill>
               )}
               {byAgent && canEdit && (
                 <button type="button" onClick={() => actions.onCheck(entry)} className="rounded font-medium text-brand-300 hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
@@ -538,7 +539,7 @@ function NewEntry({ onCancel, onSubmit, pinLabel = `Pin: agents always see it (t
 }
 
 const GOAL_STATUS_TONE: Record<ProjectGoal['status'], string> = {
-  active: 'bg-emerald-500/[0.14] text-emerald-200',
+  active: 'bg-emerald-500/[0.14] text-emerald-300',
   achieved: 'bg-sky-500/[0.14] text-sky-300',
   paused: 'bg-amber-500/[0.14] text-amber-300',
   abandoned: 'bg-white/[0.06] text-zinc-400',
@@ -562,7 +563,7 @@ function GoalsSection({ projectId, goals, canEdit }: { projectId: string; goals:
     <section id="brief-goals" aria-labelledby="brief-h-goals" className="scroll-mt-6">
       <div className="flex items-end justify-between gap-3">
         <div>
-          <h3 id="brief-h-goals" className="text-[15px] font-semibold text-white">Goals</h3>
+          <h3 id="brief-h-goals" className="text-sm font-semibold text-white">Goals</h3>
           <p className="mt-0.5 text-xs text-zinc-500">What this project is working toward. Agents plan against these.</p>
         </div>
         {canEdit && !adding && <Button variant="ghost" size="sm" icon={<Plus size={13} aria-hidden="true" />} onClick={() => setAdding(true)}>Add</Button>}

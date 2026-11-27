@@ -1,6 +1,6 @@
 'use client';
 
-import { Bell, Check, CheckSquare, FileText, FolderKanban, MessageSquare, Repeat, Sparkles, Target, Undo2, Users, Webhook, type LucideIcon } from 'lucide-react';
+import { Bell, Bot, Check, CheckSquare, FileText, FolderKanban, MessageSquare, Repeat, Sparkles, Target, Undo2, Users, Webhook, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Avatar } from '@/components/ui/Avatar';
 import { IconButton } from '@/components/ui/IconButton';
@@ -9,7 +9,8 @@ import { notificationSender, notificationSenderLabel, type NotificationView } fr
 
 /** What a notice is about, as its icon: by category first, then the thing it hangs on. */
 function iconOf(n: NotificationView): LucideIcon {
-  if (n.category === 'agent_message' || n.category.startsWith('agent_') || n.category === 'assistant_alert') return Sparkles;
+  if (n.category === 'assistant_alert') return Sparkles;
+  if (n.category === 'agent_message' || n.category.startsWith('agent_')) return Bot;
   if (n.category === 'invoice_drafts' || n.category === 'retainer_failed') return FileText;
   switch (n.entity_type) {
     case 'task': return CheckSquare;

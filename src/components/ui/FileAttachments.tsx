@@ -1,4 +1,5 @@
 'use client';
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { FileInput } from '@/components/ui/inputs/FileInput';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -26,7 +27,6 @@ import { useDemo } from '@/lib/demo-context';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
 import { storedFileHref } from '@/lib/storage/stored-file-url';
 import { useSignedFileUrls } from '@/lib/storage/use-signed-file-urls';
@@ -79,7 +79,7 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
   const [uploading, setUploading] = useState(false);
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
   const [editingFileName, setEditingFileName] = useState('');
-  const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null);
+  const undoTrash = useUndoTrash();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, openAbove: false });
   const [previewFile, setPreviewFile] = useState<EntityFile | null>(null);
@@ -203,13 +203,10 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
     }
   };
 
-  const handleDeleteFile = (fileId: string) => {
-    setDeleteFileTarget(fileId);
+  // Moving to Trash acts at once, with Undo (DESIGN.md Rule 6).
+  const handleDeleteFile = async (fileId: string) => {
     setOpenMenuId(null);
-  };
-
-  const executeDeleteFile = async () => {
-    if (deleteFileTarget && await deleteEntityFile(deleteFileTarget)) toast('success', 'File moved to Trash');
+    if (await deleteEntityFile(fileId)) undoTrash('entity_files', fileId, { message: 'File moved to Trash' });
   };
 
   const handleToggleVisibility = (fileId: string, currentVisibility: string) => {
@@ -465,7 +462,7 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
                     <FileIcon size={28} className="text-zinc-500" aria-hidden="true" />
                   )}
                   {isExternal && (
-                    <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/60 text-[10px] font-medium text-white">
+                    <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/60 text-[11px] font-medium text-white">
                       <Globe size={10} aria-hidden="true" />
                       On portal
                     </span>
@@ -496,7 +493,7 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
   );
 
   const listBody = (
-      <div className="glass-card rounded-xl flex flex-col max-h-[600px]">
+      <div className="glass-card card-fill rounded-xl">
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] flex-shrink-0">
           <div className="flex items-center gap-2">
             <Paperclip size={18} className="text-zinc-400" />
@@ -525,7 +522,7 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
         </div>
 
         {files.length > 0 ? (
-          <div className="flex-1 overflow-y-auto p-3 space-y-1">
+          <div className="card-scroll p-3 space-y-1">
             {files.map((file) => {
               const FileIcon = getFileIcon(file.mime_type);
               const isEditing = editingFileId === file.id;
@@ -681,16 +678,6 @@ export function FileAttachments({ entityType, entityId, layout = 'list' }: FileA
           </div>,
           document.body,
         )}
-
-      <ConfirmDialog
-        isOpen={!!deleteFileTarget}
-        onClose={() => setDeleteFileTarget(null)}
-        onConfirm={executeDeleteFile}
-        title="Move file to Trash?"
-        message="The file goes to Trash."
-        variant="danger"
-        trash
-      />
 
       <FilePreviewModal
         isOpen={!!previewFile}

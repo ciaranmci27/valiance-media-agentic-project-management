@@ -373,7 +373,7 @@ function SessionsTable({
         )
       ) : (
         <>
-          <div className="grid grid-cols-[1fr_1fr_auto_24px] @xl:grid-cols-[1fr_1.4fr_0.7fr_0.6fr_24px] @3xl:grid-cols-[1fr_1.3fr_1fr_0.7fr_0.6fr_24px] gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+          <div className="grid grid-cols-[1fr_1fr_auto_24px] @xl:grid-cols-[1fr_1.4fr_0.7fr_0.6fr_24px] @3xl:grid-cols-[1fr_1.3fr_1fr_0.7fr_0.6fr_24px] gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold text-zinc-400">
             <div>When</div>
             <div>Device</div>
             <div className="hidden @3xl:block">Location signal</div>
@@ -441,7 +441,7 @@ function SessionsTable({
 
                   {expanded && (
                     <div className="px-5 pb-4 pt-1 bg-white/[0.03] border-t border-white/[0.06]">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 mb-4 text-[12px] text-zinc-300">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 mb-4 text-xs text-zinc-300">
                         <Detail label="IP" value={formatIpAddress(s.ip_address)} mono />
                         <Detail label="Fingerprint" value={s.ip_hash || '—'} mono />
                         <Detail label="Viewport" value={s.viewport_width && s.viewport_height ? `${s.viewport_width}×${s.viewport_height}` : '—'} />
@@ -454,7 +454,7 @@ function SessionsTable({
                         {s.referrer && <Detail label="Referrer" value={s.referrer} mono />}
                         <Detail label="User agent" value={s.user_agent || '—'} mono className="sm:col-span-2" />
                       </div>
-                      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">Timeline</h4>
+                      <h4 className="text-[11px] font-semibold text-zinc-400 mb-2">Timeline</h4>
                       {!events ? (
                         <Skeleton label="Loading timeline" className="space-y-2">
                           {[0, 1, 2].map((i) => <Bone key={i} className={`h-3 ${i === 1 ? 'w-1/2' : 'w-2/3'}`} />)}
@@ -620,7 +620,7 @@ function Detail({ label, value, mono, className }: {
 }) {
   return (
     <div className={`flex items-baseline gap-2 ${className ?? ''}`}>
-      <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 w-24 flex-shrink-0">{label}</span>
+      <span className="text-[11px] font-semibold text-zinc-400 w-24 flex-shrink-0">{label}</span>
       <span className={`text-zinc-300 break-all ${mono ? 'font-mono text-[11px]' : ''}`}>{value}</span>
     </div>
   );

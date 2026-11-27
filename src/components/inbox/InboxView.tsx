@@ -1,5 +1,7 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
+import { ShowMore } from '@/components/ui/ShowMore';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AlertTriangle, Bell, CircleSlash, Flame, Inbox as InboxIcon, KeyRound, ListChecks, Mail, MessageSquare, Paperclip, PenLine, RefreshCw, Search, Sparkles, SquareCheck, Video, X } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -365,7 +367,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
             <button
               type="button"
               onClick={() => setTaskFilter('')}
-              aria-label="Show all email"
+              aria-label="Show every email"
               className="rounded p-0.5 text-input-text-placeholder hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
               <X size={13} aria-hidden="true" />
@@ -470,7 +472,7 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                         <span className="flex-shrink-0 text-xs tabular-nums text-zinc-400">{formatListTime(thread.last_message_at)}</span>
                       </span>
                       {/* A meeting's title leads its row; this line says when it ran. */}
-                      <span className={`mt-0.5 block truncate text-[13px] ${attention ? 'text-zinc-100' : 'text-zinc-300'}`}>
+                      <span className={`mt-0.5 block truncate text-sm ${attention ? 'text-zinc-100' : 'text-zinc-300'}`}>
                         {thread.meeting
                           ? formatMeetingTime(thread.meeting.starts_at, thread.meeting.ends_at) ?? 'Meeting'
                           : thread.subject || '(no subject)'}
@@ -517,18 +519,18 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                           {(thread.state === 'needs_reply' || (thread.state === 'needs_you' && thread.suggestion_count === 0)) && <ThreadStateBadge state={thread.state} />}
                           {thread.suggestion_count > 0 && (
                             <Tooltip content={`${thread.suggestion_count} ${thread.suggestion_count === 1 ? 'suggestion' : 'suggestions'} from the agent waiting for you to add or skip`}>
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-200">
+                              <Pill tone="waiting">
                                 <ListChecks size={11} aria-hidden="true" />
                                 {thread.suggestion_count} to review
-                              </span>
+                              </Pill>
                             </Tooltip>
                           )}
                           {thread.draft_ready && (
                             <Tooltip content="The agent wrote the reply you asked for. Open the thread to copy it into your own mail.">
-                              <span className="inline-flex items-center gap-1 rounded-full bg-brand-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-brand-200">
+                              <Pill tone="info">
                                 <PenLine size={11} aria-hidden="true" />
                                 Draft ready
-                              </span>
+                              </Pill>
                             </Tooltip>
                           )}
                           {thread.urgent && (
@@ -563,13 +565,14 @@ export function InboxView({ projectId, embedded = false, emptyState, searchQuery
                 );
               })}
             </ul>
-            {threads.length < total && (
-              <div className="flex justify-center border-t border-white/[0.06] p-3">
-                <Button variant="secondary" size="sm" disabled={loadingMore} onClick={() => void load({ mode: 'append', offset: threads.length })}>
-                  {loadingMore ? 'Loading...' : `Load more (${threads.length} of ${total})`}
-                </Button>
-              </div>
-            )}
+            <ShowMore
+              shown={threads.length}
+              total={total}
+              step={PAGE_SIZE}
+              noun="threads"
+              className="border-t border-white/[0.06]"
+              onMore={() => { if (!loadingMore) void load({ mode: 'append', offset: threads.length }); }}
+            />
             {threads.length >= total && filteredNote}
           </>
         )}

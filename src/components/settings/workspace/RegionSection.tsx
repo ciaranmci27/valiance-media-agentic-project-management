@@ -101,7 +101,7 @@ export function RegionSection() {
   const currencyChanged = form.currency !== saved.currency;
 
   return (
-    <section className="glass-card @container rounded-xl p-4 lg:p-6" onKeyDown={onKeyDown}>
+    <section className="glass-card @container rounded-xl p-4 lg:p-5" onKeyDown={onKeyDown}>
       <SettingsSectionHeader icon={Coins} title="Region" description={DESCRIPTION} />
 
       {local && <p className="-mt-3 mb-6 text-xs text-zinc-400">Demo workspace: changes last until you reload.</p>}
@@ -150,7 +150,7 @@ export function RegionSection() {
             </fieldset>
 
             <aside aria-label="Preview" className="min-w-0 @2xl:sticky @2xl:top-6 @2xl:self-start">
-              <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-zinc-400">Preview</h3>
+              <h3 className="mb-3 text-xs font-medium text-zinc-400">Preview</h3>
               <RegionPreview region={form} />
             </aside>
           </div>

@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Briefcase, CheckSquare, Clock, DollarSign, FileText, FolderKanban, KeyRound, Layers, LayoutTemplate,
-  Megaphone, MessageSquare, RotateCcw, ScrollText, Trash2, UserCircle, UsersRound, type LucideIcon,
+  Megaphone, MessageSquare, RefreshCw, RotateCcw, ScrollText, Trash2, UserCircle, UsersRound, type LucideIcon,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
 import { Header } from '@/components/layout/Header';
@@ -200,7 +200,7 @@ function TrashPageContent() {
             icon={<Trash2 />}
             title="Trash could not load"
             description="Nothing has been lost. Check your connection and try again."
-            action={<Button size="sm" variant="secondary" icon={<RotateCcw size={14} />} onClick={() => void reload()}>Retry</Button>}
+            action={<Button size="sm" variant="secondary" icon={<RefreshCw size={14} />} onClick={() => void reload()}>Try again</Button>}
           />
         ) : items === null ? (
           <div className="glass-card rounded-xl divide-y divide-white/[0.06]" role="status" aria-busy="true" aria-label="Loading Trash">

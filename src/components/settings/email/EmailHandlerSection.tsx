@@ -281,7 +281,7 @@ export function EmailHandlerSection() {
 
   if (loading) {
     return (
-      <section className="glass-card rounded-xl p-4 lg:p-6" aria-busy="true">
+      <section className="glass-card rounded-xl p-4 lg:p-5" aria-busy="true">
         <SectionHeading />
         <div className="flex justify-center py-8">
           <Loader2 className="animate-spin motion-reduce:animate-none text-zinc-400" size={24} aria-label="Loading the inbox" role="status" />
@@ -295,7 +295,7 @@ export function EmailHandlerSection() {
   const setupOpen = setupChoice ?? needsSetup;
 
   return (
-    <section id="email-inboxes" className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6">
+    <section id="email-inboxes" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6">
       <SectionHeading
         action={!showForm && loaded ? (
           <Button id={addButtonId} size="sm" className="flex-shrink-0 whitespace-nowrap" onClick={() => openForm(null)} icon={<Plus size={14} aria-hidden="true" />}>

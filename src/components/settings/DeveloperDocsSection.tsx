@@ -21,7 +21,7 @@ export function DeveloperDocsSection() {
   const info = origin ? buildConnectInfo(origin) : null;
 
   return (
-    <section id="developer-docs" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-6" aria-labelledby="developer-docs-heading">
+    <section id="developer-docs" className="glass-card scroll-mt-6 rounded-xl p-4 lg:p-5" aria-labelledby="developer-docs-heading">
       <SettingsSectionHeader
         icon={BookOpen}
         title="MCP and API docs"

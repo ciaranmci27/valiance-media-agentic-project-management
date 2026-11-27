@@ -133,7 +133,7 @@ export function useMemberActions() {
       <Modal
         isOpen={Boolean(inviteDialog)}
         onClose={() => setInviteDialog(null)}
-        title={inviteDialog ? `Invite for ${inviteDialog.member.name}` : 'Invite'}
+        title={inviteDialog?.send ? 'Resend invite' : 'Invite link'}
         size="md"
       >
         {inviteDialog && <InviteDialogBody dialog={inviteDialog} onRetry={() => void invite(inviteDialog.member, inviteDialog.send)} onClose={() => setInviteDialog(null)} />}

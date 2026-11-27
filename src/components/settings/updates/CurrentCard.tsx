@@ -42,7 +42,7 @@ export function CurrentCard({
 
   if (justUpdated && !source) {
     return (
-      <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="updates-heading">
+      <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="updates-heading">
         <SettingsSectionHeader
           icon={PartyPopper}
           title={<>You&apos;re on <span className="font-mono">{state.current}</span></>}
@@ -68,7 +68,7 @@ export function CurrentCard({
   }
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="updates-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="updates-heading">
       <SettingsSectionHeader
         icon={source ? CircleArrowUp : CircleCheck}
         title={source ? 'Updates' : state.releasesError ? <>You&apos;re on <span className="font-mono">{state.current}</span></> : 'You\'re up to date'}

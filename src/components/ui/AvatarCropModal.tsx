@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { ZoomIn, ZoomOut } from 'lucide-react';
-import { Button } from './Button';
 import Modal from './Modal';
 
 interface AvatarCropModalProps {
@@ -155,7 +154,7 @@ export function AvatarCropModal({ file, onCrop, onCancel }: AvatarCropModalProps
   const es = baseScale * zoom;
 
   return (
-    <Modal isOpen={!!file} onClose={onCancel} title="Crop Avatar" size="sm">
+    <Modal isOpen={!!file} onClose={onCancel} title="Crop picture" size="sm" primaryAction={{ label: 'Use picture', onClick: handleSave }}>
       <div className="space-y-4">
         {/* Crop area — circular viewport */}
         <div className="flex justify-center">
@@ -216,15 +215,6 @@ export function AvatarCropModal({ file, onCrop, onCancel }: AvatarCropModalProps
 
         <p className="text-xs text-zinc-500 text-center">Drag to reposition. Scroll or use slider to zoom.</p>
 
-        {/* Actions */}
-        <div className="flex justify-end gap-3">
-          <Button type="button" variant="ghost" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={handleSave}>
-            Save
-          </Button>
-        </div>
       </div>
     </Modal>
   );

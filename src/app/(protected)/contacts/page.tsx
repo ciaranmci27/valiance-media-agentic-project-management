@@ -1,5 +1,6 @@
 'use client';
 
+import { useUndoTrash } from '@/components/projects/useUndoTrash';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -13,8 +14,6 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { Plus, UserCircle, Edit, Trash2, Phone, Mail } from 'lucide-react';
 import { Contact } from '@/lib/types';
-import { toast } from '@/components/ui/Toast';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
 import { formatPhone } from '@/lib/format-phone';
@@ -28,7 +27,7 @@ export default function ContactsPage() {
   const canConvertLeads = hasPermission(access, 'leads.manage');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
-  const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
+  const undoTrash = useUndoTrash();
   const [visibleCount, setVisibleCount] = useState(20);
 
   useEffect(() => { setFilters(defaultFilters); }, []);
@@ -38,9 +37,9 @@ export default function ContactsPage() {
     setIsFormOpen(true);
   };
 
-  const executeDelete = async () => {
-    if (!deletingContactId) return;
-    if (await deleteContact(deletingContactId)) toast('success', 'Contact moved to Trash');
+  // Moving to Trash acts at once, with Undo (DESIGN.md Rule 6).
+  const trashContact = async (id: string) => {
+    if (await deleteContact(id)) undoTrash('contacts', id, { message: 'Contact moved to Trash' });
   };
 
   const searchLower = filters.search.toLowerCase();
@@ -63,7 +62,7 @@ export default function ContactsPage() {
 
   const buildActions = (c: Contact): RowAction[] => [
     { label: 'Edit', icon: <Edit size={14} />, onClick: () => handleEdit(c) },
-    { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', onClick: () => setDeletingContactId(c.id) },
+    { label: 'Move to Trash', icon: <Trash2 size={14} />, variant: 'danger', onClick: () => void trashContact(c.id) },
   ];
 
   const mobileCard = (c: Contact) => (
@@ -164,12 +163,12 @@ export default function ContactsPage() {
         searchPlaceholder="Search contacts by name, company, or email..."
         actions={canManageContacts ? (
           <Button onClick={() => setIsFormOpen(true)} icon={<Plus size={16} />}>
-            Add Contact
+            Add contact
           </Button>
         ) : undefined}
       />
 
-      <div className="p-4 lg:p-6 space-y-4">
+      <div className="p-4 lg:p-6 space-y-6">
         {contacts.length === 0 ? (
           <div className="text-center py-16 glass-card rounded-xl">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/[0.06] flex items-center justify-center">
@@ -177,7 +176,7 @@ export default function ContactsPage() {
             </div>
             <h3 className="text-lg font-semibold text-white mb-2">No contacts yet</h3>
             <p className="text-zinc-400 mb-4">{!canManageContacts ? 'No contacts are available to you' : canConvertLeads ? 'Add a contact or convert a lead to get started' : 'Add a contact to get started'}</p>
-            {canManageContacts && <Button onClick={() => setIsFormOpen(true)}>Add Contact</Button>}
+            {canManageContacts && <Button onClick={() => setIsFormOpen(true)}>Add contact</Button>}
           </div>
         ) : (
           <>
@@ -209,16 +208,6 @@ export default function ContactsPage() {
         onClose={handleCloseForm}
         contact={editingContact}
       />}
-
-      <ConfirmDialog
-        isOpen={!!deletingContactId}
-        onClose={() => setDeletingContactId(null)}
-        onConfirm={executeDelete}
-        title="Move contact to Trash?"
-        message="The contact goes to Trash."
-        variant="danger"
-        trash
-      />
     </div>
   );
 }

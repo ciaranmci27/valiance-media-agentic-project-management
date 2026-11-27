@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Send, Loader2, X as XIcon, RotateCcw, Paperclip, FileText, ExternalLink } from 'lucide-react';
+import { Loader2, X as XIcon, RotateCcw, Paperclip, FileText, ExternalLink } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -472,6 +472,12 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
       onClose={onClose}
       title={modalTitle}
       size="full"
+      primaryAction={mode === 'readonly' ? undefined : {
+        label: submitting ? 'Sending' : 'Send email',
+        onClick: () => void (mode === 'pending' ? handleApprove() : handleSend()),
+        disabled: loadingPreview || !preview,
+        busy: submitting,
+      }}
     >
       {error && (
         <div className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/15 px-3 py-2 text-sm text-rose-300">
@@ -615,49 +621,21 @@ export default function ClientEmailPreviewModal(props: ClientEmailPreviewModalPr
               />
             ) : (
               <div className="flex h-full min-h-[480px] items-center justify-center text-sm text-zinc-400">
-                {loadingPreview ? 'Loading preview...' : error ? 'Preview unavailable' : ''}
+                {loadingPreview ? 'Loading preview' : error ? 'Preview unavailable' : ''}
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Footer actions */}
-      <div className="mt-5 flex items-center justify-end gap-2 border-t border-white/[0.08] pt-4">
-        {mode === 'readonly' ? (
-          <Button variant="secondary" onClick={onClose}>
-            Close
+      {/* A pending email can be dismissed instead of sent; Cancel only closes. */}
+      {mode === 'pending' && (
+        <div className="mt-4 flex justify-start">
+          <Button variant="ghost" size="sm" onClick={handleDismiss} disabled={submitting} icon={<XIcon size={14} />}>
+            Dismiss this email
           </Button>
-        ) : mode === 'pending' ? (
-          <>
-            <Button
-              variant="secondary"
-              onClick={handleDismiss}
-              disabled={submitting}
-              icon={<XIcon size={14} />}
-            >
-              Dismiss
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleApprove}
-              disabled={submitting || loadingPreview || !preview}
-              icon={submitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-            >
-              {submitting ? 'Sending...' : 'Send email'}
-            </Button>
-          </>
-        ) : (
-          <Button
-            variant="primary"
-            onClick={handleSend}
-            disabled={submitting || loadingPreview || !preview}
-            icon={submitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-          >
-            {submitting ? 'Sending...' : 'Send email'}
-          </Button>
-        )}
-      </div>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -676,7 +654,7 @@ function AttachmentPreviewList({ attachments }: { attachments: PreviewAttachment
 
   return (
     <div className="rounded-lg border border-white/[0.08] bg-surface-raised px-3 py-2">
-      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase text-zinc-500">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-zinc-500">
         <Paperclip size={12} aria-hidden="true" />
         <span>Attachments</span>
       </div>
@@ -691,7 +669,7 @@ function AttachmentPreviewList({ attachments }: { attachments: PreviewAttachment
           >
             <FileText size={14} className="shrink-0 text-zinc-500" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">{attachment.filename}</span>
-            <span className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">
+            <span className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 text-[11px] font-medium text-zinc-400">
               PDF
             </span>
             <ExternalLink size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
@@ -797,7 +775,7 @@ function RecipientRow({ label, value, onChange, contactOptions, excludeEmails, d
 
   return (
     <div className="flex items-start gap-2">
-      <span className="mt-1.5 w-7 flex-shrink-0 text-[11px] font-medium text-zinc-400 uppercase tracking-wide">{label}</span>
+      <span className="mt-1.5 w-7 flex-shrink-0 text-[11px] font-medium text-zinc-400">{label}</span>
       <div className="flex-1 min-w-0 min-h-[30px] rounded-md border border-white/[0.08] bg-surface-raised px-1.5 py-1 flex flex-wrap items-center gap-1 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/30 transition-colors">
         {value.map(email => {
           const name = lookup.get(email.toLowerCase());

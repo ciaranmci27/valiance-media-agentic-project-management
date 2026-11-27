@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { Plus, X } from 'lucide-react';
 import { Contact, ContactEmailDraft } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useDemo } from '@/lib/demo-context';
 import { createClient } from '@/lib/supabase/client';
-import Modal from '@/components/ui/Modal';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { AvatarUpload } from '@/components/ui/AvatarUpload';
@@ -279,14 +279,17 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
     if (emailsSaved) onClose();
   };
 
+  const formId = useId();
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={contact ? 'Edit Contact' : 'New Contact'}
+      title={contact ? 'Edit contact' : 'New contact'}
       size="lg"
+      primaryAction={{ label: contact || createdId ? 'Save contact' : 'Add contact', form: formId, busy: saving }}
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form id={formId} onSubmit={handleSubmit} className="space-y-4">
         <div className="flex justify-center">
           <AvatarUpload
             name={name || 'Contact'}
@@ -362,6 +365,7 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
           </Button>
         </fieldset>
 
+        <ModalAdvanced label="More details" defaultOpen={!!(contact?.phone || contact?.company || contact?.notes)}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             label="Phone"
@@ -382,18 +386,10 @@ export function ContactForm({ isOpen, onClose, contact }: ContactFormProps) {
           label="Notes"
           value={notes}
           onChange={setNotes}
-          placeholder="Additional notes..."
+          placeholder="Additional notes"
           rows={3}
         />
-
-        <div className="flex justify-end gap-3 pt-4">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? 'Saving...' : contact || createdId ? 'Save changes' : 'Add contact'}
-          </Button>
-        </div>
+        </ModalAdvanced>
       </form>
     </Modal>
   );

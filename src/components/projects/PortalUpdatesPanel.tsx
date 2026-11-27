@@ -568,7 +568,7 @@ export function PortalUpdatesPanel({ projectId, isAdding, onAddingChange: setIsA
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-center gap-2 flex-wrap min-w-0">
                         <h3 className="text-sm font-semibold text-white">{update.title}</h3>
-                        <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${config.bg} ${config.text}`}>
+                        <span className={`inline-flex items-center px-1.5 py-0.5 text-[11px] font-semibold rounded ${config.bg} ${config.text}`}>
                           {config.label}
                         </span>
                       </div>

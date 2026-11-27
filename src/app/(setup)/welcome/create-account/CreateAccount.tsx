@@ -18,7 +18,7 @@ export function CreateAccount({ steps, missing, google = false }: { steps: Wizar
       steps={steps}
       current="account"
       hideProgress={blocked}
-      banner={blocked ? <p className="mb-8 text-xs font-medium text-amber-200">Before you start</p> : undefined}
+      banner={blocked ? <p className="mb-8 text-xs font-medium text-amber-300">Before you start</p> : undefined}
     >
       <div className="animate-fadeIn">
         {blocked ? <ConnectServerStep missing={missing} /> : <AccountStep google={google} />}

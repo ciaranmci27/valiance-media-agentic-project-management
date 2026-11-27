@@ -48,7 +48,7 @@ export function AssistantsSwitchSection({ agentsOn }: { agentsOn: boolean }) {
   const labelChanged = (label.trim() || null) !== (settings?.custom_label ?? null);
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="assistants-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="assistants-heading">
       <SettingsSectionHeader
         icon={Sparkles}
         headingId="assistants-heading"

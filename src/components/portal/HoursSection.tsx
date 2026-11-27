@@ -148,7 +148,7 @@ function WeeklyChart({ entries }: { entries: Entry[] }) {
         <div className="mt-2 grid grid-cols-12" aria-hidden="true">
           {weeks.map((week, i) => (
             <span key={week.start.getTime()} className={`flex justify-center ${i % 2 === 0 ? 'invisible' : ''}`}>
-              <span className="vm-mono vm-faint whitespace-nowrap text-[10px]">{formatMonthDay(week.start)}</span>
+              <span className="vm-mono vm-faint whitespace-nowrap text-[11px]">{formatMonthDay(week.start)}</span>
             </span>
           ))}
         </div>

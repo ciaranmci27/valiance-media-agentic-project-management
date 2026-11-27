@@ -12,6 +12,7 @@ import { useTaskWarmer } from '@/lib/reads';
 import { useNeedsYou } from '@/lib/use-needs-you';
 import { companyHubItems } from '@/lib/ai-home';
 import { NeedsYouView } from '@/components/agent/NeedsYouView';
+import { AgentAvatar } from '@/components/agent/AgentAvatar';
 import { QuestionCard } from '@/components/questions/QuestionCard';
 import Link from 'next/link';
 import {
@@ -87,7 +88,7 @@ export default function RadarPage() {
 }
 
 function RadarPageContent() {
-  const { tasks, projects, taskSuggestions, timeEntries, agentActivity, reminders, addReminder } = useApp();
+  const { tasks, projects, taskSuggestions, timeEntries, agentActivity, reminders, addReminder, team } = useApp();
   const { teamMemberId, access } = useAuth();
   const cardUnread = useCardUnread();
 
@@ -130,6 +131,11 @@ function RadarPageContent() {
     return companyHubItems(needsState.agents).filter((row) => ['blocked', 'merge', 'review'].includes(row.kind) && !!row.taskId && here.has(row.taskId));
   }, [needsYou, needsState.agents]);
   const hubTaskIds = useMemo(() => new Set(hubRows.map((row) => row.taskId)), [hubRows]);
+  // Who asked, by face, as on every Needs you row.
+  const askerFace = (memberId: string) => {
+    const asker = team.find((member) => member.id === memberId);
+    return asker ? <AgentAvatar id={asker.id} name={asker.name} src={asker.avatar || null} size="sm" /> : undefined;
+  };
   // Questions asked to you: one row each, answered in place.
   const questionsForYou = needsYou.flatMap(item => (item.kind === 'question' && item.openQuestion ? [item.openQuestion] : []));
 
@@ -481,7 +487,7 @@ function RadarPageContent() {
       <>
         <div className="px-4 py-3">
           <ReminderComposer
-            placeholder="Add a reminder..."
+            placeholder="Add a reminder"
             onAdd={(draft) => void addReminder(draft)}
           />
         </div>
@@ -550,7 +556,8 @@ function RadarPageContent() {
                   ? (
                     <>
                       {questionsForYou.map(question => (
-                        <QuestionCard key={question.id} question={question} variant="hub" place onOpenTask={setViewingTaskId} />
+                        <QuestionCard key={question.id} question={question} variant="hub" place onOpenTask={setViewingTaskId}
+                          lead={askerFace(question.asked_by)} />
                       ))}
                       {hubRows.length > 0 && (
                         <NeedsYouView needs={needsState.agents} items={hubRows} limit={hubRows.length} onOpenTask={setViewingTaskId} />

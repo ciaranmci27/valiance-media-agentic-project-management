@@ -204,7 +204,7 @@ export function AiSetupFlow({ exitHref, onManual, projectName }: { exitHref: str
               Could not load this. <Button variant="secondary" size="sm" onClick={read.reload}>Try again</Button>
             </p>
           ) : !view.ready ? (
-            <p className="rounded-xl bg-amber-500/[0.10] px-4 py-3 text-sm text-amber-100">
+            <p className="rounded-xl bg-amber-500/[0.10] px-4 py-3 text-sm text-amber-300">
               This needs the workspace&apos;s latest database update. <Link href="/settings/updates" className="font-medium underline underline-offset-2">Open Updates</Link>, or set it up step by step.
             </p>
           ) : live ? (
@@ -273,8 +273,14 @@ export function AiSetupFlow({ exitHref, onManual, projectName }: { exitHref: str
         </Part>
       </div>
 
-      <Modal isOpen={!!consentFor} onClose={() => setConsentFor(null)} title={`Let ${consentFor?.client_name ?? 'it'} set up agents?`} size="lg">
-        {consentFor && <Consent name={consentFor.client_name} now={now} busy={busy === 'start'} onAllow={() => start(consentFor)} onCancel={() => setConsentFor(null)} />}
+      <Modal
+        isOpen={!!consentFor}
+        onClose={() => setConsentFor(null)}
+        title="Allow AI setup?"
+        size="lg"
+        primaryAction={{ label: 'Allow for one hour', onClick: () => { if (consentFor) void start(consentFor); }, busy: busy === 'start' }}
+      >
+        {consentFor && <Consent name={consentFor.client_name} now={now} />}
       </Modal>
       <ConfirmDialog
         isOpen={!!revoking}
@@ -311,7 +317,7 @@ function Part({ n, done, title, description, children }: { n: number; done: bool
 }
 
 /** The consent step: exactly what an hour of setup allows, what it never does, and how it ends. */
-function Consent({ name, now, busy, onAllow, onCancel }: { name: string; now: number; busy: boolean; onAllow: () => void; onCancel: () => void }) {
+function Consent({ name, now }: { name: string; now: number }) {
   const ends = timeOf(new Date(now + AI_SETUP_MINUTES * 60_000).toISOString());
   return (
     <div>
@@ -329,10 +335,6 @@ function Consent({ name, now, busy, onAllow, onCancel }: { name: string; now: nu
         <Clock size={13} aria-hidden="true" />
         It ends on its own at {ends}. End it sooner here or in Settings &gt; Account &gt; Connect AI.
       </p>
-      <div className="mt-5 flex flex-col-reverse gap-2 border-t border-white/[0.06] pt-4 sm:flex-row sm:justify-end">
-        <Button variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
-        <Button icon={<ShieldCheck size={15} aria-hidden="true" />} onClick={onAllow} disabled={busy}>{busy ? 'Allowing' : 'Allow for one hour'}</Button>
-      </div>
     </div>
   );
 }

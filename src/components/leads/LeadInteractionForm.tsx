@@ -5,8 +5,7 @@ import { LeadInteraction, LEAD_INTERACTION_TYPES } from '@/lib/types';
 import { useApp } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { toLocalDatetimeString } from '@/lib/date-utils';
-import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/inputs/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
@@ -125,10 +124,11 @@ export function LeadInteractionForm({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={interaction ? 'Edit Interaction' : 'Add interaction'}
+      title={interaction ? 'Edit interaction' : 'Add interaction'}
       size="lg"
+      primaryAction={{ label: interaction ? 'Save interaction' : 'Add interaction', form: 'lead-interaction-form', busy: saving }}
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form id="lead-interaction-form" onSubmit={handleSubmit} className="space-y-4">
         <Select
           label="Type"
           value={type}
@@ -149,24 +149,21 @@ export function LeadInteractionForm({
           label="Description"
           value={description}
           onChange={setDescription}
-          placeholder="Details about this interaction..."
+          placeholder="Details about this interaction"
           rows={3}
         />
 
-        <div>
-          <label className="block text-sm font-medium text-input-text-label mb-1.5">
-            Occurred At
-          </label>
+        <ModalAdvanced label="When it happened" defaultOpen={!!interaction}>
           <div className="grid grid-cols-2 gap-2">
-            <DateInput value={occurredDate} onChange={setOccurredDate} clearable />
-            <TimeInput value={occurredTime} onChange={setOccurredTime} minuteStep={5} />
+            <DateInput label="Date" value={occurredDate} onChange={setOccurredDate} clearable />
+            <TimeInput label="Time" value={occurredTime} onChange={setOccurredTime} minuteStep={5} />
           </div>
-        </div>
+        </ModalAdvanced>
 
         {type === 'follow_up' && (
           <div>
             <label className="block text-sm font-medium text-input-text-label mb-1.5">
-              Scheduled For
+              Follow up on
             </label>
             <div className="grid grid-cols-2 gap-2">
               <DateInput value={scheduledDate} onChange={setScheduledDate} clearable />
@@ -178,14 +175,6 @@ export function LeadInteractionForm({
           </div>
         )}
 
-        <div className="flex justify-end gap-3 pt-4">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? 'Saving...' : interaction ? 'Save changes' : 'Add interaction'}
-          </Button>
-        </div>
       </form>
     </Modal>
   );

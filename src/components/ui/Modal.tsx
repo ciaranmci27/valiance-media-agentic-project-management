@@ -1,18 +1,50 @@
 'use client';
 
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { ChevronDown, Loader2, X } from 'lucide-react';
+import { Button } from './Button';
+
+/**
+ * The one primary action of a dialog (DESIGN.md Rule 15): a verb that names
+ * what happens ("Save contact", "Send invite"), shown on the right beside
+ * Cancel. `form` submits a form inside the dialog by its id.
+ */
+export interface ModalAction {
+  label: string;
+  onClick?: () => void;
+  /** The id of a form inside the dialog; the button submits it. */
+  form?: string;
+  disabled?: boolean;
+  /** Shows a spinner and blocks a second click. */
+  busy?: boolean;
+  /** `danger` only for what cannot be undone. */
+  variant?: 'primary' | 'danger';
+}
 
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Two to four words, sentence case: "Edit contact", "Record payment" (Rule 15). Never a subtitle under it. */
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl' | '6xl' | 'full';
+  /**
+   * The dialog's one primary button, pinned in the footer on the right with
+   * Cancel beside it. Leave out for a dialog that only shows something (a
+   * preview, a list) or draws its own steps (`StepFooter`).
+   */
+  primaryAction?: ModalAction;
+  /** "Cancel" by default; "Close" for a dialog with nothing to cancel. */
+  cancelLabel?: string;
 }
 
-export default function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
+/** Words in a title, to keep it to two to four (Rule 15). Exported for the design check's tests. */
+export function titleWords(title: string): number {
+  return title.trim().split(/\s+/).filter(Boolean).length;
+}
+
+export default function Modal({ isOpen, onClose, title, children, size = 'md', primaryAction, cancelLabel = 'Cancel' }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -90,6 +122,24 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
         <div className="px-4 sm:px-6 py-4 overflow-y-auto">
           {children}
         </div>
+
+        {/* One primary action beside Cancel, on the right (Rule 15) */}
+        {primaryAction && (
+          <div className="flex flex-shrink-0 items-center justify-end gap-3 border-t border-white/[0.08] px-4 py-3 sm:px-6">
+            <Button type="button" variant="secondary" onClick={onClose}>{cancelLabel}</Button>
+            <Button
+              type={primaryAction.form ? 'submit' : 'button'}
+              form={primaryAction.form}
+              variant={primaryAction.variant ?? 'primary'}
+              onClick={primaryAction.onClick}
+              disabled={primaryAction.disabled || primaryAction.busy}
+              aria-busy={primaryAction.busy || undefined}
+              icon={primaryAction.busy ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : undefined}
+            >
+              {primaryAction.label}
+            </Button>
+          </div>
+        )}
       </div>
 
       <style jsx>{`
@@ -116,5 +166,34 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
       `}</style>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * Fields a dialog's action can do without (Rule 15): one quiet "Advanced"
+ * line that opens them in place. Closed by default; open when one of them
+ * already holds a value (`defaultOpen`).
+ */
+export function ModalAdvanced({ children, label = 'Advanced', defaultOpen = false }: { children: ReactNode; label?: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const id = useId();
+  // A field inside that gains a value or an error later (a save that failed) opens the fold.
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls={id}
+        className="inline-flex items-center gap-1 rounded-md text-xs font-medium text-zinc-400 transition-colors hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400"
+      >
+        {label}
+        <ChevronDown size={14} aria-hidden="true" className={`transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && <div id={id} className="mt-3 space-y-4">{children}</div>}
+    </div>
   );
 }

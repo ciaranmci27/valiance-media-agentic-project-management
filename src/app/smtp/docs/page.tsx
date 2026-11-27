@@ -22,7 +22,7 @@ function ParamTable({ title, params }: {
 }) {
   return (
     <div className="mt-3">
-      <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">{title}</p>
+      <p className="text-xs font-semibold text-zinc-500 mb-2">{title}</p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm border border-zinc-100 rounded-lg overflow-hidden">
           <thead>
@@ -98,7 +98,7 @@ export default function SmtpDocsPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h2 className="font-semibold text-zinc-900">sendTransactional</h2>
-                    <span className="px-1.5 py-0.5 text-[10px] font-medium bg-emerald-50 text-emerald-600 rounded">App &rarr; User</span>
+                    <span className="px-1.5 py-0.5 text-[11px] font-medium bg-emerald-50 text-emerald-600 rounded">App &rarr; User</span>
                   </div>
                   <p className="text-sm text-zinc-500">Emails sent by your application to users</p>
                 </div>
@@ -139,7 +139,7 @@ await sendTransactional({
                 <div>
                   <div className="flex items-center gap-2">
                     <h2 className="font-semibold text-zinc-900">sendRelay</h2>
-                    <span className="px-1.5 py-0.5 text-[10px] font-medium bg-blue-50 text-blue-600 rounded">Form &rarr; Team</span>
+                    <span className="px-1.5 py-0.5 text-[11px] font-medium bg-blue-50 text-blue-600 rounded">Form &rarr; Team</span>
                   </div>
                   <p className="text-sm text-zinc-500">Relay form submissions to your team</p>
                 </div>
@@ -194,14 +194,14 @@ await sendRelay({
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <p className="text-xs font-medium text-emerald-600 uppercase tracking-wide mb-2">Success</p>
+                  <p className="text-xs font-medium text-emerald-600 mb-2">Success</p>
                   <CodeBlock>{`{
   success: true,
   messageId: "<abc123@mail.example.com>"
 }`}</CodeBlock>
                 </div>
                 <div>
-                  <p className="text-xs font-medium text-red-600 uppercase tracking-wide mb-2">Failure</p>
+                  <p className="text-xs font-medium text-red-600 mb-2">Failure</p>
                   <CodeBlock>{`{
   success: false,
   error: "Connection timeout"

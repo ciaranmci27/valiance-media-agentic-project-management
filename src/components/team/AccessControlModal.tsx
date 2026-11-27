@@ -300,13 +300,12 @@ export function AccessControlModal({
           </p>
         ) : (
           <p className="text-xs text-zinc-400">
-            Set exceptions for {selectedMember?.name || 'this member'}. A dashed box follows the{' '}
-            {selectedMember?.role || 'role'} default (ghost check = on); solid teal/red is an
-            explicit exception. Click a row to cycle Inherit → Allow → Deny.
+            Exceptions for {selectedMember?.name || 'this member'}. A dashed box follows the{' '}
+            {selectedMember?.role || 'role'} default. Click a row to cycle Inherit, Allow and Deny.
           </p>
         )}
         {loading ? (
-          <div className="py-10 text-center text-sm text-zinc-400">Loading access policy...</div>
+          <div className="py-10 text-center text-sm text-zinc-400">Loading access policy</div>
         ) : (
           <div className="grid md:grid-cols-2 gap-4">
             {PERMISSION_GROUPS.map((group) => ({
@@ -395,11 +394,11 @@ export function AccessControlModal({
                             <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-medium text-zinc-100">
                               {permission.label}
                               {shownChannel === 'api' && KEY_ONLY_PERMISSIONS.has(permission.key) && (
-                                <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-zinc-300">Keys only</span>
+                                <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] font-medium text-zinc-300">Keys only</span>
                               )}
                             </p>
                             <p className="text-xs text-zinc-400 mt-0.5">{permission.description}</p>
-                            <code className="mt-0.5 block font-mono text-[10px] text-zinc-500">{permission.key}</code>
+                            <code className="mt-0.5 block font-mono text-[11px] text-zinc-500">{permission.key}</code>
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
                             {tag}

@@ -99,7 +99,7 @@ export default function BillingModal({
   const continues = openEndedRetainer || Boolean(plan && plan.hours_trigger !== 'manual' && !plan.ends_on && !plan.paused);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Billing" size="2xl">
+    <Modal isOpen={isOpen} onClose={onClose} title="Project billing" size="2xl">
       <p className="sr-only">
         What bills this project on its own: upcoming invoices, retainers, and when hours are drafted. Drafts are never sent without you.
       </p>

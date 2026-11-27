@@ -77,7 +77,7 @@ export function InvoiceDetailsSection() {
   };
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6">
+    <section className="glass-card rounded-xl p-4 lg:p-5">
       <SettingsSectionHeader
         icon={Receipt}
         title="Invoice details"
@@ -133,7 +133,7 @@ export function InvoiceDetailsSection() {
           description="Shown at the bottom of every invoice, such as wire details, a payment link or a mailing address."
           value={paymentInstructions}
           onChange={setPaymentInstructions}
-          placeholder="Pay online at https://...&#10;Make checks payable to..."
+          placeholder="Pay online at https://...&#10;Make checks payable to"
           rows={3}
           maxLength={PAYMENT_INSTRUCTIONS_MAX}
           showCharCount

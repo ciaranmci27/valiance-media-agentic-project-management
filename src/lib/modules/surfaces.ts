@@ -144,7 +144,7 @@ export const MODULE_SURFACES: Record<ModuleId, ModuleSurface> = {
       // Personal agents by role or group.
       'assistant_setups',
       // The personal Assistant: a person's settings for theirs, and the chat switchboard.
-      'assistant_preferences', 'ai_setup_sessions', 'chat_connections', 'chat_messages', 'chat_rate_limits',
+      'assistant_preferences', 'ai_setup_sessions', 'chat_connections', 'chat_messages', 'chat_rate_limits', 'chat_answer_tokens',
       // The company bot: the agents a company connection reaches, and channel mappings.
       'chat_connection_agents', 'chat_channel_routes',
       // Per-agent limits and the per-agent request windows.

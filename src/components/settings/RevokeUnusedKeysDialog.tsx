@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Ban, KeyRound, Loader2 } from 'lucide-react';
+import { KeyRound, Loader2 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Pill } from '@/components/ui/Pill';
 import { toast } from '@/components/ui/Toast';
@@ -77,9 +76,9 @@ export function RevokeUnusedKeysDialog({ isOpen, onClose, demoKeys, team, onRevo
 
   const count = preview?.length ?? 0;
   return (
-    <Modal isOpen={isOpen} onClose={() => { if (!busy) onClose(); }} title="Revoke unused keys?" size="md">
+    <Modal isOpen={isOpen} onClose={() => { if (!busy) onClose(); }} title="Revoke unused keys?" size="md" primaryAction={{ label: count ? `Revoke ${count} ${count === 1 ? 'key' : 'keys'}` : 'Revoke keys', onClick: () => void revoke(), disabled: count === 0, busy, variant: 'danger' }}>
       <div className="space-y-4">
-        <p className="text-sm text-zinc-300">Keys never used, or not used for {UNUSED_KEY_DAYS} days. Revoking stops them for good; anything still using one would need a new key.</p>
+        <p className="text-sm text-zinc-300">Not used for {UNUSED_KEY_DAYS} days or never. Revoking stops them for good.</p>
         {failed ? (
           <EmptyState variant="error" compact title="Could not look for unused keys" description={failed} />
         ) : !preview ? (
@@ -113,17 +112,6 @@ export function RevokeUnusedKeysDialog({ isOpen, onClose, demoKeys, team, onRevo
             ))}
           </ul>
         )}
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button
-            variant="danger"
-            onClick={() => void revoke()}
-            disabled={busy || count === 0}
-            icon={busy ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Ban size={14} aria-hidden="true" />}
-          >
-            {busy ? 'Revoking' : count ? `Revoke ${count} ${count === 1 ? 'key' : 'keys'}` : 'Revoke'}
-          </Button>
-        </div>
       </div>
     </Modal>
   );

@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { ChevronDown, LogOut, Pause, Play, Search, Trash2 } from 'lucide-react';
@@ -366,8 +367,8 @@ function AssignmentItem({ row, mode, canEdit, templateLabel, templates, linked, 
               : <span className={titleClass}>{title}</span>}
             {row.agent_role && mode === 'project' && <span className="text-xs text-zinc-400">{roleLabel(row.agent_role)}</span>}
             {paused && <PresencePill presence="paused" />}
-            {flags.suspended && <span className="rounded-full bg-red-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-red-300">Suspended</span>}
-            {flags.noAccess && <span className="rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-300">No access</span>}
+            {flags.suspended && <Pill tone="problem">Suspended</Pill>}
+            {flags.noAccess && <Pill tone="waiting">No access</Pill>}
           </div>
           <p className="mt-0.5 truncate text-xs text-zinc-500">
             {flags.noAccess

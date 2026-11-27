@@ -1,4 +1,5 @@
 'use client';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { useUndoTrash } from './useUndoTrash';
 import { storedFileHref } from '@/lib/storage/stored-file-url';
 import { FileInput } from '@/components/ui/inputs/FileInput';
@@ -14,7 +15,6 @@ import {
   X,
   Upload,
   File,
-  Loader2,
   ChevronDown,
   Copy,
   Clock,
@@ -47,7 +47,7 @@ import { useAuth } from '@/lib/auth-context';
 import { hasPermission } from '@/lib/access-control';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/components/ui/Toast';
-import Modal from '@/components/ui/Modal';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { useDemo } from '@/lib/demo-context';
 import { Select } from '@/components/ui/inputs/Select';
 import { TextInput } from '@/components/ui/inputs/TextInput';
@@ -1289,7 +1289,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
               label="Invoice description"
               value={li.description}
               onChange={(value) => patchLineItem(li.id, { description: value })}
-              placeholder="Describe the work billed…"
+              placeholder="Describe the work billed"
               name={`invoice-description-${li.id}`}
               autoComplete="off"
             />
@@ -1403,7 +1403,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
   };
 
   // Shared form fields renderer
-  const renderForm = (mode: 'add' | 'edit') => (
+  const renderForm = () => (
     <div className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <TextInput
@@ -1427,17 +1427,17 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       </div>
 
       <div className={`grid gap-2 grid-cols-2 ${formStatus === 'paid' ? 'sm:grid-cols-3' : ''}`}>
-        <DateInput label="Invoice Date" value={formDate} onChange={setFormDate} size="sm" />
-        <DateInput label="Due Date" value={formDueDate} onChange={setFormDueDate} size="sm" />
+        <DateInput label="Invoice date" value={formDate} onChange={setFormDate} size="sm" />
+        <DateInput label="Due date" value={formDueDate} onChange={setFormDueDate} size="sm" />
         {formStatus === 'paid' && (
-          <DateInput label="Paid Date" value={formPaidDate} onChange={setFormPaidDate} size="sm" />
+          <DateInput label="Paid date" value={formPaidDate} onChange={setFormPaidDate} size="sm" />
         )}
       </div>
 
       {/* Line items editor */}
       <div className="space-y-2">
         <div className="flex items-baseline justify-between">
-          <span className="text-xs font-medium text-input-text-label">Line Items</span>
+          <span className="text-xs font-medium text-input-text-label">Line items</span>
           <span className="text-xs font-medium text-input-text-label">
             Total <span className="text-white">{invoiceMoney(formTotal, formCurrency)}</span>
           </span>
@@ -1468,27 +1468,28 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             Add discount
           </button>
           {allUnpaidHoursDraft && trackedTimeFits && !unpaidPickerOpen && formTimeAllocations.length === 0 && (
-            <button
-              type="button"
-              onClick={openUnpaidPicker}
-              title={allUnpaidHoursDraft.description}
-              className="inline-flex items-center gap-1 text-xs font-medium text-brand-300 hover:text-brand-300 transition-colors"
-            >
-              <Clock size={12} strokeWidth={2.5} />
-              Add tracked time ({invoiceMoney(allUnpaidHoursDraft.amount, formCurrency)})
-            </button>
+            <Tooltip content={allUnpaidHoursDraft.description}>
+              <button
+                type="button"
+                onClick={openUnpaidPicker}
+                className="inline-flex items-center gap-1 text-xs font-medium text-brand-300 hover:text-brand-300 transition-colors"
+              >
+                <Clock size={12} strokeWidth={2.5} />
+                Add tracked time ({invoiceMoney(allUnpaidHoursDraft.amount, formCurrency)})
+              </button>
+            </Tooltip>
           )}
           {offeredRetainerPeriods.map((period) => (
-            <button
-              key={`${period.retainer_id}:${period.period_start}`}
-              type="button"
-              onClick={() => insertRetainerLine(period)}
-              title={`${fmtServicePeriod(period.period_start, period.period_end) ?? ''}${period.skipped ? ' (skipped earlier)' : ''}`}
-              className="inline-flex items-center gap-1 text-xs font-medium text-brand-300 hover:text-brand-300 transition-colors"
-            >
-              <Repeat size={12} strokeWidth={2.5} aria-hidden="true" />
-              Add {period.retainer_name}, {fmtRetainerMonth(period.period_start)} ({invoiceMoney(period.amount, formCurrency)})
-            </button>
+            <Tooltip key={`${period.retainer_id}:${period.period_start}`} content={`${fmtServicePeriod(period.period_start, period.period_end) ?? ''}${period.skipped ? ' (skipped earlier)' : ''}`}>
+              <button
+                type="button"
+                onClick={() => insertRetainerLine(period)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-brand-300 hover:text-brand-300 transition-colors"
+              >
+                <Repeat size={12} strokeWidth={2.5} aria-hidden="true" />
+                Add {period.retainer_name}, {fmtRetainerMonth(period.period_start)} ({invoiceMoney(period.amount, formCurrency)})
+              </button>
+            </Tooltip>
           ))}
         </div>
         {unavailableNote && <p className="mt-1.5 text-[11px] text-zinc-400">{unavailableNote}</p>}
@@ -1630,7 +1631,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3 px-3 py-2.5">
                     <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                      <p className="text-[11px] font-semibold text-zinc-400">
                         Calculated selection
                       </p>
                       {selectedUnpaidDraft ? (
@@ -1737,21 +1738,22 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                             <p className="whitespace-nowrap text-[11px] font-medium tabular-nums text-white">
                               {invoiceMoney(allocation.allocated_amount, formCurrency)}
                             </p>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExcludedTimeEntryIds((previous) => {
-                                  const next = new Set(previous);
-                                  next.add(allocation.time_entry_id);
-                                  return next;
-                                })
-                              }
-                              aria-label={`Remove ${entry?.description || 'tracked session'} from invoice`}
-                              title="Remove from invoice"
-                              className="-m-1 rounded p-1 text-zinc-500 transition-colors hover:bg-red-500/15 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
-                            >
-                              <X size={13} aria-hidden="true" />
-                            </button>
+                            <Tooltip content="Remove from invoice">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExcludedTimeEntryIds((previous) => {
+                                    const next = new Set(previous);
+                                    next.add(allocation.time_entry_id);
+                                    return next;
+                                  })
+                                }
+                                aria-label={`Remove ${entry?.description || 'tracked session'} from invoice`}
+                                className="-m-1 rounded p-1 text-zinc-500 transition-colors hover:bg-red-500/15 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                              >
+                                <X size={13} aria-hidden="true" />
+                              </button>
+                            </Tooltip>
                           </div>
                         );
                       })}
@@ -1779,8 +1781,9 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         )}
       </div>
 
+      <ModalAdvanced label="Notes and attachment" defaultOpen={Boolean(formDescription || formFile || existingFileUrl)}>
       <Textarea
-        label="Invoice Notes"
+        label="Notes"
         value={formDescription}
         onChange={setFormDescription}
         placeholder="Optional notes, payment terms, or a thank-you"
@@ -1839,20 +1842,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           </button>
         )}
       </div>
-
-      <div className="flex items-center gap-2 justify-end">
-        <Button type="button" variant="ghost" onClick={handleCancel}>
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          onClick={mode === 'add' ? handleAdd : handleSaveEdit}
-          disabled={!canSave() || saving}
-          icon={saving ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : undefined}
-        >
-          {mode === 'add' ? 'Save' : 'Update'}
-        </Button>
-      </div>
+      </ModalAdvanced>
     </div>
   );
 
@@ -1924,13 +1914,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
     return (
       <>
         {isPartiallyPaid(invoice, taxRate) && (
-          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-500/15 text-amber-300">
+          <span className="inline-flex items-center px-1.5 py-0.5 text-[11px] font-medium rounded bg-amber-500/15 text-amber-300">
             Part paid {formatMoneyExact(invoicePaidTotal(invoice), { currency: invoice.currency })} of {formatMoneyExact(invoiceTotal(invoice, taxRate), { currency: invoice.currency })}
           </span>
         )}
         {invoice.auto_generated && invoice.status === 'draft' && (
           <span
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-brand-500/15 text-brand-300"
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-medium rounded bg-brand-500/15 text-brand-300"
             title={leftOut
               ? `Drafted automatically. ${leftOut.toFixed(2)} h awaiting approval was left out and goes on the next draft. Review and send it.`
               : 'Drafted automatically (retainer or hours schedule). Review and send it.'}
@@ -1940,12 +1930,12 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           </span>
         )}
         {items.length > 1 ? (
-          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400">
+          <span className="inline-flex items-center px-1.5 py-0.5 text-[11px] font-medium rounded bg-white/[0.06] text-zinc-400">
             {items.length} items
           </span>
         ) : (
           items[0]?.item_type && items[0].item_type !== 'hourly' && (
-            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-400 capitalize">
+            <span className="inline-flex items-center px-1.5 py-0.5 text-[11px] font-medium rounded bg-white/[0.06] text-zinc-400 capitalize">
               {items[0].item_type}
             </span>
           )
@@ -1978,7 +1968,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
         <div className="min-w-0">
           {items.length > 0 && (
             <>
-              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+              <h4 className="text-[11px] font-semibold text-zinc-400 mb-2">
                 {items.length > 1 ? 'Line items' : 'Line item'}
               </h4>
               <ul className="rounded-lg border border-white/[0.06] divide-y divide-white/[0.05]">
@@ -1988,11 +1978,11 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                     <li key={li.id} className="flex items-start justify-between gap-4 px-3 py-2.5">
                       <div className="min-w-0 space-y-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/[0.06] text-zinc-300 capitalize">
+                          <span className="inline-flex items-center px-1.5 py-0.5 text-[11px] font-medium rounded bg-white/[0.06] text-zinc-300 capitalize">
                             {li.amount < 0 ? 'Discount' : lineItemTypeLabel(li.item_type)}
                           </span>
                           {li.item_type === 'recurring' && li.recurrence_frequency && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-500/15 text-amber-300 capitalize">
+                            <span className="inline-flex items-center px-1.5 py-0.5 text-[11px] font-medium rounded bg-amber-500/15 text-amber-300 capitalize">
                               {li.recurrence_frequency}
                             </span>
                           )}
@@ -2008,7 +1998,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
                 })}
                 {items.length > 1 && (
                   <li className="flex items-center justify-between px-3 py-2.5 bg-white/[0.02]">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Total</span>
+                    <span className="text-[11px] font-semibold text-zinc-400">Total</span>
                     <span className="text-sm font-semibold tabular-nums text-white">{invoiceMoney(invoice.amount, invoice.currency)}</span>
                   </li>
                 )}
@@ -2028,13 +2018,13 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
           />
           {invoice.description && (
             <div>
-              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">Notes</h4>
+              <h4 className="text-[11px] font-semibold text-zinc-400 mb-1">Notes</h4>
               <p className="text-sm text-zinc-300 whitespace-pre-wrap break-words">{invoice.description}</p>
             </div>
           )}
           {invoice.file_url && (
             <div>
-              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">Attachment</h4>
+              <h4 className="text-[11px] font-semibold text-zinc-400 mb-1">Attachment</h4>
               <a
                 href={storedFileHref(invoice.file_url)}
                 target="_blank"
@@ -2142,7 +2132,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
             icon={<CalendarClock />}
             label="Billing settings"
             onClick={() => setBillingTab('upcoming')}
-            title="Retainers, scheduled hourly drafts, payment terms and what bills next"
+            hint="Retainers, scheduled hourly drafts, payment terms and what bills next"
           />
         }
         primary={<ToolbarButton icon={<Plus />} label="New invoice" onClick={openAddForm} />}
@@ -2281,7 +2271,7 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       >
         {invoices.length > 0 ? (
           <section className="@container glass-card rounded-xl overflow-hidden" aria-label="Invoices">
-            <div className={`hidden @2xl:grid ${INVOICE_COLS} gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-400`}>
+            <div className={`hidden @2xl:grid ${INVOICE_COLS} gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold text-zinc-400`}>
               <span>Status</span>
               <span>Invoice</span>
               <span>Issued</span>
@@ -2308,11 +2298,17 @@ export default function InvoicesPanel({ projectId, projectColor }: InvoicesPanel
       <Modal
         isOpen={isAdding || Boolean(editingId)}
         onClose={handleCancel}
-        title={editingId ? `Edit invoice ${formNumber}` : 'Create invoice'}
+        title={editingId ? 'Edit invoice' : 'New invoice'}
         size="6xl"
+        primaryAction={{
+          label: saving ? 'Saving' : editingId ? 'Save invoice' : 'Create invoice',
+          onClick: () => void (editingId ? handleSaveEdit() : handleAdd()),
+          disabled: !canSave(),
+          busy: saving,
+        }}
       >
         <div className="mx-auto w-full max-w-6xl pb-1">
-          {renderForm(editingId ? 'edit' : 'add')}
+          {renderForm()}
         </div>
       </Modal>
 

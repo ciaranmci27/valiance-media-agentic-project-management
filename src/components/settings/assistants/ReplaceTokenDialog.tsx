@@ -19,7 +19,7 @@ export function ReplaceTokenDialog({ connection, onClose, onReplaced }: {
   onReplaced: (connection: ChatConnectionView) => void;
 }) {
   return (
-    <Modal isOpen={!!connection} onClose={onClose} title={connection?.provider === 'slack' ? 'Replace token or signing secret' : 'Replace bot token'} size="md">
+    <Modal isOpen={!!connection} onClose={onClose} title={connection?.provider === 'slack' ? 'Replace Slack secrets' : 'Replace bot token'} size="md">
       {connection && <ReplaceForm connection={connection} onClose={onClose} onReplaced={onReplaced} />}
     </Modal>
   );
@@ -53,7 +53,7 @@ function ReplaceForm({ connection, onClose, onReplaced }: { connection: ChatConn
   return (
     <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <p className="text-sm text-zinc-400">
-        {connection.display_name} keeps its {slack ? 'Request URL, ' : ''}chat history and everyone&apos;s linked accounts. The new token must be for the same {slack ? 'Slack app and workspace' : 'bot'}.
+        Use a token for the same {slack ? 'Slack app and workspace' : 'bot'}. History and linked accounts stay.
       </p>
       {slack && (
         <p className="rounded-lg bg-white/[0.04] px-3 py-2.5 text-sm text-zinc-300">
@@ -67,8 +67,8 @@ function ReplaceForm({ connection, onClose, onReplaced }: { connection: ChatConn
       </div>
       {error && <p role="alert" className="rounded-lg bg-red-500/[0.12] px-3 py-2 text-sm text-red-300">{error}</p>}
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button type="submit" disabled={saving || !ready}>{saving ? 'Checking' : 'Replace'}</Button>
+        <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button type="submit" disabled={saving || !ready}>{saving ? 'Checking' : slack ? 'Replace secrets' : 'Replace token'}</Button>
       </div>
     </form>
   );

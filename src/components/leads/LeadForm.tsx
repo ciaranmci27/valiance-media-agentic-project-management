@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Lead } from '@/lib/types';
 import { useApp } from '@/lib/store';
-import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/inputs/Select';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
@@ -138,8 +137,8 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={lead ? 'Edit Lead' : 'New Lead'} size="lg">
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal isOpen={isOpen} onClose={onClose} title={lead ? 'Edit lead' : 'New lead'} size="lg" primaryAction={{ label: lead ? 'Save lead' : 'Add lead', form: 'lead-form', busy: saving }}>
+      <form id="lead-form" onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <Input
             label="Name"
@@ -181,7 +180,7 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
             value={source}
             onChange={(value) => setSource(value)}
             options={sourceOptions}
-            placeholder="Select source..."
+            placeholder="Pick a source"
             error={errors.source}
           />
           <Select
@@ -189,17 +188,18 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
             value={status}
             onChange={(value) => setStatus(value)}
             options={statusOptions}
-            placeholder="Select status..."
+            placeholder="Pick a status"
             error={errors.status}
           />
         </div>
 
+        <ModalAdvanced label="Team and notes" defaultOpen={!!(lead?.member_ids?.length || lead?.notes)}>
         <MultiSelect
-          label="Team Members"
+          label="Team members"
           options={team.map((m) => ({ value: m.id, label: m.name }))}
           value={memberIds}
           onChange={setMemberIds}
-          placeholder="Select team members..."
+          placeholder="Pick team members"
           selectAll
           searchable={team.length > 4}
         />
@@ -209,19 +209,11 @@ export function LeadForm({ isOpen, onClose, lead, onConvertRequested }: LeadForm
           <RichTextEditor
             value={notes}
             onChange={setNotes}
-            placeholder="Additional notes..."
+            placeholder="Additional notes"
             rows={3}
           />
         </div>
-
-        <div className="flex justify-end gap-3 pt-4">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? 'Saving...' : lead ? 'Save changes' : 'Add lead'}
-          </Button>
-        </div>
+        </ModalAdvanced>
       </form>
     </Modal>
   );

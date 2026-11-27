@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { CircleHelp, Plus, Reply, ShieldAlert, ShieldQuestion, Sparkles, X, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
@@ -181,10 +182,7 @@ export function TrustBadge({ level, compact = false }: { level: TrustLevel; comp
       );
     }
     return (
-      <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-red-500/[0.14] px-2 py-0.5 text-[11px] font-semibold text-red-300 ring-1 ring-inset ring-red-400/30">
-        <ShieldAlert size={11} aria-hidden="true" />
-        Sender not confirmed
-      </span>
+      <Pill tone="problem" icon={<ShieldAlert />}>Sender not confirmed</Pill>
     );
   }
   return (

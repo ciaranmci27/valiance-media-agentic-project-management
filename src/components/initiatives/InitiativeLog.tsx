@@ -271,7 +271,7 @@ function EntryItem({ entry, projectId, canLog, onOpenTask }: {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-400">
-                  <span className="font-medium uppercase tracking-wide">{INITIATIVE_ENTRY_KIND_LABELS[entry.kind]}</span>
+                  <span className="font-medium">{INITIATIVE_ENTRY_KIND_LABELS[entry.kind]}</span>
                   {isIssue && (
                     <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-medium normal-case ${
                       resolved ? 'bg-emerald-500/[0.14] text-emerald-300' : 'bg-amber-500/[0.14] text-amber-300'

@@ -399,7 +399,7 @@ export function InvoicePreviewModalView({
                   <Settings size={14} />
                   <span className="hidden sm:inline">Customize</span>
                   {hiddenCount > 0 && (
-                    <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold text-white bg-brand-600 rounded-full">
+                    <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[11px] font-semibold text-white bg-brand-600 rounded-full">
                       {hiddenCount}
                     </span>
                   )}
@@ -447,13 +447,13 @@ export function InvoicePreviewModalView({
               >
                 <span
                   className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 rounded-full border ${
-                    theme === 'dark' ? 'bg-[#08090C] border-white/20' : 'bg-white border-black/15'
+                    theme === 'dark' ? 'bg-zinc-900 border-white/20' : 'bg-white border-black/15'
                   }`}
                   aria-hidden="true"
                 />
                 <span className="flex-1 min-w-0">
                   <span className={`block text-xs font-medium ${chrome.rowLabel}`}>{label}</span>
-                  <span className="block text-[10px] text-zinc-400 mt-0.5 leading-relaxed">{description}</span>
+                  <span className="block text-[11px] text-zinc-400 mt-0.5 leading-relaxed">{description}</span>
                 </span>
               </button>
             ))}
@@ -468,7 +468,7 @@ export function InvoicePreviewModalView({
             <div className={`px-3 py-2.5 border-b ${chrome.panelDivider} flex items-center justify-between`}>
               <div>
                 <h3 className={`text-xs font-semibold ${chrome.panelHeading}`}>Show on PDF</h3>
-                <p className="text-[10px] text-zinc-400 mt-0.5">Applies to downloads and the client portal.</p>
+                <p className="text-[11px] text-zinc-400 mt-0.5">Applies to downloads and the client portal.</p>
               </div>
               <button
                 onClick={customizer.resetOptions}
@@ -492,7 +492,7 @@ export function InvoicePreviewModalView({
                   >
                     <div className="flex-1 min-w-0">
                       <p className={`text-xs font-medium ${chrome.rowLabel}`}>{label}</p>
-                      <p className="text-[10px] text-zinc-400 mt-0.5 leading-relaxed">{description}</p>
+                      <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">{description}</p>
                     </div>
                     <span
                       className={`relative mt-0.5 inline-flex h-[18px] w-8 flex-shrink-0 items-center rounded-full transition-colors ${

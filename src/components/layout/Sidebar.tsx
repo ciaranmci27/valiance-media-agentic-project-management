@@ -1,5 +1,6 @@
 'use client';
 
+import { GroupLabel } from '@/components/ui/GroupLabel';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -249,7 +250,7 @@ export function Sidebar() {
                     onMouseEnter={() => warmProject(project.id)}
                     onFocus={() => warmProject(project.id)}
                     aria-current={current ? 'page' : undefined}
-                    className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 gap-2 ${current ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'}`}
+                    className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-sm font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 gap-2 ${current ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'}`}
                   >
                     {current && <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />}
                     {/* No color picked: the brand color, so every name lines up. */}
@@ -268,7 +269,7 @@ export function Sidebar() {
                 href="/projects"
                 onClick={closeSidebar}
                 aria-current={onProjectsIndex ? 'page' : undefined}
-                className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${onProjectsIndex ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'}`}
+                className={`relative flex items-center pl-[21.5px] pr-3 py-1.5 rounded-md text-sm font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${onProjectsIndex ? 'text-brand-300' : 'text-zinc-500 hover:text-zinc-200'}`}
               >
                 {onProjectsIndex && <span className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400" aria-hidden="true" />}
                 All projects
@@ -396,7 +397,7 @@ export function Sidebar() {
           {showActiveProjects && (loading || projects.length > 0) && (
           <div className="pt-4">
             <div className="flex items-center justify-between px-3 mb-2">
-              <p className="text-xs text-zinc-600 uppercase tracking-wider font-medium">Active projects</p>
+              <GroupLabel className="">Active projects</GroupLabel>
               {hasPermission(access, 'projects.manage') && (
                 <Link
                   href="/projects?new=true"

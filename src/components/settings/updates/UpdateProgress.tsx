@@ -80,7 +80,7 @@ function headline(run: UpdateRun, progress: RunProgress): { title: ReactNode; ic
 }
 
 function StepMarker({ status, number }: { status: StepStatus; number: number }) {
-  const base = 'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-semibold tabular-nums';
+  const base = 'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums';
   switch (status) {
     case 'done': return <span className={`${base} bg-emerald-500/[0.16] text-emerald-300`}><Check size={11} aria-hidden="true" /></span>;
     case 'failed': return <span className={`${base} bg-red-500/[0.16] text-red-300`}><X size={11} aria-hidden="true" /></span>;
@@ -428,7 +428,7 @@ export function UpdateProgress({
   const stepKey: StepKey = progress.current;
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="updates-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="updates-heading">
       <SettingsSectionHeader icon={icon} title={title} headingId="updates-heading" description={description} />
 
       <p role="status" aria-live="polite" className="sr-only">{liveSummary(run, progress)}</p>

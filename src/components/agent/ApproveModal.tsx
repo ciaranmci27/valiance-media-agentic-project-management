@@ -3,9 +3,8 @@
 import { useState } from 'react';
 import { useApp } from '@/lib/store';
 import { AiReadiness, TaskSuggestion, TASK_TYPES, TaskType } from '@/lib/types';
-import Modal from '@/components/ui/Modal';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
-import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/inputs/Select';
 import { DateInput } from '@/components/ui/inputs/DateInput';
@@ -100,63 +99,21 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
   };
 
   return (
-    <Modal isOpen onClose={onClose} title="Approve Suggestion" size="md">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-zinc-300 mb-1">Title</label>
-          <p className="px-3 py-2 text-sm text-white bg-white/[0.03] border border-white/[0.08] rounded-lg">
-            {suggestion.title}
-          </p>
-        </div>
+    <Modal isOpen onClose={onClose} title="Approve suggestion" size="md" primaryAction={{ label: 'Approve', form: 'approve-suggestion-form' }}>
+      <form id="approve-suggestion-form" onSubmit={handleSubmit} className="space-y-4">
+        <p className="text-sm font-medium text-white">{suggestion.title}</p>
 
-        <div>
-          <label className="block text-sm font-medium text-zinc-300 mb-1">Description</label>
-          <p className="px-3 py-2 text-sm text-zinc-300 bg-white/[0.03] border border-white/[0.08] rounded-lg max-h-24 overflow-y-auto">
-            {suggestion.description}
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Select
-            label="Priority"
-            value={priority}
-            onChange={(v) => setPriority(v as any)}
-            options={[
-              { value: 'low', label: 'Low' },
-              { value: 'medium', label: 'Medium' },
-              { value: 'high', label: 'High' },
-              { value: 'urgent', label: 'Urgent' },
-            ]}
-          />
-
-          <Select
-            label="Assign To"
-            value={assignedTo}
-            onChange={setAssignedTo}
-            options={[
-              { value: '', label: 'Unassigned' },
-              ...team.map((m) => ({
-                value: m.id,
-                label: m.role === 'agent' ? `${m.name} (agent)` : m.name,
-              })),
-            ]}
-          />
-
-          <Select
-            label="Task Type"
-            value={taskType}
-            onChange={(v) => setTaskType(v as TaskType | '')}
-            options={[
-              { value: '', label: 'None' },
-              ...TASK_TYPES.map((t) => ({
-                value: t,
-                label: t.charAt(0).toUpperCase() + t.slice(1),
-              })),
-            ]}
-          />
-
-          <DateInput label="Due Date" value={dueDate} onChange={setDueDate} clearable />
-        </div>
+        <Select
+          label="Priority"
+          value={priority}
+          onChange={(v) => setPriority(v as any)}
+          options={[
+            { value: 'low', label: 'Low' },
+            { value: 'medium', label: 'Medium' },
+            { value: 'high', label: 'High' },
+            { value: 'urgent', label: 'Urgent' },
+          ]}
+        />
 
         <div className="pt-2">
           <label className="block text-sm font-medium text-zinc-300 mb-1.5">
@@ -167,7 +124,7 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
               [
                 {
                   key: 'ai_ready',
-                  label: 'AI Ready',
+                  label: 'AI ready',
                   hint: devAgent
                     ? `${devAgent.name} starts automatically`
                     : 'Dev agent starts automatically',
@@ -203,12 +160,37 @@ export function ApproveModal({ suggestion, onClose, onApprove }: ApproveModalPro
           )}
         </div>
 
-        <div className="flex justify-end gap-3 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit">Approve</Button>
+        <ModalAdvanced defaultOpen={Boolean(assignedTo || taskType || dueDate)}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Select
+            label="Assign to"
+            value={assignedTo}
+            onChange={setAssignedTo}
+            options={[
+              { value: '', label: 'Unassigned' },
+              ...team.map((m) => ({
+                value: m.id,
+                label: m.role === 'agent' ? `${m.name} (agent)` : m.name,
+              })),
+            ]}
+          />
+
+          <Select
+            label="Task type"
+            value={taskType}
+            onChange={(v) => setTaskType(v as TaskType | '')}
+            options={[
+              { value: '', label: 'None' },
+              ...TASK_TYPES.map((t) => ({
+                value: t,
+                label: t.charAt(0).toUpperCase() + t.slice(1),
+              })),
+            ]}
+          />
+
+          <DateInput label="Due date" value={dueDate} onChange={setDueDate} clearable />
         </div>
+        </ModalAdvanced>
       </form>
     </Modal>
   );

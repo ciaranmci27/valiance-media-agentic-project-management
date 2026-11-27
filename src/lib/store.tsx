@@ -406,7 +406,8 @@ interface AppContextType {
 
   // Lead Field CRUD
   setLeadField: (leadId: string, fieldKey: string, value: string) => void;
-  deleteLeadField: (id: string, leadId: string) => void;
+  /** True once it is in Trash (so Undo makes sense); false when the delete failed and was rolled back. */
+  deleteLeadField: (id: string, leadId: string) => Promise<boolean>;
 
   // Lead Contact CRUD
   addLeadContact: (leadId: string, contactId: string, role: string, customRole: string | null, isPrimaryClient: boolean) => void;
@@ -2860,14 +2861,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteLeadFieldAction = async (id: string, leadId: string) => {
+  const deleteLeadFieldAction = async (id: string, leadId: string): Promise<boolean> => {
     const prev = leadFields;
     setLeadFields(f => f.filter(field => field.id !== id));
     if (skipSupabase) {
       const field = prev.find(f => f.id === id);
       trashInDemo('lead_fields', id, field ? `${field.field_key}: ${field.value}` : 'Lead field', leads.find(l => l.id === leadId)?.name ?? null, null,
         () => setLeadFields(rollbackScope(prev, f => f.id === id)), { type: 'leads', id: leadId });
-      return;
+      return true;
     }
 
     try {
@@ -2876,9 +2877,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (lead) {
         notify(allMemberIds(), `Lead "${lead.name}" field removed`, `${actorName()} removed a lead field.`, `/leads/${leadId}`, 'lead', leadId, 'lead_updates');
       }
+      return true;
     } catch (err) {
       setLeadFields(rollbackScope(prev, field => field.id === id));
       toast('error', 'Failed to remove field');
+      return false;
     }
   };
 

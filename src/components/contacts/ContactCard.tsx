@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreVertical, Edit, Trash2, Mail, Phone } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash2, Mail, Phone } from 'lucide-react';
 import { Contact } from '@/lib/types';
 import { Avatar } from '@/components/ui/Avatar';
 import { Popover } from '@/components/ui/Popover';
@@ -79,7 +79,7 @@ export function ContactCard({ contact, onEdit, onDelete }: ContactCardProps) {
             onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
             className="lg:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
           >
-            <MoreVertical size={16} />
+            <MoreHorizontal size={16} />
           </button>
 
           <Popover

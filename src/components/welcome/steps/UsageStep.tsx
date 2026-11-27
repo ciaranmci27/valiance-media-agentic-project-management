@@ -141,7 +141,7 @@ export function UsageStep({ onNext, onSkip, onBack }: WizardStepProps) {
       {!current && <p className="mt-2 text-[11px] text-zinc-400">Custom mix</p>}
 
       <div className="mt-10">
-        <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-400">Fine-tune</h2>
+        <h2 className="text-xs font-medium text-zinc-400">Fine-tune</h2>
         <p className="mt-3 flex items-start gap-2 rounded-lg bg-white/[0.03] px-3 py-2 text-xs text-zinc-400">
           <Lock size={13} className="mt-px flex-shrink-0" aria-hidden="true" />
           Projects, tasks, team, notifications, reminders, files and API keys are always on.
@@ -153,7 +153,7 @@ export function UsageStep({ onNext, onSkip, onBack }: WizardStepProps) {
             const headingId = `welcome-group-${group.id}`;
             return (
               <div key={group.id} role="group" aria-labelledby={headingId}>
-                <h3 id={headingId} className="mb-3 text-[11px] font-medium uppercase tracking-wide text-zinc-400">{group.label}</h3>
+                <h3 id={headingId} className="mb-3 text-[11px] font-medium text-zinc-400">{group.label}</h3>
                 <ul className="divide-y divide-white/[0.06]">
                   {ids.map((id) => (
                     <ModuleRow key={id} id={id} on={on.has(id)} disabled={saving} onToggle={toggle}>
@@ -169,7 +169,7 @@ export function UsageStep({ onNext, onSkip, onBack }: WizardStepProps) {
 
       {storedRegion && (
         <div className="mt-10" role="group" aria-labelledby="welcome-region">
-          <h2 id="welcome-region" className="text-xs font-medium uppercase tracking-wide text-zinc-400">Currency and format</h2>
+          <h2 id="welcome-region" className="text-xs font-medium text-zinc-400">Currency and format</h2>
           {regionShown ? (
             <div className="mt-4">
               <RegionFields

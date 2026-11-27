@@ -104,9 +104,19 @@ export const slackAdapter: ChatAdapter = {
 
   async send(credentials, message) {
     const threadTs = message.threadId ?? message.replyTo ?? null;
+    const text = message.link ? `${quietBroadcasts(message.text)}\n<${message.link.url}|${slackEscape(message.link.label)}>` : quietBroadcasts(message.text);
     const answer = await postJson('slack', `${SLACK_API}/chat.postMessage`, {
       channel: message.conversationId,
-      text: message.link ? `${quietBroadcasts(message.text)}\n<${message.link.url}|${slackEscape(message.link.label)}>` : quietBroadcasts(message.text),
+      text,
+      // Answer buttons: the text as a section, the buttons under it; the plain text stays for notifications.
+      ...(message.buttons?.length ? { blocks: [
+        { type: 'section', text: { type: 'mrkdwn', text: text.slice(0, 2900) } },
+        { type: 'actions', elements: message.buttons.slice(0, 5).map((button, index) => ({
+          type: 'button', action_id: `pm_answer_${index}`, value: button.token,
+          text: { type: 'plain_text', text: button.label.slice(0, 75) },
+          ...(button.style ? { style: button.style } : {}),
+        })) },
+      ] } : {}),
       // Plain @channel or @group text is never turned into a mention.
       link_names: false,
       ...(threadTs ? { thread_ts: threadTs } : {}),
@@ -115,6 +125,41 @@ export const slackAdapter: ChatAdapter = {
     }, auth(credentials));
     if (answer.ok !== true) throw refused(answer, 'Slack refused the message');
     return { externalMessageId: typeof answer.ts === 'string' ? answer.ts : null };
+  },
+
+  supportsButtons: true,
+  // A section block holds 3000 characters; the text and its link stay under that.
+  buttonTextMax: 2900,
+  buttonsReady: (credentials) => credentials.buttons === '1',
+
+  /**
+   * A press, from Slack's interactivity request (form field payload, signed
+   * like every Slack request): the first action's value is the button's token.
+   */
+  parseAction(body): ParsedInbound {
+    const raw = new URLSearchParams(body).get('payload');
+    let payload: Loose;
+    try { payload = JSON.parse(raw ?? ''); } catch { return { kind: 'ignore', reason: 'invalid_payload' }; }
+    if (payload?.type !== 'block_actions' || !payload.user?.id) return { kind: 'ignore', reason: 'not_a_press' };
+    const action = Array.isArray(payload.actions) ? payload.actions[0] : null;
+    if (!action || typeof action.value !== 'string' || !String(action.action_id ?? '').startsWith('pm_answer_')) return { kind: 'ignore', reason: 'not_an_answer' };
+    return {
+      kind: 'button',
+      dedupeKey: `action:${String(payload.trigger_id ?? action.action_ts ?? '')}`,
+      workspaceId: typeof payload.team?.id === 'string' ? payload.team.id : null,
+      userId: String(payload.user.id),
+      conversationId: typeof payload.container?.channel_id === 'string' ? payload.container.channel_id : payload.channel?.id ?? null,
+      messageId: typeof payload.container?.message_ts === 'string' ? payload.container.message_ts : null,
+      token: action.value.slice(0, 64),
+      callbackId: null,
+    };
+  },
+
+  async editMessage(credentials, input) {
+    const answer = await postJson('slack', `${SLACK_API}/chat.update`, {
+      channel: input.conversationId, ts: input.messageId, text: slackEscape(input.text), blocks: [],
+    }, auth(credentials));
+    if (answer.ok !== true) throw refused(answer, 'Slack did not change the message');
   },
 
   async openDirect(credentials, userId) {

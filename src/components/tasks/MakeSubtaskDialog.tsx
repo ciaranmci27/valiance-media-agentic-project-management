@@ -3,7 +3,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { CornerDownRight, CornerLeftUp } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/inputs/Select';
 import { toast } from '@/components/ui/Toast';
 import type { RowAction } from '@/components/ui/RowActionsMenu';
@@ -65,12 +64,8 @@ export function MakeSubtaskDialog({ task, isOpen, onClose }: { task: Task; isOpe
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={close} title="Make a subtask" size="lg">
+    <Modal isOpen={isOpen} onClose={close} title="Make a subtask" size="lg" primaryAction={{ label: 'Make subtask', onClick: () => void save(), disabled: !parent, busy: saving }}>
       <div className="space-y-5">
-        <p className="sr-only">Choose the task this one belongs under.</p>
-        <p className="text-sm text-zinc-300">
-          &ldquo;{task.title}&rdquo; moves under the task you pick and keeps its comments, files, people and history.
-        </p>
         <Select
           label="Parent task"
           visibleLabel="Parent task"
@@ -80,16 +75,8 @@ export function MakeSubtaskDialog({ task, isOpen, onClose }: { task: Task; isOpe
           searchable
           placeholder={options.length ? 'Search tasks' : 'No tasks to put it under'}
           emptyText="No matching tasks."
-          helperText={elsewhere
-            ? `That task is in ${elsewhere}: this one moves there with it.`
-            : acrossProjects
-              ? 'Tasks in this project list first. Subtasks go one level deep, so only top-level tasks are listed.'
-              : 'Tasks in this project you can work. Subtasks go one level deep, so only top-level tasks are listed.'}
+          helperText={elsewhere ? `That task is in ${elsewhere}: this one moves there with it.` : undefined}
         />
-        <div className="flex justify-end gap-2 border-t border-white/[0.08] pt-4">
-          <Button variant="ghost" onClick={close}>Cancel</Button>
-          <Button onClick={() => void save()} disabled={saving || !parent}>{saving ? 'Moving...' : 'Make subtask'}</Button>
-        </div>
       </div>
     </Modal>
   );

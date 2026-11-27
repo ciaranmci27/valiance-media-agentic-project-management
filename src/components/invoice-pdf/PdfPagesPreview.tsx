@@ -1,5 +1,6 @@
 'use client';
 
+import { Tooltip } from '@/components/ui/Tooltip';
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, ZoomIn, ZoomOut } from 'lucide-react';
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -167,35 +168,38 @@ export function PdfPagesPreview({ file, appearance = 'themed' }: PdfPagesPreview
           role="toolbar"
           aria-label="Zoom"
         >
-          <button
-            type="button"
-            onClick={() => setZoom((z) => clampZoom(z - ZOOM_STEP))}
-            disabled={zoom <= ZOOM_MIN}
-            aria-label="Zoom out"
-            title="Zoom out"
-            className={`p-1.5 rounded ${zoomChrome.button} disabled:opacity-40 disabled:cursor-not-allowed transition-colors`}
-          >
-            <ZoomOut size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setZoom(ZOOM_DEFAULT)}
-            aria-label={`Reset zoom to ${Math.round(ZOOM_DEFAULT * 100)}% (current ${Math.round(zoom * 100)}%)`}
-            title={`Reset to ${Math.round(ZOOM_DEFAULT * 100)}%`}
-            className={`px-2 py-1 text-[11px] font-medium ${zoomChrome.label} tabular-nums rounded transition-colors min-w-[42px] text-center`}
-          >
-            {Math.round(zoom * 100)}%
-          </button>
-          <button
-            type="button"
-            onClick={() => setZoom((z) => clampZoom(z + ZOOM_STEP))}
-            disabled={zoom >= ZOOM_MAX}
-            aria-label="Zoom in"
-            title="Zoom in"
-            className={`p-1.5 rounded ${zoomChrome.button} disabled:opacity-40 disabled:cursor-not-allowed transition-colors`}
-          >
-            <ZoomIn size={14} />
-          </button>
+          <Tooltip content="Zoom out">
+            <button
+              type="button"
+              onClick={() => setZoom((z) => clampZoom(z - ZOOM_STEP))}
+              disabled={zoom <= ZOOM_MIN}
+              aria-label="Zoom out"
+              className={`p-1.5 rounded ${zoomChrome.button} disabled:opacity-40 disabled:cursor-not-allowed transition-colors`}
+            >
+              <ZoomOut size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip content={`Reset to ${Math.round(ZOOM_DEFAULT * 100)}%`}>
+            <button
+              type="button"
+              onClick={() => setZoom(ZOOM_DEFAULT)}
+              aria-label={`Reset zoom to ${Math.round(ZOOM_DEFAULT * 100)}% (current ${Math.round(zoom * 100)}%)`}
+              className={`px-2 py-1 text-[11px] font-medium ${zoomChrome.label} tabular-nums rounded transition-colors min-w-[42px] text-center`}
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+          </Tooltip>
+          <Tooltip content="Zoom in">
+            <button
+              type="button"
+              onClick={() => setZoom((z) => clampZoom(z + ZOOM_STEP))}
+              disabled={zoom >= ZOOM_MAX}
+              aria-label="Zoom in"
+              className={`p-1.5 rounded ${zoomChrome.button} disabled:opacity-40 disabled:cursor-not-allowed transition-colors`}
+            >
+              <ZoomIn size={14} />
+            </button>
+          </Tooltip>
         </div>
       )}
     </div>

@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import type { CSSProperties } from 'react';
 import { FolderKanban, Inbox, LayoutDashboard } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -53,7 +54,7 @@ export function BrandPreview({ brand, dirty }: { brand: Brand; dirty: boolean })
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 id="brand-preview-title" className="text-sm font-semibold text-white">Preview</h3>
         {dirty && (
-          <span className="rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-200">Unsaved</span>
+          <Pill tone="waiting">Unsaved</Pill>
         )}
       </div>
       <p className="sr-only">How your name, logo and colors look in the app and in emails. It updates as you edit.</p>
@@ -75,7 +76,7 @@ export function BrandPreview({ brand, dirty }: { brand: Brand; dirty: boolean })
                 </span>
               ) : (
                 <span
-                  className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-[10px] font-bold leading-none text-white"
+                  className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-[11px] font-bold leading-none text-white"
                   style={{ background: brand.colors.brand[600], borderRadius: '22%' }}
                 >
                   {faviconLetter(brand.name)}

@@ -8,7 +8,7 @@ export function DemoModeSection() {
   const { isDemoMode, toggleDemoMode } = useDemo();
 
   return (
-    <section id="demo-mode" className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6">
+    <section id="demo-mode" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6">
       <div className="flex items-center gap-3 mb-6">
         <div className="p-2 bg-amber-500/15 rounded-lg">
           <FlaskConical className="text-amber-400" size={20} />

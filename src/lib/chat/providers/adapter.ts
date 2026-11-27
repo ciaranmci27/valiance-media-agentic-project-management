@@ -40,6 +40,23 @@ export interface FetchedAttachment {
 
 export type ParsedInbound =
   | { kind: 'challenge'; challenge: string }
+  /**
+   * A person pressed one of the app's answer buttons (Telegram
+   * callback_query, Slack block_actions): token is the button's single-use
+   * token (lib/chat/answers.ts), never trusted by itself.
+   */
+  | {
+    kind: 'button';
+    /** The provider's id for this press: a retry carries the same one. */
+    dedupeKey: string;
+    workspaceId: string | null;
+    userId: string;
+    conversationId: string | null;
+    messageId: string | null;
+    token: string;
+    /** Telegram's callback_query id, answered so the button stops spinning. */
+    callbackId: string | null;
+  }
   /** A verified hello from a relay (Discord's, when it connects): the connection is heard; nothing is recorded. */
   | { kind: 'ping'; heartbeat?: true }
   | { kind: 'ignore'; reason: string }
@@ -96,6 +113,14 @@ export interface OutboundMessage {
   replyToUser?: string | null;
   /** A link shown the provider's way: a Slack <url|label>, a Telegram url button, a Discord [label](<url>). */
   link?: { url: string; label: string } | null;
+  /**
+   * Answer buttons (Telegram inline keyboard, Slack actions): the label and
+   * the single-use token the press sends back. Only providers with
+   * supportsButtons draw them (not Discord).
+   */
+  buttons?: { label: string; token: string; style?: 'primary' | 'danger' }[];
+  /** One button per row (a question's choices); left out, the buttons share a row (Approve and Reject). */
+  buttonsStacked?: boolean;
 }
 
 export interface SendResult {
@@ -155,6 +180,29 @@ export interface ChatAdapter {
    * answer is the bytes only: no provider address or token goes with it.
    */
   fetchAttachment(credentials: ChatCredentials, attachment: InboundAttachment, maxBytes: number): Promise<FetchedAttachment>;
+  /** Whether send draws answer buttons and presses come back (Telegram, Slack). */
+  supportsButtons?: boolean;
+  /** The longest text a message with buttons may carry in one piece (Telegram 4096, Slack's section 3000), with room to spare. */
+  buttonTextMax?: number;
+  /**
+   * Whether presses can come back on this connection now. Slack: only once
+   * the Owner turned answer buttons on after pasting the Interactivity
+   * Request URL (credentials.buttons). Left out: ready (Telegram turns
+   * presses on itself, enableButtons).
+   */
+  buttonsReady?(credentials: ChatCredentials): boolean;
+  /**
+   * Turns button presses on for a connection made before they existed
+   * (Telegram: the webhook asks for callback_query too). Answers new
+   * credentials to store, or null when nothing changed.
+   */
+  enableButtons?(credentials: ChatCredentials): Promise<ChatCredentials | null>;
+  /** Reads a press from the provider's interactivity request (Slack sends those to their own address). */
+  parseAction?(body: string): ParsedInbound;
+  /** Tells the provider the press was seen, with a short line the person sees (Telegram's callback answer). */
+  acknowledge?(credentials: ChatCredentials, callbackId: string, text: string): Promise<void>;
+  /** Replaces a sent message's text and takes its buttons away. */
+  editMessage?(credentials: ChatCredentials, input: { conversationId: string; messageId: string; text: string }): Promise<void>;
 }
 
 /** A provider refused or failed: code is the provider's own error word, never a token. */

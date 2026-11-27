@@ -111,7 +111,7 @@ export function AnalyticsExclusionsSection() {
   };
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6">
+    <section className="glass-card rounded-xl p-4 lg:p-5">
       <SettingsSectionHeader
         icon={ShieldOff}
         title="Analytics exclusions"

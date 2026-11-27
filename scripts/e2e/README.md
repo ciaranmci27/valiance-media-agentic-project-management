@@ -34,6 +34,19 @@ The settings come only from `scripts/local/.env.test.local` (written by `local:u
 | 5 | `05-files.ts` | Signed task-file upload and download; private project files open only through `/api/storage/file` for people on the project; a guest of another project gets 404; portal links list only that project's shared files and refresh with new signatures |
 | 6 | `06-keys.ts` | Pause blocks at once, resume restores, replace keeps the old key through its overlap, revoke takes down the keys it replaced and the keys it made over the API |
 | 7 | `07-guests.ts` | A guest sees their project, its tasks and its people (no one else's email) and nothing else; cannot make keys, tasks, notices or template runs |
+| 8 | `08-browser.ts` | In a real browser, as the seeded Owner: sign in through the login page, answer an agent's question with one tap in the AI home's Needs you, hire a company agent step by step (blank template to "It works, try it"), turn on Ask first on an agent's Access tab, move a task to Trash from its panel and bring it back with Undo. Each flow is checked in the database too. Skipped (and passing) when no browser is found |
+
+## The browser scenario
+
+Scenario 8 drives the system Chrome through `playwright-core` (a dev dependency; no browser is downloaded), headless, at 1440 by 1000.
+
+| Setting | What it does |
+|---|---|
+| `CHROME_PATH=/path/to/chrome` | Uses that browser. If the file is not there the scenario says so and skips, rather than picking another |
+| (unset) | The first of the usual places: Chrome, then Chromium, then Edge (Linux `/usr/bin/google-chrome`, `/usr/bin/chromium` and the like; the macOS and Windows install paths) |
+| `PM_E2E_BROWSER=off` | Skips the browser on purpose |
+
+With no browser it prints `skipped: no browser (<why>)` and passes, so the API scenarios still prove everything else. Pages load with the same patience as the API calls (`retry.ts`): a page the dev server answers mid-compile is loaded again, then the scenario waits for the network to go quiet. Selectors are by role and label, as people read the screen. `npm run test:e2e-browser` (in `test:core`) checks the browser finder and the skip without a browser or the stack.
 
 ## Data
 
@@ -48,6 +61,7 @@ The suite's own people (`e2e-requester`, `e2e-manager`, `e2e-outsider`, `e2e-gue
 - No fixed sleeps: `waitFor` polls with a timeout, and the event feed's own `wait` long-polls.
 - Register every thing you make with `ctx.cleanup.add`.
 - One `step(...)` line per step, saying what is now true.
+- In the browser: `gotoReady` to open a page, role and label selectors (`getByRole`, `getByLabel`), and a database check after each flow; never a fixed sleep or a class name.
 
 ## When it fails before a scenario starts
 

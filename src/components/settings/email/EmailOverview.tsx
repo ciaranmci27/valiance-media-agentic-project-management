@@ -186,12 +186,12 @@ export function EmailOverview() {
   };
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6">
+    <section className="glass-card rounded-xl p-4 lg:p-5">
       <SettingsSectionHeader icon={Mail} title="Email" description="How mail reaches the app, and how the app sends it." />
 
       <div className="space-y-6">
         {setupError && (
-          <p role="alert" className="rounded-lg bg-amber-500/[0.14] px-4 py-3 text-sm leading-relaxed text-amber-200">{setupError}</p>
+          <p role="alert" className="rounded-lg bg-amber-500/[0.14] px-4 py-3 text-sm leading-relaxed text-amber-300">{setupError}</p>
         )}
         {show.myInbox && (
           <Group label="Yours">
@@ -223,7 +223,7 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
   const id = `email-group-${label.toLowerCase()}`;
   return (
     <div>
-      <h3 id={id} className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-400">{label}</h3>
+      <h3 id={id} className="mb-2 text-xs font-medium text-zinc-400">{label}</h3>
       <ul aria-labelledby={id} className="border border-white/[0.08] rounded-lg divide-y divide-white/[0.06]">
         {children}
       </ul>

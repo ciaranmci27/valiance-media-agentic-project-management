@@ -106,7 +106,7 @@ export function CommunicationHistory({ projectId, refreshSignal = 0, query = '' 
               {pending.length === 1 ? '1 alert is' : `${pending.length} alerts are`} waiting for your approval
             </div>
           )}
-          <div className={`hidden @2xl:grid ${COLS} gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold uppercase tracking-wider text-zinc-400`}>
+          <div className={`hidden @2xl:grid ${COLS} gap-3 px-5 py-2.5 border-b border-white/[0.06] text-[11px] font-semibold text-zinc-400`}>
             <span>Status</span>
             <span>Email</span>
             <span>Sent to</span>

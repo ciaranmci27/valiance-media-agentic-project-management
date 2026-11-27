@@ -103,7 +103,7 @@ export function KeyboardShortcuts() {
     <Modal
       isOpen={showHelp}
       onClose={() => setShowHelp(false)}
-      title="Keyboard Shortcuts"
+      title="Keyboard shortcuts"
       size="sm"
     >
       <div className="space-y-1">

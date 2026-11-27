@@ -132,6 +132,21 @@ export function ChatConnectionsSection() {
     }
   };
 
+  /** Slack's answer buttons: on once the Interactivity Request URL is pasted in Slack (saves at once). */
+  const setAnswerButtons = async (connection: ChatConnectionView, on: boolean) => {
+    if (demoBlocked(isDemoMode)) return;
+    setBusy(connection.id);
+    try {
+      await workspaceApi(`/api/workspace/chat-connections/${connection.id}`, { method: 'PATCH', body: { answer_buttons: on } });
+      invalidateTables(['chat_connections']);
+      toast('success', on ? 'Answer buttons on' : 'Answer buttons off');
+    } catch (failure) {
+      toast('error', failure instanceof Error ? failure.message : 'Could not save. Try again.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const remove = async () => {
     if (!removing) return;
     setBusy(removing.id);
@@ -166,7 +181,7 @@ export function ChatConnectionsSection() {
   const showAdd = !loading && connections.length > 0 && anyFree;
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6" aria-labelledby="chat-connections-heading">
+    <section className="glass-card rounded-xl p-4 lg:p-5" aria-labelledby="chat-connections-heading">
       <SettingsSectionHeader
         icon={MessagesSquare}
         headingId="chat-connections-heading"
@@ -209,7 +224,7 @@ export function ChatConnectionsSection() {
                       <span className={available ? '' : 'opacity-60'}><LogoTile provider={app.provider} size="lg" /></span>
                       {!available && <Badge>Coming soon</Badge>}
                     </span>
-                    <span className={`mt-3 text-[15px] font-semibold ${available ? 'text-white' : 'text-zinc-400'}`}>{app.name}</span>
+                    <span className={`mt-3 text-sm font-semibold ${available ? 'text-white' : 'text-zinc-400'}`}>{app.name}</span>
                     <span className={`mt-1 text-sm leading-relaxed ${available ? 'text-zinc-400' : 'text-zinc-500'}`}>{app.line}</span>
                     {available && (
                       <span className="mt-auto pt-4" aria-hidden="true">
@@ -292,7 +307,21 @@ export function ChatConnectionsSection() {
                 {open && (
                   <div className="sm:pl-12">
                     {connection.provider === 'slack' && (
-                      <div className="mt-3"><CopyField label={`Request URL for Slack (events: ${SLACK_EVENTS[connection.kind]})`} value={connection.inbound_url} /></div>
+                      <div className="mt-3 space-y-3">
+                        <CopyField label={`Request URL for Slack (events: ${SLACK_EVENTS[connection.kind]})`} value={connection.inbound_url} />
+                        {/* Optional: answer questions and approvals with buttons in Slack. */}
+                        {connection.actions_url && <CopyField label="Optional: Interactivity Request URL (answer questions and approvals from Slack)" value={connection.actions_url} />}
+                        {connection.actions_url && (
+                          <Toggle
+                            checked={connection.answer_buttons === true}
+                            onChange={(on) => void setAnswerButtons(connection, on)}
+                            disabled={busy === connection.id}
+                            label="Answer buttons in Slack"
+                            description="Turn on after pasting the URL above under Interactivity in your Slack app. Until then, questions and approvals arrive with a link only."
+                            size="sm"
+                          />
+                        )}
+                      </div>
                     )}
                     {connection.provider === 'discord' && (renewed?.connection.id === connection.id ? (
                       <div className="mt-3 space-y-3">

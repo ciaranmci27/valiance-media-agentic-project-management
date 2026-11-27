@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Pill } from '@/components/ui/Pill';
 import { redirect } from 'next/navigation';
 import { AlertTriangle, Check } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -46,7 +47,7 @@ export default async function SetupRequiredPage() {
 
       <main className="mx-auto w-full max-w-[46rem] flex-1 px-4 pb-16 pt-6 sm:px-8 sm:pt-10">
         <div className="mx-auto max-w-2xl">
-          <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[28px] sm:leading-tight">Connect Supabase</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-title">Connect Supabase</h1>
           <p className="mt-2 max-w-lg text-sm leading-relaxed text-zinc-400">
             The app can&apos;t reach its database yet. Add these settings in your host, then redeploy.
           </p>
@@ -63,15 +64,15 @@ export default async function SetupRequiredPage() {
                     <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">{WHERE[name]}</p>
                   </div>
                   {set ? (
-                    <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-emerald-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-emerald-200">
+                    <Pill tone="good">
                       <Check size={12} aria-hidden="true" />
                       Set
-                    </span>
+                    </Pill>
                   ) : (
-                    <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-200">
+                    <Pill tone="waiting">
                       <AlertTriangle size={12} aria-hidden="true" />
                       Not set
-                    </span>
+                    </Pill>
                   )}
                 </li>
               ))}
@@ -116,7 +117,7 @@ function DatabaseSetup({ state }: { state: 'database_empty' | 'database_not_expo
 
       <main className="mx-auto w-full max-w-[46rem] flex-1 px-4 pb-16 pt-6 sm:px-8 sm:pt-10">
         <div className="mx-auto max-w-2xl">
-          <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[28px] sm:leading-tight">Set up the database</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-title">Set up the database</h1>
           <p className="mt-2 max-w-lg text-sm leading-relaxed text-zinc-400">
             {empty
               ? 'The app reaches Supabase, but its tables are not there yet.'

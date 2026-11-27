@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Bot, Pause, Plus, RefreshCw } from 'lucide-react';
@@ -168,7 +169,7 @@ export function ProjectAgentsTab({ projectId }: { projectId: string }) {
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-500/[0.12] text-brand-300" aria-hidden="true"><Bot size={22} /></span>
             {canAdd || canHire ? (
               <>
-                <p className="mt-4 text-[15px] font-semibold text-white">Put an agent on this project</p>
+                <p className="mt-4 text-sm font-semibold text-white">Put an agent on this project</p>
                 <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-zinc-400">
                   An agent here reads this project&apos;s brief and its own settings and instructions, then works the tasks it is given.
                 </p>
@@ -179,7 +180,7 @@ export function ProjectAgentsTab({ projectId }: { projectId: string }) {
               </>
             ) : (
               <>
-                <p className="mt-4 text-[15px] font-semibold text-white">No agents on this project</p>
+                <p className="mt-4 text-sm font-semibold text-white">No agents on this project</p>
                 <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-zinc-400">
                   An Owner, or someone who assigns project members, puts agents on a project.
                 </p>
@@ -277,7 +278,7 @@ function AccessNotSetUp({ projectId, agents, templates, schemaOf, canSetUp, canO
 
   return (
     <section aria-labelledby="pa-access">
-      <h3 id="pa-access" className="text-[15px] font-semibold text-white">On this project, not set up</h3>
+      <h3 id="pa-access" className="text-sm font-semibold text-white">On this project, not set up</h3>
       <p className="mb-3 mt-0.5 text-xs text-zinc-500">They can open and work this project. Set one up to give it settings and instructions here, or pause it here to stop it working this project.</p>
       {pending && (
         <div className="animate-slideDown mb-3 rounded-2xl bg-white/[0.03] p-4 ring-1 ring-inset ring-white/[0.08] sm:p-5">
@@ -315,7 +316,7 @@ function AccessNotSetUp({ projectId, agents, templates, schemaOf, canSetUp, canO
               {canOpen(agent.id)
                 ? <Link href={`/ai/agents/${agent.id}`} className={`${nameClass} rounded hover:text-brand-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500`}>{name}</Link>
                 : <span className={nameClass}>{name}</span>}
-              {suspended && <span className="rounded-full bg-red-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-red-300">Suspended</span>}
+              {suspended && <Pill tone="problem">Suspended</Pill>}
               {canSetUp(agent.id) && (
                 <div className="ml-auto flex gap-1.5">
                   <Button size="sm" variant="ghost" icon={<Pause size={13} aria-hidden="true" />} onClick={() => start(agent, 'paused')} disabled={busy === agent.id}>

@@ -53,7 +53,7 @@ export function ConsentActions({ params, canAllow, clientName, offerMemory = fal
           <Toggle size="sm" checked={memory} onChange={setMemory} label={CONNECT_MEMORY_WORDS} disabled={busy !== null} />
         </div>
       )}
-      {error && <p role="alert" className="mb-3 rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-200">{error}</p>}
+      {error && <p role="alert" className="mb-3 rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-300">{error}</p>}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button variant="secondary" onClick={() => void decide('deny')} disabled={busy !== null}>
           {busy === 'deny' ? 'Going back' : canAllow ? 'Deny' : 'Go back'}

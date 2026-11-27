@@ -256,7 +256,7 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
                   <div className="flex items-center gap-1.5">
                     <p className="text-sm font-medium text-white">{config.label}</p>
                     {catEntries.length > 0 && (
-                      <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded ${config.bg} ${config.text}`}>
+                      <span className={`inline-flex items-center px-1.5 py-0.5 text-[11px] font-semibold rounded ${config.bg} ${config.text}`}>
                         {catEntries.length}
                       </span>
                     )}
@@ -287,7 +287,7 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
                       <Textarea
                         value={addContent}
                         onChange={setAddContent}
-                        placeholder={`Add ${config.label.toLowerCase()} entry...`}
+                        placeholder={`Add ${config.label.toLowerCase()} entry`}
                         rows={2}
                         size="sm"
                         autoFocus
@@ -340,10 +340,10 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-zinc-100 leading-relaxed break-words">{entry.content}</p>
                             <div className="flex items-center gap-2 mt-1.5">
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${SOURCE_COLORS[entry.source]}`}>
+                              <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${SOURCE_COLORS[entry.source]}`}>
                                 {entry.source}
                               </span>
-                              <span className="text-[10px] text-zinc-500">{timeAgo(entry.updated_at)}</span>
+                              <span className="text-[11px] text-zinc-500">{timeAgo(entry.updated_at)}</span>
                             </div>
                           </div>
                           <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
@@ -374,8 +374,8 @@ export function ProjectContextPanel({ projectId }: ProjectContextPanelProps) {
         isOpen={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
-        title="Remove Entry"
-        message="This entry will be deactivated. Are you sure?"
+        title="Remove this entry?"
+        message="Agents stop seeing it."
         confirmLabel="Remove"
         variant="danger"
       />

@@ -19,15 +19,15 @@ function ToolbarButton({
   active,
   onClick,
   children,
-  title,
+  label,
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
-  title: string;
+  label: string;
 }) {
   return (
-    <Tooltip content={title}>
+    <Tooltip content={label}>
       <button
         type="button"
         onClick={onClick}
@@ -90,21 +90,21 @@ export function RichTextEditor({
         <ToolbarButton
           active={editor.isActive('bold')}
           onClick={() => editor.chain().focus().toggleBold().run()}
-          title="Bold"
+          label="Bold"
         >
           <Bold size={14} />
         </ToolbarButton>
         <ToolbarButton
           active={editor.isActive('italic')}
           onClick={() => editor.chain().focus().toggleItalic().run()}
-          title="Italic"
+          label="Italic"
         >
           <Italic size={14} />
         </ToolbarButton>
         <ToolbarButton
           active={editor.isActive('strike')}
           onClick={() => editor.chain().focus().toggleStrike().run()}
-          title="Strikethrough"
+          label="Strikethrough"
         >
           <Strikethrough size={14} />
         </ToolbarButton>
@@ -114,14 +114,14 @@ export function RichTextEditor({
         <ToolbarButton
           active={editor.isActive('bulletList')}
           onClick={() => editor.chain().focus().toggleBulletList().run()}
-          title="Bullet List"
+          label="Bullet list"
         >
           <List size={14} />
         </ToolbarButton>
         <ToolbarButton
           active={editor.isActive('orderedList')}
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          title="Ordered List"
+          label="Numbered list"
         >
           <ListOrdered size={14} />
         </ToolbarButton>

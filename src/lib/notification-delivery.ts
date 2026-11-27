@@ -4,6 +4,7 @@ import { sendTransactional } from '@/lib/email/send-mail';
 import { absoluteUrl } from '@/lib/email/templates/shared';
 import { buildNotificationEmail } from '@/lib/email/templates/team/notification';
 import { sendSystemChatNotice } from '@/lib/chat/outbound';
+import { answerButtonsFor, recordAnswerMessage } from '@/lib/chat/answers';
 import { ChatProviderError } from '@/lib/chat/providers';
 import { safeNotificationLink } from '@/lib/notifications';
 
@@ -52,6 +53,13 @@ interface Claimed {
 /** The database has no queue yet (before 20261127003500): nothing to deliver. */
 const missingQueue = (error: { code?: string; message?: string } | null) =>
   !!error && (['42883', 'PGRST202', '42P01', 'PGRST205'].includes(error.code ?? '') || /does not exist|could not find the function/i.test(error.message ?? ''));
+
+/** The question a Needs you notice is about, when it names one. */
+async function questionOf(service: SupabaseClient, notificationId: string): Promise<string | null> {
+  const { data } = await service.from('team_member_notifications').select('entity_type, entity_id').eq('id', notificationId).maybeSingle();
+  const row = data as { entity_type: string | null; entity_id: string | null } | null;
+  return row?.entity_type === 'question' && row.entity_id && /^[0-9a-f-]{36}$/i.test(row.entity_id) ? row.entity_id : null;
+}
 
 /** The chat line: the notice's title and, when it adds anything, the first line of its message. */
 export function chatLine(title: string, message: string | null): string {
@@ -116,10 +124,16 @@ export async function deliverDueNotifications(
         }
         continue;
       }
+      // A question or approval asked of them: answer buttons too (lib/chat/answers.ts).
+      const questionId = item.category === 'question_asked' || item.category === 'approval_requested' ? await questionOf(service, item.notification_id) : null;
       const sent = await sendSystemChatNotice(service, item.member_id, {
         text: chatLine(item.title, item.message),
         link: link ? { url: absoluteUrl(link), label: `Open in ${brand.name}` } : null,
         as: { username: brand.name, iconUrl: null },
+        ...(questionId ? {
+          buttonsFor: (connectionId: string, room: number) => answerButtonsFor(service, { questionId, memberId: item.member_id, connectionId, room }),
+          onButtonsSent: (batch: string, conversationId: string, messageId: string | null) => recordAnswerMessage(service, batch, conversationId, messageId),
+        } : {}),
       });
       if (sent.status === 'sent') {
         run.sent.chat += 1;

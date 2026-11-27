@@ -1079,7 +1079,7 @@ async function main() {
     const deadRow = deadRows.find((r: Loose) => r.id === s.anaAgent);
     check('dead host: Status shows it on hold with its host down, first (nothing is broken)', deadRow?.state === 'on_hold' && deadRow.host_down === true && deadRows[0]?.id === s.anaAgent, deadRows);
     const hostTold = await s.q<Loose>("SELECT title FROM pm.team_member_notifications WHERE user_id = $1 AND entity_type = 'member' AND entity_id = $2", [s.owner, s.anaAgent]);
-    check('dead host: the admin is told, once', hostTold.length === 1 && /host is not responding/.test(hostTold[0].title), hostTold);
+    check('dead host: the admin is told, once', hostTold.length === 1 && /assistant has stopped: the service that runs it is down/.test(hostTold[0].title), hostTold);
     as(LOGINS.ana);
     await session(assistantRoute.GET, 'GET', '/api/workspace/assistant');
     check('dead host: not again on the next visit', await count("SELECT count(*)::int AS n FROM pm.team_member_notifications WHERE entity_id = $1", [s.anaAgent]) === 1);

@@ -25,7 +25,9 @@ import { z } from 'zod';
  * - api_key: a person's own API key that carries approvals.decide;
  * - agent: an agent asked by name, with its own key;
  * - act_for: an agent acting for the person (X-Act-For, or a personal agent),
- *   with approvals.decide on its key and held by the person too.
+ *   with approvals.decide on its key and held by the person too;
+ * - chat: the person themselves, with a button on the app's message in their
+ *   own linked chat (lib/chat/answers.ts), checked as they would be in the app.
  * A connected AI tool (Connect AI) never decides one.
  */
 
@@ -76,7 +78,7 @@ export type ApprovalChoice = (typeof APPROVAL_CHOICES)[number];
 export type ApprovalDecision = 'approved' | 'rejected';
 
 /** How an approval was decided: the door the decision came through. */
-export const DECIDED_VIA = ['app', 'api_key', 'agent', 'act_for'] as const;
+export const DECIDED_VIA = ['app', 'api_key', 'agent', 'act_for', 'chat'] as const;
 export type DecidedVia = (typeof DECIDED_VIA)[number];
 
 /** The permission a key needs to decide, over the API, an approval that names a person. */
@@ -321,6 +323,7 @@ const DECIDED_VIA_WORDS: Record<DecidedVia, string> = {
   api_key: 'with an API key',
   agent: '',
   act_for: 'through an agent',
+  chat: 'in chat',
 };
 
 /**

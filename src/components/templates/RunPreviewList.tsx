@@ -72,7 +72,7 @@ function PlannedRow({ task, roles, small = false, past = false }: { task: Previe
   const role = task.role ? roles.find((r) => r.key === task.role) : null;
   return (
     <div className="min-w-0 flex-1">
-      <p className={`break-words text-zinc-100 ${small ? 'text-[13px]' : 'text-sm font-medium'}`}>{task.title}</p>
+      <p className={`break-words text-zinc-100 ${small ? 'text-sm' : 'text-sm font-medium'}`}>{task.title}</p>
       <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-zinc-400">
         <span className={`inline-flex items-center gap-1 ${past ? 'text-amber-300' : ''}`}>
           <CalendarDays size={11} aria-hidden="true" />

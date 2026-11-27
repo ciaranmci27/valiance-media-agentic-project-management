@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { TaskSuggestion, TASK_TYPES, TaskType } from '@/lib/types';
-import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/inputs/Select';
 import { Textarea } from '@/components/ui/inputs/Textarea';
@@ -63,12 +62,25 @@ export function EditSuggestionModal({ suggestion, onClose, onSave }: EditSuggest
   };
 
   return (
-    <Modal isOpen onClose={onClose} title="Edit Suggestion" size="md">
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal isOpen onClose={onClose} title="Edit suggestion" size="md" primaryAction={{ label: 'Save changes', form: 'edit-suggestion-form' }}>
+      <form id="edit-suggestion-form" onSubmit={handleSubmit} className="space-y-4">
         <Input label="Title" value={title} onChange={(e) => setTitle(e.target.value)} required />
 
         <Textarea label="Description" value={description} onChange={setDescription} rows={4} />
 
+        <Select
+          label="Priority"
+          value={priority}
+          onChange={(v) => setPriority(v as any)}
+          options={[
+            { value: 'low', label: 'Low' },
+            { value: 'medium', label: 'Medium' },
+            { value: 'high', label: 'High' },
+            { value: 'urgent', label: 'Urgent' },
+          ]}
+        />
+
+        <ModalAdvanced defaultOpen={Boolean(reasoning || proposedFix || criteriaText || readiness || effortEstimate || taskType)}>
         <Textarea label="Reasoning" value={reasoning} onChange={setReasoning} rows={3} />
 
         <Textarea
@@ -95,26 +107,14 @@ export function EditSuggestionModal({ suggestion, onClose, onSave }: EditSuggest
           onChange={setReadiness}
           options={[
             { value: '', label: 'Unclassified' },
-            { value: 'ai_ready', label: 'AI Ready' },
+            { value: 'ai_ready', label: 'AI ready' },
             { value: 'human_only', label: 'Human' },
             { value: 'hybrid', label: 'Hybrid (needs decomposition)' },
           ]}
         />
 
         <Select
-          label="Priority"
-          value={priority}
-          onChange={(v) => setPriority(v as any)}
-          options={[
-            { value: 'low', label: 'Low' },
-            { value: 'medium', label: 'Medium' },
-            { value: 'high', label: 'High' },
-            { value: 'urgent', label: 'Urgent' },
-          ]}
-        />
-
-        <Select
-          label="Effort Estimate"
+          label="Effort estimate"
           value={effortEstimate}
           onChange={setEffortEstimate}
           options={[
@@ -126,7 +126,7 @@ export function EditSuggestionModal({ suggestion, onClose, onSave }: EditSuggest
         />
 
         <Select
-          label="Task Type"
+          label="Task type"
           value={taskType}
           onChange={(v) => setTaskType(v as TaskType | '')}
           options={[
@@ -134,13 +134,7 @@ export function EditSuggestionModal({ suggestion, onClose, onSave }: EditSuggest
             ...TASK_TYPES.map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
           ]}
         />
-
-        <div className="flex justify-end gap-3 pt-4">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit">Save changes</Button>
-        </div>
+        </ModalAdvanced>
       </form>
     </Modal>
   );

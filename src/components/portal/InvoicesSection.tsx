@@ -174,7 +174,7 @@ export function InvoicesSection({
           className="vm-btn vm-btn-ghost vm-btn-sm mt-6 w-full sm:w-auto"
         >
           <ChevronDown size={15} aria-hidden="true" className={`transition-transform ${showAll ? 'rotate-180' : ''}`} />
-          {showAll ? 'Show fewer' : `Show all ${sorted.length}`}
+          {showAll ? 'Show fewer' : `Show ${sorted.length - INVOICES_INITIAL} more of ${sorted.length}`}
         </button>
       )}
     </SectionCard>

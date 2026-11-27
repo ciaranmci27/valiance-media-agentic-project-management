@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, Sparkles } from 'lucide-react';
 import { useApp } from '@/lib/store';
@@ -32,10 +33,10 @@ export function quietCardChrome(meeting: boolean): string {
 /** The agent's mark beside its name, so its reply never reads as a person's. */
 export function AgentTag() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-brand-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-brand-200">
+    <Pill tone="info">
       <Sparkles size={11} aria-hidden="true" />
       Agent
-    </span>
+    </Pill>
   );
 }
 

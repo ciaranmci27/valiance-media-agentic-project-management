@@ -1,5 +1,6 @@
 'use client';
 
+import { GroupLabel } from '@/components/ui/GroupLabel';
 import { useState } from 'react';
 
 const TEMPLATES = [
@@ -44,7 +45,7 @@ export default function EmailPreviewPage() {
 
         {groups.map(group => (
           <div key={group} className="mb-3">
-            <p className="text-[10px] uppercase tracking-wider font-medium text-zinc-400 mb-1.5">{group}</p>
+            <GroupLabel>{group}</GroupLabel>
             <div className="flex flex-wrap gap-1.5 mb-1">
               {TEMPLATES.filter(t => t.group === group).map(t => (
                 <button

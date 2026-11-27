@@ -118,7 +118,7 @@ export function TemplatesSection() {
   });
 
   return (
-    <section id="templates" className="glass-card rounded-xl p-4 lg:p-6 scroll-mt-6" aria-labelledby="templates-heading">
+    <section id="templates" className="glass-card rounded-xl p-4 lg:p-5 scroll-mt-6" aria-labelledby="templates-heading">
       <SettingsSectionHeader
         icon={LayoutTemplate}
         headingId="templates-heading"

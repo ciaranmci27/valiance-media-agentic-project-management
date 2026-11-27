@@ -118,7 +118,7 @@ export function FeaturesSection() {
     : null);
 
   return (
-    <section className="glass-card rounded-xl p-4 lg:p-6">
+    <section className="glass-card rounded-xl p-4 lg:p-5">
       <SettingsSectionHeader
         icon={LayoutGrid}
         title="Features"
@@ -156,7 +156,7 @@ export function FeaturesSection() {
 
           <div>
             <div className="mb-3 flex items-baseline justify-between gap-3">
-              <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-400">Start from a preset</h3>
+              <h3 className="text-xs font-medium text-zinc-400">Start from a preset</h3>
               {!current && <span className="text-[11px] text-zinc-400">Custom mix</span>}
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -168,7 +168,7 @@ export function FeaturesSection() {
           </div>
 
           <div className="mt-8 border-t border-white/[0.06] pt-6">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-400">Or choose one by one</h3>
+            <h3 className="text-xs font-medium text-zinc-400">Or choose one by one</h3>
             <p className="mt-3 flex items-start gap-2 rounded-lg bg-white/[0.03] px-3 py-2 text-xs text-zinc-400">
               <Lock size={13} className="mt-px flex-shrink-0" aria-hidden="true" />
               Projects, tasks, team, notifications, reminders, files and API keys are always on.
@@ -181,7 +181,7 @@ export function FeaturesSection() {
                 const headingId = `features-group-${group.id}`;
                 return (
                   <div key={group.id} role="group" aria-labelledby={headingId}>
-                    <h4 id={headingId} className="mb-3 text-[11px] font-medium uppercase tracking-wide text-zinc-400">{group.label}</h4>
+                    <h4 id={headingId} className="mb-3 text-[11px] font-medium text-zinc-400">{group.label}</h4>
                     <ul className="divide-y divide-white/[0.06]">
                       {ids.map((id) => (
                         <ModuleRow

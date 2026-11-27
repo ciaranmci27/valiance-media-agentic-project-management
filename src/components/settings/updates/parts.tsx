@@ -73,7 +73,7 @@ export function CopyCode({ text }: { text: string }) {
 
 /** A quiet section label inside a card. */
 export function Label({ children, id }: { children: ReactNode; id?: string }) {
-  return <h3 id={id} className="text-xs font-medium uppercase tracking-wide text-zinc-400">{children}</h3>;
+  return <h3 id={id} className="text-xs font-medium text-zinc-400">{children}</h3>;
 }
 
 /** Inline mono for versions, repos and file paths. */

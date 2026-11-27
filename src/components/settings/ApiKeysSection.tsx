@@ -394,17 +394,17 @@ function KeyRow({ apiKey, owner, actions, trailing, notice, replaced = false }: 
             aria-expanded={showScopes}
             aria-controls={listId}
             disabled={scopeCount === 0}
-            className="flex flex-shrink-0 items-center gap-1 rounded bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-300 transition-colors hover:bg-brand-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:cursor-default disabled:hover:bg-brand-500/15"
+            className="flex flex-shrink-0 items-center gap-1 rounded bg-brand-500/15 px-1.5 py-0.5 text-[11px] font-medium text-brand-300 transition-colors hover:bg-brand-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:cursor-default disabled:hover:bg-brand-500/15"
           >
             {scopeCount} {scopeCount === 1 ? 'permission' : 'permissions'}
             {scopeCount > 0 && <ChevronDown size={10} aria-hidden="true" className={`transition-transform duration-200 ${showScopes ? 'rotate-180' : ''}`} />}
           </button>
           {apiKey.paused_at && <Pill tone="waiting" dot>Paused</Pill>}
           {replaced && (
-            <span className="flex-shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-zinc-300">Replaced</span>
+            <span className="flex-shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] font-medium text-zinc-300">Replaced</span>
           )}
           {owner && (
-            <span className="flex-shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-zinc-300">{owner}</span>
+            <span className="flex-shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] font-medium text-zinc-300">{owner}</span>
           )}
         </div>
         <code className="mt-0.5 block font-mono text-xs text-zinc-400">{apiKey.key_prefix}...</code>

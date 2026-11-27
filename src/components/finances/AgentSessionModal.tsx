@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import Modal from '@/components/ui/Modal';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { NumberInput } from '@/components/ui/inputs/NumberInput';
 import { Textarea } from '@/components/ui/inputs/Textarea';
@@ -87,7 +87,21 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
   }, [agentActivity, entry.member_id, entry.start_time, entry.end_time, segments]);
 
   return (
-    <Modal isOpen onClose={onClose} title="Review agent session" size="lg">
+    <Modal
+      isOpen
+      onClose={onClose}
+      title="Review agent session"
+      size="lg"
+      cancelLabel="Close"
+      primaryAction={showReject
+        ? { label: 'Reject session', variant: 'danger', onClick: () => onReject(rejectReason.trim()), busy: submitting }
+        : {
+          label: submitting ? 'Approving' : entry.billing_converted_at || !isBillingEnabled ? 'Approve' : 'Approve and convert',
+          onClick: () => onApprove(!entry.billing_converted_at && adjusted ? effectiveMinutes : null),
+          disabled: effectiveMinutes <= 0,
+          busy: submitting,
+        }}
+    >
       <div className="space-y-4">
         {/* Who / what / when */}
         <div className="flex items-start gap-3">
@@ -101,9 +115,11 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
           </div>
         </div>
 
+        {/* Open by default: the timeline and activity are the evidence for approving billed time. */}
+        <ModalAdvanced label="Session details" defaultOpen>
         {/* Raw timer timeline */}
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Timer timeline (raw)</p>
+          <p className="mb-2 text-[11px] font-semibold text-zinc-500">Timer timeline (raw)</p>
           <div className="space-y-1">
             {segments.map((segment, index) => {
               const previous = segments[index - 1];
@@ -133,7 +149,7 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
         {/* What the agent did */}
         {isAgentsEnabled && (
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Session activity</p>
+          <p className="mb-2 text-[11px] font-semibold text-zinc-500">Session activity</p>
           {sessionActivities.length > 0 ? (
             <div className="max-h-44 space-y-1.5 overflow-y-auto pr-1">
               {sessionActivities.map((activity) => (
@@ -141,7 +157,7 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
                   <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-purple-400" aria-hidden="true" />
                   <p className="min-w-0 flex-1 text-xs leading-relaxed text-zinc-300">
                     {activity.title}
-                    <span className="ml-1.5 text-[10px] tabular-nums text-zinc-500">{timeFmt(activity.created_at)}</span>
+                    <span className="ml-1.5 text-[11px] tabular-nums text-zinc-500">{timeFmt(activity.created_at)}</span>
                   </p>
                 </div>
               ))}
@@ -151,6 +167,7 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
           )}
         </div>
         )}
+        </ModalAdvanced>
 
         {/* Conversion preview. Entries converted under the legacy stop-time
             flow are already in billed form; approving them changes nothing
@@ -165,7 +182,7 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
           </div>
         ) : (
         <div className="rounded-lg border border-brand-500/30 bg-brand-500/15 p-3">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+          <p className="mb-2 text-[11px] font-semibold text-zinc-400">
             {isBillingEnabled ? 'Billing conversion (applies on approve)' : 'Worked time (applies on approve)'}
           </p>
           <div className="flex flex-wrap items-end gap-3">
@@ -196,20 +213,11 @@ export function AgentSessionModal({ entry, member, projectName, submitting, onAp
 
         {showReject ? (
           <div className="space-y-2">
-            <Textarea value={rejectReason} onChange={setRejectReason} placeholder="Why is this session being rejected? (optional)" rows={2} size="sm" />
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setShowReject(false)} disabled={submitting}>Back</Button>
-              <Button variant="danger" onClick={() => onReject(rejectReason.trim())} disabled={submitting}>Reject session</Button>
-            </div>
+            <Textarea value={rejectReason} onChange={setRejectReason} placeholder="Why is this session being rejected (optional)" rows={2} size="sm" />
+            <Button variant="ghost" size="sm" onClick={() => setShowReject(false)} disabled={submitting}>Back to approving</Button>
           </div>
         ) : (
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={submitting}>Close</Button>
-            <Button variant="secondary" onClick={() => setShowReject(true)} disabled={submitting}>Reject</Button>
-            <Button onClick={() => onApprove(!entry.billing_converted_at && adjusted ? effectiveMinutes : null)} disabled={submitting || effectiveMinutes <= 0}>
-              {submitting ? 'Approving...' : entry.billing_converted_at || !isBillingEnabled ? 'Approve' : 'Approve and convert'}
-            </Button>
-          </div>
+          <Button variant="ghost" size="sm" onClick={() => setShowReject(true)} disabled={submitting}>Reject instead</Button>
         )}
       </div>
     </Modal>

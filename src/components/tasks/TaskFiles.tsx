@@ -16,7 +16,7 @@ import { toast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Popover } from '@/components/ui/Popover';
 import { Button } from '@/components/ui/Button';
-import Modal from '@/components/ui/Modal';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { FileInput } from '@/components/ui/inputs/FileInput';
 import { TextInput } from '@/components/ui/inputs/TextInput';
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal';
@@ -398,14 +398,14 @@ function AddLinkDialog({ taskId, onClose, onAdded }: { taskId: string; onClose: 
   };
 
   return (
-    <Modal isOpen onClose={onClose} title="Add a link">
-      <form onSubmit={(event) => void save(event)} className="space-y-4">
+    <Modal isOpen onClose={onClose} title="Add a link" primaryAction={{ label: 'Add link', form: 'task-add-link', disabled: !url.trim(), busy: saving }}>
+      <form id="task-add-link" onSubmit={(event) => void save(event)} className="space-y-4">
         <p className="sr-only">Add a web address to this task, such as a video, a design or a shared document.</p>
         <TextInput
           label="Address"
           value={url}
           onChange={(value) => { setUrl(value); setError(null); }}
-          placeholder="https://www.loom.com/share/..."
+          placeholder="https://www.loom.com/share/abc"
           inputMode="url"
           autoComplete="off"
           spellCheck={false}
@@ -413,11 +413,9 @@ function AddLinkDialog({ taskId, onClose, onAdded }: { taskId: string; onClose: 
           required
           error={error ?? undefined}
         />
-        <TextInput label="Name (optional)" value={name} onChange={setName} maxLength={255} autoComplete="off" />
-        <div className="flex justify-end gap-2 border-t border-white/[0.08] pt-4">
-          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={saving || !url.trim()}>{saving ? 'Adding...' : 'Add link'}</Button>
-        </div>
+        <ModalAdvanced label="Add a name">
+          <TextInput label="Name" value={name} onChange={setName} maxLength={255} autoComplete="off" placeholder="Shown instead of the address" />
+        </ModalAdvanced>
       </form>
     </Modal>
   );
@@ -450,26 +448,28 @@ function FileRow({ taskId, projectId, file, onPreview, onDownload, onRemove }: {
       )}
       <div className="min-w-0 flex-1">
         {file.url ? (
-          <a
-            href={storedFileHref(file.url)}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`Open ${file.name} in a new tab`}
-            title={file.url}
-            className="block max-w-full truncate rounded text-left text-xs font-medium text-zinc-100 underline decoration-white/20 underline-offset-2 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
-            {file.name}
-          </a>
+          <Tooltip content={file.url} className="max-w-full">
+            <a
+              href={storedFileHref(file.url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Open ${file.name} in a new tab`}
+              className="block max-w-full truncate rounded text-left text-xs font-medium text-zinc-100 underline decoration-white/20 underline-offset-2 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              {file.name}
+            </a>
+          </Tooltip>
         ) : previewable ? (
-          <button
-            type="button"
-            onClick={onPreview}
-            aria-label={`Preview ${file.name}`}
-            title={file.name}
-            className="block max-w-full truncate rounded text-left text-xs font-medium text-zinc-100 underline decoration-white/20 underline-offset-2 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
-            {file.name}
-          </button>
+          <Tooltip content={file.name} className="max-w-full">
+            <button
+              type="button"
+              onClick={onPreview}
+              aria-label={`Preview ${file.name}`}
+              className="block max-w-full truncate rounded text-left text-xs font-medium text-zinc-100 underline decoration-white/20 underline-offset-2 hover:text-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              {file.name}
+            </button>
+          </Tooltip>
         ) : (
           <p className="truncate text-xs font-medium text-zinc-200" title={file.name}>{file.name}</p>
         )}
@@ -572,7 +572,7 @@ function CandidatePicker({ kind, candidates, onClose, onAdd, onRemove }: {
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={kind === 'email' ? "From this task's emails and meetings" : 'From project files'} size="2xl">
+    <Modal isOpen onClose={onClose} title={kind === 'email' ? 'Files from emails' : 'Project files'} size="2xl">
       <p className="sr-only">
         {kind === 'email' ? 'Files from the emails and meetings linked to this task.' : "Files on this task's project."} Adding links the file; nothing is copied.
       </p>

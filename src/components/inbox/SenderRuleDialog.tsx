@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import Modal from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
 import { RadioGroup } from '@/components/ui/inputs/RadioGroup';
 import { Checkbox } from '@/components/ui/inputs/Checkbox';
 import { toast } from '@/components/ui/Toast';
@@ -73,7 +72,10 @@ export function SenderRuleDialog({ isOpen, onClose, threadId, message, agentName
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Filter mail like this" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title="Filter mail like this"
+      size="lg"
+      primaryAction={{ label: 'Save rule', onClick: () => void save(), disabled: !sender, busy: saving }}
+    >
       <div className="space-y-5">
         <p className="sr-only">Choose which mail from this sender the rule covers and what happens to it.</p>
         <RadioGroup
@@ -105,10 +107,6 @@ export function SenderRuleDialog({ isOpen, onClose, threadId, message, agentName
         {action === 'ignore' && (
           <Checkbox checked={filterNow} onChange={setFilterNow} label="Filter this thread's open mail from them now" />
         )}
-        <div className="flex justify-end gap-2 border-t border-white/[0.08] pt-4">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => void save()} disabled={saving || !sender}>{saving ? 'Saving...' : 'Save rule'}</Button>
-        </div>
       </div>
     </Modal>
   );

@@ -15,7 +15,7 @@ import { workspaceApi, fieldErrorsFrom } from '@/lib/agent-workspace';
 import { GROUP_DESCRIPTION_MAX, GROUP_NAME_MAX, slugifyGroupName, type GroupView } from '@/lib/groups';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/Button';
-import Modal from '@/components/ui/Modal';
+import Modal, { ModalAdvanced } from '@/components/ui/Modal';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ShowMore } from '@/components/ui/ShowMore';
@@ -181,25 +181,28 @@ function CreateGroupModal({ isOpen, onClose, onCreated }: { isOpen: boolean; onC
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={close} title="New group" size="md">
-      <form onSubmit={submit} className="space-y-4">
+    <Modal
+      isOpen={isOpen}
+      onClose={close}
+      title="New group"
+      size="md"
+      primaryAction={{ label: busy ? 'Creating' : 'Create group', form: 'new-group-form', busy }}
+    >
+      <form id="new-group-form" onSubmit={submit} className="space-y-4">
         <TextInput label="Name *" value={name} onChange={setName} placeholder="Finance" error={errors.name} autoFocus maxLength={GROUP_NAME_MAX} />
-        <TextInput
-          label="Short name for chat tools"
-          description="How chat tools and the API name it. Made from the name if you leave it empty."
-          value={slug}
-          onChange={(v) => setSlug(v.toLowerCase())}
-          placeholder={suggested || 'finance'}
-          error={errors.slug}
-          maxLength={63}
-        />
         <Textarea label="About" value={description} onChange={setDescription} rows={3} maxLength={GROUP_DESCRIPTION_MAX} placeholder="What this group handles, so people know when to ask it." />
+        <ModalAdvanced defaultOpen={Boolean(slug || errors.slug)}>
+          <TextInput
+            label="Short name for chat tools"
+            description="How chat tools and the API name it. Made from the name if you leave it empty."
+            value={slug}
+            onChange={(v) => setSlug(v.toLowerCase())}
+            placeholder={suggested || 'finance'}
+            error={errors.slug}
+            maxLength={63}
+          />
+        </ModalAdvanced>
         {errors.form && <p role="alert" className="text-sm text-red-300">{errors.form}</p>}
-        <p className="text-xs text-zinc-500">You add members once it exists.</p>
-        <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="ghost" onClick={close}>Cancel</Button>
-          <Button type="submit" disabled={busy}>{busy ? 'Creating' : 'Create group'}</Button>
-        </div>
       </form>
     </Modal>
   );

@@ -1,5 +1,6 @@
 'use client';
 
+import { Pill } from '@/components/ui/Pill';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -328,16 +329,16 @@ function ProjectCell({ row }: { row: ProjectRow }) {
 function ReviewStatus({ row }: { row: ProjectRow }) {
   if (row.rejected > 0) {
     return (
-      <span className="rounded-full bg-red-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-red-300">
+      <Pill tone="problem">
         {row.rejected} rejected
-      </span>
+      </Pill>
     );
   }
   if (row.pending > 0) {
     return (
-      <span className="rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-300">
+      <Pill tone="waiting">
         {row.pending} waiting
-      </span>
+      </Pill>
     );
   }
   return <span className="text-xs text-zinc-500">{row.running ? 'In progress' : 'Approved'}</span>;
@@ -504,7 +505,7 @@ function TeamHours({
       width: 'w-28',
       sortValue: (row: PersonRow) => row.pending,
       render: (row: PersonRow) => row.pending > 0
-        ? <span className="rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium tabular-nums text-amber-300">{row.pending}</span>
+        ? <Pill tone="waiting" className="tabular-nums">{row.pending}</Pill>
         : <span className="text-sm text-zinc-500">-</span>,
     }] : []),
     {
@@ -559,9 +560,9 @@ function TeamHours({
               <div className="flex items-center justify-between gap-3">
                 <PersonCell member={row.member} />
                 {showPending && row.pending > 0 && (
-                  <span className="flex-shrink-0 rounded-full bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-medium text-amber-300">
+                  <Pill tone="waiting">
                     {row.pending} waiting
-                  </span>
+                  </Pill>
                 )}
               </div>
               <dl className="mt-2 grid grid-cols-2 gap-x-4 pl-9 text-xs">
