@@ -20,9 +20,9 @@ import {
   Clock,
   Wallet,
   Inbox,
-  Sparkles,
 } from 'lucide-react';
 import { useApp } from '@/lib/store';
+import { ICONS } from '@/lib/icons';
 import { AI_HOME, hubCountLabel } from '@/lib/ai-home';
 import { useAiHub } from '@/lib/use-ai-hub';
 import { bellCountLabel } from '@/lib/notifications';
@@ -128,7 +128,7 @@ export function Sidebar() {
   // thing once (useAiHub, the same answer the page lists).
   const aiHub = useAiHub();
   const aiEntry: NavEntry | null = aiHub.access.entry
-    ? { href: AI_HOME, icon: Sparkles, label: 'AI', count: { value: aiHub.count, label: hubCountLabel(aiHub.count), tone: 'brand' } }
+    ? { href: AI_HOME, icon: ICONS.agent, label: 'AI Agents', count: { value: aiHub.count, label: hubCountLabel(aiHub.count), tone: 'brand' } }
     : null;
   // Radar's badge answers "does anything need me?" before the click: the
   // same useNeedsYou My Tasks lists, so they cannot disagree. Suggestions are

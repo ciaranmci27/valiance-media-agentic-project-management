@@ -13,9 +13,9 @@ import {
 } from 'lucide-react';
 
 export const ICONS = {
-  /** AI: the AI home, My assistant, Connect AI, and anything an AI wrote, sorted or suggested. Nothing else. */
+  /** AI: My assistant, Connect AI, and anything an AI wrote, sorted or suggested. Nothing else. */
   ai: Sparkles,
-  /** An agent as a member of the team: the agents list, an agent's profile, a notice from an agent. */
+  /** An agent as a member of the team: the AI Agents home and its sidebar entry, the agents list, an agent's profile, a notice from an agent. */
   agent: Bot,
   /** Something waiting on this person: Needs you. */
   needsYou: Zap,

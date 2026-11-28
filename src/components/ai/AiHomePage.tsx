@@ -152,7 +152,7 @@ export function AiHomePage() {
   return (
     <div className="animate-fadeIn min-h-screen">
       <Header
-        title="AI"
+        title="AI Agents"
         subtitle={<span className="hidden sm:inline">{SUBTITLES[active]}</span>}
         actions={active === 'company' ? (
           <div className="flex items-center gap-2">
